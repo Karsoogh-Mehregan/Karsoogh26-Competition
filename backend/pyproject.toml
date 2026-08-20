@@ -1,0 +1,28 @@
+[project]
+name = "karsoogh26-competition-backend"
+version = "0.1.0"
+description = "Django REST backend for the Karsoogh 26 competition platform"
+readme = "README.md"
+authors = [
+    { name = "AliAlmasiZ", email = "ali1385almasi@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "django>=6.1",
+    "django-environ>=0.14.0",
+    "djangorestframework>=3.18.0",
+    "gunicorn>=26.1.0",
+    "psycopg[binary]>=3.3.4",
+    "redis>=8.1.0",
+    "uvicorn[standard]>=0.52.4",
+]
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-django",
+    "ruff",
+]
