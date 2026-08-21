@@ -22,6 +22,7 @@ package = false
 
 [dependency-groups]
 dev = [
+    "drf-spectacular>=0.30.0",
     "pytest",
     "pytest-django",
     "ruff",

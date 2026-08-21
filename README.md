@@ -25,6 +25,8 @@ uv run manage.py runserver
 ```
 
 API at http://127.0.0.1:8000, Django admin at http://127.0.0.1:8000/admin/.
+Swagger UI at http://127.0.0.1:8000/api/docs/ and the raw OpenAPI schema at
+`/api/schema/` — both registered only when `DEBUG` is on.
 
 `SECRET_KEY` is the only value you have to fill in. With `DATABASE_URL` and
 `REDIS_URL` left unset, development runs on SQLite and Django's local-memory

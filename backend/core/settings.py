@@ -41,6 +41,8 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    # Third party
+    "rest_framework",
 ]
 
 MIDDLEWARE = [
@@ -109,6 +111,40 @@ if REDIS_CACHE_URL:
             "BACKEND": "django.core.cache.backends.redis.RedisCache",
             "LOCATION": REDIS_CACHE_URL,
         },
+    }
+
+
+# Django REST Framework
+# https://www.django-rest-framework.org/api-guide/settings/
+
+REST_FRAMEWORK = {
+    # Session cookies, same domain — no JWT to expire mid-contest.
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.SessionAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
+    # The browsable API is a development convenience; production serves JSON only.
+    "DEFAULT_RENDERER_CLASSES": [
+        "rest_framework.renderers.JSONRenderer",
+    ],
+}
+
+if DEBUG:
+    REST_FRAMEWORK["DEFAULT_RENDERER_CLASSES"].append(
+        "rest_framework.renderers.BrowsableAPIRenderer"
+    )
+
+    # OpenAPI schema + Swagger UI. Development only — drf-spectacular is a dev
+    # dependency, so nothing here is imported in production.
+    INSTALLED_APPS += ["drf_spectacular"]
+    REST_FRAMEWORK["DEFAULT_SCHEMA_CLASS"] = "drf_spectacular.openapi.AutoSchema"
+
+    SPECTACULAR_SETTINGS = {
+        "TITLE": "Karsoogh 26 Competition API",
+        "VERSION": "0.1.0",
+        "SERVE_INCLUDE_SCHEMA": False,
     }
 
 
