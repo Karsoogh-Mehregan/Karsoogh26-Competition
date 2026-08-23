@@ -81,3 +81,7 @@ npm run preview      # serve the build      (in frontend/)
 | Routing | Vue Router | |
 | Styling | Tailwind v4, native logical properties | |
 | UI components | shadcn-vue (Reka UI + Tailwind) | Player HUD, dialogs, forms. Budget an RTL sweep. |
+
+
+## Map
+<img width="4590" height="4766" alt="planar_six_layer_circular_graph" src="https://github.com/user-attachments/assets/2e8a1cd5-e176-455c-afa3-b27cafb1c735" />
