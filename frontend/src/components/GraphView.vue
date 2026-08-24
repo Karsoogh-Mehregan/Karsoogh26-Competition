@@ -135,10 +135,10 @@ function shapePath(n) {
       </marker>
     </defs>
 
-    <!-- outward direction markers for pink/gray nodes -->
+    <!-- outward direction markers: pink diamond start nodes only -->
     <g class="out-arrows">
       <line
-        v-for="n in nodes.filter((n) => n.hasOutArrow)"
+        v-for="n in nodes.filter((n) => n.shape === 'diamond')"
         :key="'out-' + n.id"
         :x1="n.x + n.outArrowDx * (n.size + 6)"
         :y1="n.y + n.outArrowDy * (n.size + 6)"
@@ -245,12 +245,12 @@ function shapePath(n) {
 
 .node {
   cursor: default;
-  transition: opacity 0.25s ease, transform 0.15s ease;
+  transition: opacity 0.25s ease;
 }
 .node-shape {
   stroke: #1a1a1a;
   stroke-width: 1.4;
-  transition: filter 0.2s ease;
+  transition: filter 0.2s ease, stroke-width 0.15s ease;
 }
 
 .node-label {
@@ -281,8 +281,9 @@ function shapePath(n) {
 .state-selectable .node-shape {
   filter: drop-shadow(0 0 6px rgba(43, 108, 168, 0.65));
 }
-.state-selectable:hover {
-  transform: scale(1.18);
+.state-selectable:hover .node-shape {
+  stroke-width: 2.2;
+  filter: drop-shadow(0 0 8px rgba(43, 108, 168, 0.85));
 }
 
 .state-visited {
@@ -302,6 +303,8 @@ function shapePath(n) {
   stroke: #d62728;
   stroke-width: 2.6;
   stroke-dasharray: 4 3;
+  transform-box: fill-box;
+  transform-origin: center;
   animation: spin 6s linear infinite;
 }
 

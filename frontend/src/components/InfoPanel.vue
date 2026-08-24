@@ -15,7 +15,7 @@ function reload() {
   <aside class="panel">
     <div class="panel-header">
       <h1>گراف شش‌لایه‌ی دایره‌ای</h1>
-      <p class="subtitle">۳۵۵ نود &middot; ۵۷۹ یال</p>
+      <p class="subtitle">۳۵۵ نود &middot; ۵۷۶ یال</p>
     </div>
 
     <div class="stat-row">
@@ -35,8 +35,8 @@ function reload() {
 
     <div class="instructions" v-if="path.length === 0">
       <p>
-        برای شروع، یکی از نودهای <strong>حلقه‌ی بیرونی</strong> که فلش خروجی
-        دارند (لوزی صورتی یا مربع خاکستری) را انتخاب کنید.
+        برای شروع، یکی از نودهای <strong>لوزی صورتی</strong> حلقه‌ی بیرونی
+        (فقط آن‌هایی که فلش رو به بیرون دارند) را انتخاب کنید.
       </p>
     </div>
     <div class="instructions" v-else>
@@ -62,8 +62,8 @@ function reload() {
 
     <div class="legend">
       <h2>راهنمای رنگ‌ها</h2>
-      <div class="legend-item"><span class="dot" style="background:#e377c2"></span> صورتی — لایه بیرونی (شروع)</div>
-      <div class="legend-item"><span class="dot square" style="background:#7f7f7f"></span> خاکستری — لایه بیرونی (شروع)</div>
+      <div class="legend-item"><span class="dot" style="background:#e377c2"></span> صورتی — لایه بیرونی (نقطه شروع)</div>
+      <div class="legend-item"><span class="dot square" style="background:#7f7f7f"></span> خاکستری — دروازه ورود به لایه داخلی</div>
       <div class="legend-item"><span class="dot" style="background:#1f77b4"></span> آبی — لایه بیرونی</div>
       <div class="legend-item"><span class="dot" style="background:#ff7f0e"></span> نارنجی — لایه ۱</div>
       <div class="legend-item"><span class="dot" style="background:#2ca02c"></span> سبز — لایه ۲</div>

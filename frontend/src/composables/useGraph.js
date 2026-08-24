@@ -19,8 +19,11 @@ function createGraphState() {
     adjacency.get(e.target)?.add(e.source)
   }
 
-  // Nodes eligible to start the traversal: those with an outward arrow (pink diamonds + gray squares)
-  const startEligibleIds = new Set(nodes.filter((n) => n.hasOutArrow).map((n) => n.id))
+  // Only pink diamonds (outward-arrow entry points) can start a traversal.
+  // Gray squares are outer-to-inner gateways, not start nodes.
+  const startEligibleIds = new Set(
+    nodes.filter((n) => n.shape === 'diamond').map((n) => n.id)
+  )
 
   // --- Reactive state ---
   // path: ordered list of selected node ids (the traversal history)
