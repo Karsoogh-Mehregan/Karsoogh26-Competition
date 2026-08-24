@@ -27,3 +27,28 @@ dev = [
     "pytest-django",
     "ruff",
 ]
+
+[tool.ruff]
+line-length = 100
+extend-exclude = ["*/migrations/*"]
+
+[tool.ruff.lint]
+ignore = [
+    # Django's Meta and ModelAdmin class attributes are mutable lists by design
+    # (constraints, indexes, ordering, list_display). Annotating each as ClassVar
+    # would be noise on every model in the project.
+    "RUF012",
+    # Money is always constructed from a string: Decimal("0.10") is exact,
+    # Decimal(0.10) is not. Keeping the string form uniform makes the unsafe
+    # variant visibly wrong rather than merely inconsistent.
+    "FURB157",
+]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "core.settings"
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "--strict-markers"
+markers = [
+    "postgres_only: needs real row locks; select_for_update is a silent no-op on SQLite",
+]
