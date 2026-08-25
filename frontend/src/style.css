@@ -1,4 +1,134 @@
-@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap');
+/* Estedad (primary) + Vazirmatn (secondary) — self-hosted, mirroring
+   karsoogh-site/new-site/Karsoogh-Frontend so both projects render identically. */
+
+@font-face {
+  font-family: 'Estedad';
+  src: url('./assets/fonts/Estedad-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Estedad';
+  src: url('./assets/fonts/Estedad-Bold.woff2') format('woff2');
+  font-weight: 700 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('./assets/fonts/vazirmatn-arabic-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+200C-200F, U+FB50-FDFF, U+FE70-FEFF;
+}
+
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('./assets/fonts/vazirmatn-arabic-500-normal.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+200C-200F, U+FB50-FDFF, U+FE70-FEFF;
+}
+
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('./assets/fonts/vazirmatn-arabic-600-normal.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+200C-200F, U+FB50-FDFF, U+FE70-FEFF;
+}
+
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('./assets/fonts/vazirmatn-arabic-700-normal.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+200C-200F, U+FB50-FDFF, U+FE70-FEFF;
+}
+
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('./assets/fonts/vazirmatn-arabic-800-normal.woff2') format('woff2');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+200C-200F, U+FB50-FDFF, U+FE70-FEFF;
+}
+
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('./assets/fonts/vazirmatn-arabic-900-normal.woff2') format('woff2');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+200C-200F, U+FB50-FDFF, U+FE70-FEFF;
+}
+
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('./assets/fonts/vazirmatn-latin-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF;
+}
+
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('./assets/fonts/vazirmatn-latin-500-normal.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF;
+}
+
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('./assets/fonts/vazirmatn-latin-600-normal.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF;
+}
+
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('./assets/fonts/vazirmatn-latin-700-normal.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF;
+}
+
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('./assets/fonts/vazirmatn-latin-800-normal.woff2') format('woff2');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF;
+}
+
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('./assets/fonts/vazirmatn-latin-900-normal.woff2') format('woff2');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF;
+}
+
+:root {
+  --font-primary: 'Estedad', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-secondary: 'Vazirmatn', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
 
 * {
   box-sizing: border-box;
@@ -12,7 +142,7 @@ html, body, #app {
 }
 
 body {
-  font-family: 'Vazirmatn', 'Segoe UI', Tahoma, Arial, sans-serif;
+  font-family: var(--font-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

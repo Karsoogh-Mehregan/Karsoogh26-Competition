@@ -34,7 +34,7 @@ html, body, #app {
   box-sizing: border-box;
 }
 body {
-  font-family: 'Vazirmatn', 'Segoe UI', Tahoma, Arial, sans-serif;
+  font-family: var(--font-primary);
 }
 </style>
 

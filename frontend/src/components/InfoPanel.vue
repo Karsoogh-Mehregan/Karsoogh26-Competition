@@ -86,7 +86,7 @@ function reload() {
   border-left: 1px solid #e6e9ee;
   padding: 24px 20px;
   box-sizing: border-box;
-  font-family: 'Vazirmatn', 'Segoe UI', Tahoma, sans-serif;
+  font-family: var(--font-primary);
   direction: rtl;
 }
 
