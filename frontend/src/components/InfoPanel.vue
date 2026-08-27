@@ -15,7 +15,7 @@ function reload() {
   <aside class="panel">
     <div class="panel-header">
       <h1>گراف شش‌لایه‌ی دایره‌ای</h1>
-      <p class="subtitle">۳۵۵ نود &middot; ۵۷۶ یال</p>
+      <p class="subtitle">۴۸ تیم &middot; ۴۷۳ نود &middot; ۷۸۰ یال</p>
     </div>
 
     <div class="stat-row">
@@ -29,26 +29,26 @@ function reload() {
       </div>
       <div class="stat">
         <span class="stat-value">{{ path.length }}</span>
-        <span class="stat-label">قدم طی‌شده</span>
+        <span class="stat-label">نود انتخاب‌شده</span>
       </div>
     </div>
 
     <div class="instructions" v-if="path.length === 0">
       <p>
-        برای شروع، یکی از نودهای <strong>لوزی صورتی</strong> حلقه‌ی بیرونی
+        برای شروع، یکی از نودهای <strong>لوزی زرد</strong> حلقه‌ی بیرونی
         (فقط آن‌هایی که فلش رو به بیرون دارند) را انتخاب کنید.
       </p>
     </div>
     <div class="instructions" v-else>
       <p>
-        فقط نودهای <strong>همسایه‌ی مستقیم</strong> نود فعلی قابل انتخاب هستند.
-        نود فعلی با حلقه‌ی قرمز چشمک‌زن مشخص شده.
+        مسیر شما یک <strong>مولفه</strong> است. از هر نود انتخاب‌شده می‌توانید
+        همسایه‌هایش را به مولفه اضافه کنید.
       </p>
       <p class="hint">تعداد همسایه‌های قابل‌انتخاب فعلی: {{ currentNeighborCount }}</p>
     </div>
 
     <div class="path-trace" v-if="path.length > 0">
-      <h2>مسیر طی‌شده</h2>
+      <h2>مولفه‌ی انتخاب‌شده</h2>
       <ol>
         <li v-for="(id, i) in path" :key="i" :class="{ last: i === path.length - 1 }">
           {{ id }}
@@ -62,16 +62,17 @@ function reload() {
 
     <div class="legend">
       <h2>راهنمای رنگ‌ها</h2>
-      <div class="legend-item"><span class="dot" style="background:#e377c2"></span> صورتی — لایه بیرونی (نقطه شروع)</div>
-      <div class="legend-item"><span class="dot square" style="background:#7f7f7f"></span> خاکستری — دروازه ورود به لایه داخلی</div>
-      <div class="legend-item"><span class="dot" style="background:#1f77b4"></span> آبی — لایه بیرونی</div>
-      <div class="legend-item"><span class="dot" style="background:#ff7f0e"></span> نارنجی — لایه ۱</div>
-      <div class="legend-item"><span class="dot" style="background:#2ca02c"></span> سبز — لایه ۲</div>
-      <div class="legend-item"><span class="dot" style="background:#ffd700"></span> زرد — هاب مرکزی</div>
-      <div class="legend-item"><span class="dot" style="background:#d62728"></span> قرمز — لایه واسط</div>
-      <div class="legend-item"><span class="dot" style="background:#9467bd"></span> بنفش — لایه ۴</div>
-      <div class="legend-item"><span class="dot" style="background:#8c564b"></span> قهوه‌ای — لایه داخلی</div>
-      <div class="legend-item"><span class="dot" style="background:#bcbd22"></span> زیتونی — مرکز</div>
+      <div class="legend-item"><span class="dot diamond" style="background:#f2c200"></span> زرد لوزی — نقطه شروع</div>
+      <div class="legend-item"><span class="dot square" style="background:#17becf"></span> فیروزه‌ای — دروازه ورود به لایه داخلی</div>
+      <div class="legend-item"><span class="dot" style="background:#1f77b4"></span> آبی — لایه ۱</div>
+      <div class="legend-item"><span class="dot" style="background:#ff7f0e"></span> نارنجی — لایه ۲</div>
+      <div class="legend-item"><span class="dot" style="background:#2ca02c"></span> سبز — لایه ۳</div>
+      <div class="legend-item"><span class="dot" style="background:#e377c2"></span> صورتی — اتصال لایه‌های ۳ و ۴</div>
+      <div class="legend-item"><span class="dot" style="background:#d62728"></span> قرمز — لایه ۴</div>
+      <div class="legend-item"><span class="dot square" style="background:#7f7f7f"></span> خاکستری — اتصال لایه‌های ۴ و ۵</div>
+      <div class="legend-item"><span class="dot" style="background:#9467bd"></span> بنفش — لایه ۵</div>
+      <div class="legend-item"><span class="dot" style="background:#8c564b"></span> قهوه‌ای — لایه ۶</div>
+      <div class="legend-item"><span class="dot" style="background:#1f4e79"></span> آبی تیره — مرکز</div>
     </div>
   </aside>
 </template>
@@ -210,5 +211,9 @@ function reload() {
 }
 .dot.square {
   border-radius: 3px;
+}
+.dot.diamond {
+  border-radius: 2px;
+  transform: rotate(45deg);
 }
 </style>

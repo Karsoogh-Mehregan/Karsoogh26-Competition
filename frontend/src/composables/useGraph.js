@@ -19,31 +19,34 @@ function createGraphState() {
     adjacency.get(e.target)?.add(e.source)
   }
 
-  // Only pink diamonds (outward-arrow entry points) can start a traversal.
-  // Gray squares are outer-to-inner gateways, not start nodes.
+  // Only yellow diamond start nodes (outward-arrow entry points) can begin a traversal.
+  // Outer cyan squares are inward gateways, not start nodes.
   const startEligibleIds = new Set(
     nodes.filter((n) => n.shape === 'diamond').map((n) => n.id)
   )
 
   // --- Reactive state ---
-  // path: ordered list of selected node ids (the traversal history)
+  // path: ordered list of selected node ids (the connected component)
   const path = ref([])
 
   const currentNodeId = computed(() => path.value[path.value.length - 1] ?? null)
 
   const hasStarted = computed(() => path.value.length > 0)
 
-  // Which node ids are currently clickable
+  const selectedSet = computed(() => new Set(path.value))
+
+  // Frontier of the selected component: any unselected neighbor of any selected node.
   const selectableIds = computed(() => {
     if (!hasStarted.value) {
       return startEligibleIds
     }
-    const cur = currentNodeId.value
-    const neighbors = adjacency.get(cur) ?? new Set()
-    // neighbors that are not already visited are selectable; the current node itself is excluded
+    const selected = selectedSet.value
     const result = new Set()
-    for (const nb of neighbors) {
-      result.add(nb)
+    for (const id of selected) {
+      const neighbors = adjacency.get(id) ?? new Set()
+      for (const nb of neighbors) {
+        if (!selected.has(nb)) result.add(nb)
+      }
     }
     return result
   })
@@ -53,7 +56,7 @@ function createGraphState() {
   }
 
   function isSelected(nodeId) {
-    return path.value.includes(nodeId)
+    return selectedSet.value.has(nodeId)
   }
 
   function isCurrent(nodeId) {

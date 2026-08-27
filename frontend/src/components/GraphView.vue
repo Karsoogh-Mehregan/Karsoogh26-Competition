@@ -6,12 +6,9 @@ const {
   nodes,
   edges,
   nodeById,
-  path,
-  currentNodeId,
   hasStarted,
   isSelectable,
   isSelected,
-  isCurrent,
   selectNode,
 } = useGraph()
 
@@ -57,24 +54,20 @@ function shrunkTarget(e) {
 }
 
 function isEdgeActive(e) {
-  // highlight edges that connect to the current node, once traversal started
+  // Frontier edges: one end is in the component, the other is selectable.
   if (!hasStarted.value) return false
-  return e.source === currentNodeId.value || e.target === currentNodeId.value
+  const srcSelected = isSelected(e.source)
+  const tgtSelected = isSelected(e.target)
+  return (srcSelected && isSelectable(e.target)) || (tgtSelected && isSelectable(e.source))
 }
 
 function isEdgeTraversed(e) {
-  // edge is part of the path already walked
-  const p = path.value
-  for (let i = 0; i < p.length - 1; i++) {
-    const a = p[i], b = p[i + 1]
-    if ((e.source === a && e.target === b) || (e.source === b && e.target === a)) return true
-  }
-  return false
+  // Edge is inside the selected component (both ends chosen).
+  return isSelected(e.source) && isSelected(e.target)
 }
 
 // ---- node helpers ----
 function nodeState(n) {
-  if (isCurrent(n.id)) return 'current'
   if (isSelected(n.id)) return 'visited'
   if (isSelectable(n.id)) return 'selectable'
   return 'disabled'
@@ -135,7 +128,7 @@ function shapePath(n) {
       </marker>
     </defs>
 
-    <!-- outward direction markers: pink diamond start nodes only -->
+    <!-- outward direction markers: yellow diamond start nodes only -->
     <g class="out-arrows">
       <line
         v-for="n in nodes.filter((n) => n.shape === 'diamond')"
@@ -187,9 +180,9 @@ function shapePath(n) {
         <path v-else :d="shapePath(n)" :fill="n.color" class="node-shape" />
 
         <circle
-          v-if="isCurrent(n.id)"
-          :r="n.size + 7"
-          class="ring-current"
+          v-if="isSelected(n.id)"
+          :r="n.size + 5"
+          class="ring-selected"
         />
         <circle
           v-else-if="isSelectable(n.id)"
@@ -231,7 +224,7 @@ function shapePath(n) {
 
 .edge {
   stroke: #bcdcf0;
-  stroke-width: 2;
+  stroke-width: 1.35;
   transition: stroke 0.2s ease, stroke-width 0.2s ease, opacity 0.2s ease;
 }
 .edge.traversed {
@@ -287,15 +280,24 @@ function shapePath(n) {
 }
 
 .state-visited {
-  opacity: 0.9;
-  cursor: not-allowed;
+  opacity: 1;
+  cursor: default;
+}
+.state-visited .node-shape {
+  filter: drop-shadow(0 0 6px rgba(43, 108, 168, 0.55));
 }
 
 .state-current {
-  cursor: not-allowed;
+  cursor: default;
 }
 .state-current .node-shape {
   filter: drop-shadow(0 0 10px rgba(214, 39, 40, 0.85));
+}
+
+.ring-selected {
+  fill: none;
+  stroke: #2b6ca8;
+  stroke-width: 2.2;
 }
 
 .ring-current {
