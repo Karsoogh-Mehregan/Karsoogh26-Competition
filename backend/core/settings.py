@@ -135,6 +135,16 @@ REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
     ],
+    # ScopedRateThrottle is a no-op on views without throttle_scope, so this
+    # only bites on login. Counters live in CACHES["default"] — LocMemCache
+    # is per-process, so set REDIS_CACHE_URL in multi-worker deployments or
+    # the 10/min cap is not actually shared.
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.ScopedRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "login": "10/min",
+    },
 }
 
 if DEBUG:
@@ -198,3 +208,23 @@ MEDIA_ROOT = BASE_DIR / "media"
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# karsoogh.* has no handler unless we give it one: a non-django logger
+# otherwise propagates to a root logger that Django did not configure for it,
+# and the failed-login warnings vanish.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+        },
+    },
+    "loggers": {
+        "karsoogh": {
+            "handlers": ["console"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+    },
+}
