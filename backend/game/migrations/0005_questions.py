@@ -9,7 +9,7 @@ import game.validators
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("game", "0002_seed_economy"),
+        ("game", "0004_seed_mentor_group"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

@@ -55,12 +55,24 @@ PostgreSQL: `docker compose up -d db` from the repo root, then set `DATABASE_URL
 **The frontend map and the backend graph are unrelated.** `frontend/src/data/graph_data.json`
 (355 nodes) is static with **no generator in this repo**; each node carries baked-in
 `x`/`y`/`color`/`shape`, so there is no layout engine. Django's `game.Node`/`game.Edge`
-share no ids or vocabulary with it. They cannot talk: `core/urls.py` routes only `/admin/`
-plus drf-spectacular under `DEBUG`, **no views or serializers exist**, and the frontend
-makes zero network calls. Clicking the map is a local adjacency demo, not a game move.
+share no ids or vocabulary with it. The Vite dev server proxies `/api` to `:8000` so
+session cookies stay same-origin. The side panel lists teams from the API; the map
+is locked until the mentor is logged in (clicks do nothing, nodes stay disabled).
+The map itself is still a local adjacency demo, not a game move.
+
+**Auth / acting-as.** Mentors are any authenticated user (`IsMentor`). They pick a team
+via `POST /api/auth/act-as/` which stores `request.session["acting_team_id"]`. Every
+game endpoint must call `accounts.acting.resolve_acting_team(request)` — do not read
+the session key directly. `GET /api/auth/csrf/` (`@ensure_csrf_cookie`) is the SPA's
+CSRF entry point and also returns `{"csrf_token": "..."}` so the SPA does not have
+to scrape `document.cookie`. `login()` rotates the token, and the login response
+sets the new cookie. `GameIsRunning` rejects actions unless `GameSettings.load().is_running`;
+apply it to move/duel/questions, not to auth or the team picker.
+`STATIC_URL` must start with `/` (`"/static/"`) or Django's StaticFilesHandler will
+not serve admin CSS.
 
 **The root `README.md` is a roadmap, not a description.** SSE, Pinia, TanStack Query,
-panzoom and shadcn-vue are installed but unwired.
+and panzoom are installed but unwired. shadcn-vue is in use in the team picker.
 
 **Occupancy is append-and-soft-release.** Rows are never deleted; a release sets
 `released_at`. Every uniqueness rule is therefore a *partial* constraint scoped to
@@ -69,7 +81,7 @@ panzoom and shadcn-vue are installed but unwired.
 
 **SQLite gives false passes.** `select_for_update()` is ignored, not rejected, so
 `conftest.py` force-skips `postgres_only` tests off Postgres. `uv run pytest` on SQLite
-gives 34 passed / 1 skipped; on Postgres, 35 passed. Run row-lock work against real
+gives 87 passed / 2 skipped; on Postgres, 89 passed. Run row-lock work against real
 Postgres. CI does.
 
 **Money is Decimal-from-string, rounded half-up** (`_round_half_up`, since Python defaults
@@ -79,21 +91,17 @@ seeded; `game/migrations/0002_seed_economy.py` does that. The two ruff ignores i
 `pyproject.toml` are deliberate and documented — do not "fix" them.
 
 **Frontend.** `useGraph()` is a module-level singleton, so all callers share one reactive
-`path` ref — that, not props or a store, syncs `GraphView` and `InfoPanel`. Adjacency is
-built direction-agnostically, so the 102 `directed` edges draw arrowheads but do not
-constrain traversal. The UI is Persian and RTL; fonts are self-hosted in
-`src/assets/fonts/` via `--font-primary`/`--font-secondary` — do not reintroduce a Google
-Fonts CDN import. Entry point is `src/main.js`; `App.vue` and `useGraph.js` are plain JS despite the TS config.
+`path` ref. Adjacency is built direction-agnostically, so the 102 `directed` edges draw
+arrowheads but do not constrain traversal. The side panel is the team picker (`InfoPanel`):
+it lists `GET /api/teams/` and selects via `POST /api/auth/act-as/`. The UI is Persian and
+RTL; fonts are self-hosted in `src/assets/fonts/` via `--font-primary`/`--font-secondary` —
+do not reintroduce a Google Fonts CDN import. Entry point is `src/main.js`; `App.vue` and
+`useGraph.js` are plain JS despite the TS config.
 
 **Build UI from the shadcn-vue components in `src/components/ui/`** (Reka UI + Tailwind +
 `cva`) rather than hand-rolling markup or bespoke scoped CSS. Available today: badge,
 button, card, dialog, input, label, sheet, skeleton, sonner, textarea. Import via the
 `@/components/ui/...` alias. Need one that is missing? Add it with
 `npx shadcn-vue@latest add <name>` — do not write it by hand; the CLI wires variants and
-Reka primitives that hand-written copies get wrong.
-
-Two prerequisites, both currently unmet, so fix them before the first `<Button>` lands:
-`src/style.css` never does `@import "tailwindcss"`, so no utility classes are emitted and
-every one of those components renders unstyled; and `components.json` has `"rtl": false`
-while the app is RTL, so CLI output needs an RTL pass. Nothing currently imports
-`src/components/ui/` — the whole set is dead code until the Tailwind import exists.
+Reka primitives that hand-written copies get wrong. `src/style.css` imports Tailwind v4
+and the shadcn token theme; `components.json` has `"rtl": true`.

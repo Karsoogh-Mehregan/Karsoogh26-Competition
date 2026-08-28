@@ -4,6 +4,8 @@ from datetime import timedelta
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
+from django.contrib.contenttypes.models import ContentType
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -62,12 +64,20 @@ def questions(easy):
 
 
 def make_user(team, username, *, staff=False):
-    return User.objects.create_user(
+    user = User.objects.create_user(
         username=username,
         password="pw",
         team=team,
         is_staff=staff,
     )
+    if staff:
+        user.user_permissions.add(
+            Permission.objects.get(
+                content_type=ContentType.objects.get_for_model(Occupancy),
+                codename="act_as_mentor",
+            )
+        )
+    return user
 
 
 def occupy(node, team, **kwargs):
@@ -101,6 +111,7 @@ class TestOccupancyQuestionAPI:
         user = make_user(teams[0], "u0")
         occ = occupy(node, teams[0])
         assign_question(occ)
+        occ.refresh_from_db()
 
         client = APIClient()
         client.force_authenticate(user=user)
@@ -146,18 +157,24 @@ class TestSubmitAPI:
 
         client = APIClient()
         client.force_authenticate(user=user)
-        response = client.post(f"/api/occupancies/{occ.pk}/submit/", {"body": "late"}, format="json")
+        response = client.post(
+            f"/api/occupancies/{occ.pk}/submit/", {"body": "late"}, format="json"
+        )
 
         assert response.status_code == 409
 
-    def test_submit_when_game_not_running_returns_409(self, node, teams, questions):
+    def test_submit_when_game_not_running_returns_409(self, node, teams, questions, running_game):
         user = make_user(teams[0], "u0")
         occ = occupy(node, teams[0])
         assign_question(occ)
+        running_game.status = GameStatus.PAUSED
+        running_game.save(update_fields=["status"])
 
         client = APIClient()
         client.force_authenticate(user=user)
-        response = client.post(f"/api/occupancies/{occ.pk}/submit/", {"body": "answer"}, format="json")
+        response = client.post(
+            f"/api/occupancies/{occ.pk}/submit/", {"body": "answer"}, format="json"
+        )
 
         assert response.status_code == 409
 
@@ -168,7 +185,9 @@ class TestSubmitAPI:
 
         client = APIClient()
         client.force_authenticate(user=other)
-        response = client.post(f"/api/occupancies/{occ.pk}/submit/", {"body": "hack"}, format="json")
+        response = client.post(
+            f"/api/occupancies/{occ.pk}/submit/", {"body": "hack"}, format="json"
+        )
 
         assert response.status_code == 403
 
@@ -179,24 +198,27 @@ class TestMentorGradingAPI:
         mentor = make_user(None, "mentor", staff=True)
         occ = occupy(node, teams[0], floor=1)
         assign_question(occ)
+        occ.refresh_from_db()
         submission = submit_answer(occ, user, body="42")
 
         client = APIClient()
         client.force_authenticate(user=mentor)
         listing = client.get("/api/submissions/")
         detail = client.get(f"/api/submissions/{submission.pk}/")
-        grade = client.post(f"/api/submissions/{submission.pk}/grade/", {"grade": 50}, format="json")
+        grade = client.post(
+            f"/api/submissions/{submission.pk}/grade/", {"grade": 50}, format="json"
+        )
 
         assert listing.status_code == 200
         assert any(row["id"] == submission.pk for row in listing.data)
         assert detail.status_code == 200
         assert detail.data["question"]["answer_key"] == occ.question.answer_key
         assert grade.status_code == 200
-        assert grade.data["points_awarded"] == 50
+        assert grade.data["points"] == 50
 
         occ.refresh_from_db()
         assert occ.grade == 50
-        assert occ.points_awarded == 50
+        assert occ.points == 50
 
     def test_grade_zero_releases_occupancy(self, hard, teams, questions, running_game):
         hard_node = Node.objects.create(code="h1", name="Hard 1", level=hard)

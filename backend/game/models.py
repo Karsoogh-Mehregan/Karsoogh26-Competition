@@ -3,6 +3,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from django.conf import settings
 from django.db import models
 from django.db.models import CheckConstraint, F, Q, UniqueConstraint
+from django.utils import timezone
 
 from .validators import validate_upload_extension, validate_upload_size
 
@@ -182,7 +183,6 @@ class Occupancy(models.Model):
         on_delete=models.PROTECT,
         related_name="occupancies",
     )
-    points_awarded = models.IntegerField(default=0)
 
     is_spawn = models.BooleanField(default=False)
     expires_at = models.DateTimeField(null=True, blank=True)
@@ -195,6 +195,7 @@ class Occupancy(models.Model):
 
     class Meta:
         verbose_name_plural = "occupancies"
+        permissions = [("act_as_mentor", "Can perform mentor actions")]
         constraints = [
             UniqueConstraint(
                 fields=["node", "slot"],
@@ -238,6 +239,17 @@ class Occupancy(models.Model):
 
     def __str__(self):
         return f"{self.team} @ {self.node} slot {self.slot}"
+
+    @property
+    def points(self) -> int:
+        if self.floor is None or self.grade_multiplier is None:
+            return 0
+        reward = FloorReward.objects.get(level_id=self.node.level_id, floor=self.floor)
+        return _round_half_up(reward.points * self.grade_multiplier)
+
+    @property
+    def is_expired(self) -> bool:
+        return self.expires_at is not None and self.expires_at <= timezone.now()
 
 
 class GameSettings(models.Model):
@@ -305,8 +317,12 @@ class Question(models.Model):
 class TeamQuestion(models.Model):
     """Tracks which questions a team has already been served (no repeats)."""
 
-    team = models.ForeignKey("teams.Team", on_delete=models.CASCADE, related_name="served_questions")
-    question = models.ForeignKey(Question, on_delete=models.PROTECT, related_name="team_assignments")
+    team = models.ForeignKey(
+        "teams.Team", on_delete=models.CASCADE, related_name="served_questions"
+    )
+    question = models.ForeignKey(
+        Question, on_delete=models.PROTECT, related_name="team_assignments"
+    )
     occupancy = models.ForeignKey(
         "Occupancy", on_delete=models.CASCADE, related_name="question_assignments"
     )
@@ -325,9 +341,7 @@ class TeamQuestion(models.Model):
 
 
 class Submission(models.Model):
-    occupancy = models.OneToOneField(
-        Occupancy, on_delete=models.CASCADE, related_name="submission"
-    )
+    occupancy = models.OneToOneField(Occupancy, on_delete=models.CASCADE, related_name="submission")
     body = models.TextField(blank=True)
     file = models.FileField(
         upload_to="submissions/%Y/%m/",

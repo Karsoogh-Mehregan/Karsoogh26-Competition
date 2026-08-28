@@ -6,6 +6,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.permissions import IsMentor
+from game import services
 from game.api_exceptions import Conflict, Unprocessable
 from game.exceptions import (
     AlreadyGraded,
@@ -19,10 +21,14 @@ from game.exceptions import (
     SubmissionWindowClosed,
 )
 from game.models import Occupancy, Question, Submission, TeamQuestion
-from game.permissions import IsStaffMentor, IsTeamMember
+from game.permissions import IsTeamMember
 from game.serializers import (
+    AssignQuestionSerializer,
+    GradeSerializer,
     GradeSubmissionSerializer,
+    HoldingSerializer,
     QuestionForTeamSerializer,
+    ReleaseSerializer,
     SubmissionDetailSerializer,
     SubmissionListSerializer,
     SubmitAnswerSerializer,
@@ -34,7 +40,9 @@ from game.services import grade_submission, submit_answer
 def _map_service_error(exc: GameServiceError):
     if isinstance(exc, NotTeamMember):
         raise PermissionDenied(str(exc)) from exc
-    if isinstance(exc, (OccupancyNotActive, GameNotRunning, SubmissionWindowClosed, AlreadySubmitted)):
+    if isinstance(
+        exc, (OccupancyNotActive, GameNotRunning, SubmissionWindowClosed, AlreadySubmitted)
+    ):
         raise Conflict(str(exc)) from exc
     if isinstance(exc, InvalidAnswerPayload):
         raise Unprocessable(str(exc)) from exc
@@ -98,7 +106,7 @@ class OccupancySubmitView(APIView):
 
 
 class SubmissionListView(generics.ListAPIView):
-    permission_classes = [IsAuthenticated, IsStaffMentor]
+    permission_classes = [IsMentor]
     serializer_class = SubmissionListSerializer
 
     def get_queryset(self):
@@ -126,7 +134,7 @@ class SubmissionListView(generics.ListAPIView):
 
 
 class SubmissionDetailView(generics.RetrieveAPIView):
-    permission_classes = [IsAuthenticated, IsStaffMentor]
+    permission_classes = [IsMentor]
     serializer_class = SubmissionDetailSerializer
     queryset = Submission.objects.select_related(
         "occupancy__team",
@@ -137,7 +145,7 @@ class SubmissionDetailView(generics.RetrieveAPIView):
 
 
 class SubmissionGradeView(APIView):
-    permission_classes = [IsAuthenticated, IsStaffMentor]
+    permission_classes = [IsMentor]
 
     def post(self, request, pk: int):
         submission = get_object_or_404(
@@ -159,7 +167,7 @@ class SubmissionGradeView(APIView):
                 "occupancy_id": occupancy.pk,
                 "grade": occupancy.grade,
                 "grade_multiplier": occupancy.grade_multiplier,
-                "points_awarded": occupancy.points_awarded,
+                "points": occupancy.points,
                 "released_at": occupancy.released_at,
                 "release_reason": occupancy.release_reason,
             }
@@ -178,7 +186,9 @@ class SubmissionMediaView(APIView):
             raise Http404("No file attached.")
         if not request.user.is_staff and submission.occupancy.team_id != request.user.team_id:
             raise PermissionDenied("You cannot access this file.")
-        return FileResponse(submission.file.open("rb"), as_attachment=True, filename=submission.file.name)
+        return FileResponse(
+            submission.file.open("rb"), as_attachment=True, filename=submission.file.name
+        )
 
 
 class QuestionMediaView(APIView):
@@ -207,3 +217,64 @@ class QuestionMediaView(APIView):
             as_attachment=True,
             filename=question.attachment.name,
         )
+
+
+class MentorActionView(APIView):
+    """One action on the holding named by (team_code, node_code) in the URL.
+
+    The URL identifies the Occupancy outright — a team can hold several nodes at once,
+    so naming only the team would be ambiguous.
+    """
+
+    permission_classes = [IsMentor]
+    serializer_class = None
+
+    def get_holding(self, team_code: str, node_code: str) -> Occupancy:
+        holding = (
+            Occupancy.objects.active()
+            .select_related("node", "node__level", "team")
+            .filter(team__code=team_code, node__code=node_code)
+            .first()
+        )
+        if holding is None:
+            raise NotFound(f"تیم «{team_code}» واحد فعالی روی خانه «{node_code}» ندارد.")
+        return holding
+
+    def perform(self, holding: Occupancy, data: dict) -> Occupancy:
+        raise NotImplementedError
+
+    def post(self, request, team_code: str, node_code: str):
+        payload = self.serializer_class(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            holding = self.perform(self.get_holding(team_code, node_code), payload.validated_data)
+        except GameServiceError as exc:
+            _map_service_error(exc)
+        return Response(HoldingSerializer(holding).data)
+
+
+class AssignQuestionView(MentorActionView):
+    serializer_class = AssignQuestionSerializer
+
+    def perform(self, holding, data):
+        # The service is idempotent, but the mentor endpoint is not: handing the
+        # same holding a second question is a mistake worth surfacing.
+        if holding.question_assigned_at is not None:
+            raise services.Conflict("سؤال قبلاً به این تیم تخصیص داده شده است.")
+        services.assign_question(holding)
+        holding.refresh_from_db()
+        return holding
+
+
+class GradeView(MentorActionView):
+    serializer_class = GradeSerializer
+
+    def perform(self, holding, data):
+        return services.grade_attempt(holding, data["grade"])
+
+
+class ReleaseView(MentorActionView):
+    serializer_class = ReleaseSerializer
+
+    def perform(self, holding, data):
+        return services.release_attempt(holding, data["reason"])

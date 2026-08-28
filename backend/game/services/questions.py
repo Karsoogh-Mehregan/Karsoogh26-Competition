@@ -8,7 +8,6 @@ from game.exceptions import (
     AlreadySubmitted,
     GameNotRunning,
     InvalidAnswerPayload,
-    MissingFloor,
     NoQuestionAvailable,
     NotTeamMember,
     OccupancyNotActive,
@@ -16,16 +15,14 @@ from game.exceptions import (
 )
 from game.models import (
     AnswerType,
-    FloorReward,
     GameSettings,
-    GradeMultiplier,
     Occupancy,
     Question,
     ReleaseReason,
     Submission,
     TeamQuestion,
-    _round_half_up,
 )
+from game.services.mentor import grade_attempt, release_attempt
 
 
 def assign_question(occupancy: Occupancy) -> Question:
@@ -38,13 +35,18 @@ def assign_question(occupancy: Occupancy) -> Question:
     if occupancy.released_at is not None:
         raise OccupancyNotActive("Occupancy is released.")
 
+    if not GameSettings.load().is_running:
+        raise GameNotRunning("Game is not running.")
+
     if occupancy.question_id is not None:
         return occupancy.question
 
     with transaction.atomic():
-        occupancy = Occupancy.objects.select_for_update().select_related(
-            "node__level", "team"
-        ).get(pk=occupancy.pk)
+        occupancy = (
+            Occupancy.objects.select_for_update()
+            .select_related("node__level", "team")
+            .get(pk=occupancy.pk)
+        )
         if occupancy.question_id is not None:
             return occupancy.question
         if occupancy.released_at is not None:
@@ -155,7 +157,12 @@ def _validate_answer_payload(question: Question, *, body: str, file) -> None:
 
 
 def grade_submission(submission: Submission, grade: int) -> Occupancy:
-    """Apply a mentor grade to the occupancy tied to a submission."""
+    """Apply a mentor grade to the occupancy tied to a submission.
+
+    Floors and balances are owned by `mentor.grade_attempt`, so this only
+    resolves the submission to its holding and layers the zero-grade release
+    on top: a team that scores 0 never earned the floor, so the slot is freed.
+    """
     if grade < 0 or grade > 100:
         raise ValueError("Grade must be between 0 and 100.")
 
@@ -168,32 +175,11 @@ def grade_submission(submission: Submission, grade: int) -> Occupancy:
     if occupancy.grade is not None:
         raise AlreadyGraded("Occupancy has already been graded.")
 
-    if occupancy.floor is None:
-        raise MissingFloor("Occupancy has no floor assigned.")
-
-    factor = GradeMultiplier.factor_for(grade)
-    floor_reward = FloorReward.objects.get(
-        level=occupancy.node.level,
-        floor=occupancy.floor,
-    )
-    points = _round_half_up(floor_reward.points * factor)
-
-    now = timezone.now()
-    occupancy.grade = grade
-    occupancy.grade_multiplier = factor
-    occupancy.points_awarded = points
+    occupancy = grade_attempt(occupancy, grade)
 
     if grade == 0:
-        occupancy.released_at = now
-        occupancy.release_reason = ReleaseReason.ZERO_GRADE
+        occupancy.floor = None
+        occupancy.save(update_fields=["floor"])
+        occupancy = release_attempt(occupancy, ReleaseReason.ZERO_GRADE)
 
-    occupancy.save(
-        update_fields=[
-            "grade",
-            "grade_multiplier",
-            "points_awarded",
-            "released_at",
-            "release_reason",
-        ],
-    )
     return occupancy
