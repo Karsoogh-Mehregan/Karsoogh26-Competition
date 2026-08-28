@@ -70,22 +70,23 @@ function createActingState() {
   }
 
   async function actAs(team) {
-    if (me.value?.acting_team?.code === team.code) {
+    const selectedCode = team?.code ?? null
+    if (selectedCode === (me.value?.acting_team?.code ?? null)) {
       return
     }
-    selecting.value = team.code
+    selecting.value = selectedCode ?? '__none__'
     error.value = ''
     try {
       await ensureCsrf()
       const response = await api('/api/auth/act-as/', {
         method: 'POST',
-        json: { team: team.code },
+        json: { team: selectedCode },
       })
       if (!response.ok) {
         throw new Error(await readApiError(response))
       }
       me.value = await response.json()
-      toast.success(`تیم «${team.name}» انتخاب شد`)
+      toast.success(team ? `تیم «${team.name}» انتخاب شد` : 'انتخاب تیم برداشته شد')
     } catch (err) {
       error.value = err.message || 'انتخاب تیم ناموفق بود.'
       toast.error(error.value)

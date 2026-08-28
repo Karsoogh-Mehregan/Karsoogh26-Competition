@@ -1,6 +1,6 @@
 <script setup>
-import { CheckIcon } from '@lucide/vue'
-import { onMounted, ref } from 'vue'
+import { CheckIcon, SearchIcon } from '@lucide/vue'
+import { computed, onMounted, ref } from 'vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,6 +13,7 @@ const { me, teams, loading, error, selecting, submitting, bootstrap, login, actA
 
 const username = ref('')
 const password = ref('')
+const query = ref('')
 
 onMounted(bootstrap)
 
@@ -20,8 +21,31 @@ async function onLogin() {
   await login(username.value, password.value)
 }
 
+function normalize(value) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/ي/g, 'ی')
+    .replace(/ك/g, 'ک')
+    .replace(/\u200c/g, '')
+}
+
+const filteredTeams = computed(() => {
+  const q = normalize(query.value)
+  if (!q) {
+    return teams.value
+  }
+  return teams.value.filter(
+    (team) => normalize(team.name).includes(q) || normalize(team.code).includes(q),
+  )
+})
+
 function isSelected(team) {
   return me.value?.acting_team?.code === team.code
+}
+
+function isNoneSelected() {
+  return !me.value?.acting_team
 }
 </script>
 
@@ -41,7 +65,7 @@ function isSelected(team) {
       </p>
     </header>
 
-    <div class="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-4">
+    <div class="flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-4">
       <p v-if="error" class="text-destructive mb-3 text-sm">{{ error }}</p>
 
       <div v-if="loading" class="flex flex-col gap-2">
@@ -50,7 +74,7 @@ function isSelected(team) {
         <Skeleton class="h-12 w-full" />
       </div>
 
-      <form v-else-if="!me" class="flex flex-col gap-3" @submit.prevent="onLogin">
+      <form v-else-if="!me" class="flex flex-col gap-3 overflow-y-auto" @submit.prevent="onLogin">
         <div class="flex flex-col gap-1.5">
           <Label for="username">نام کاربری</Label>
           <Input
@@ -76,11 +100,39 @@ function isSelected(team) {
       </form>
 
       <template v-else>
-        <p v-if="teams.length === 0" class="text-muted-foreground text-sm">
-          تیمی ثبت نشده است.
-        </p>
-        <ul v-else class="flex flex-col gap-2">
-          <li v-for="team in teams" :key="team.code">
+        <div class="relative mb-3 shrink-0">
+          <Label for="team-search" class="sr-only">جستجوی تیم</Label>
+          <SearchIcon
+            class="text-muted-foreground pointer-events-none absolute top-1/2 start-3 size-4 -translate-y-1/2"
+          />
+          <Input
+            id="team-search"
+            v-model="query"
+            type="search"
+            autocomplete="off"
+            class="ps-9"
+            placeholder="جستجو با نام یا کد تیم"
+          />
+        </div>
+        <ul class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+          <li>
+            <Button
+              class="h-auto w-full items-start justify-between py-3 whitespace-normal"
+              :variant="isNoneSelected() ? 'default' : 'outline'"
+              :disabled="selecting === '__none__'"
+              @click="actAs(null)"
+            >
+              <span class="flex min-w-0 flex-col items-start gap-0.5 text-start">
+                <span class="font-semibold">بدون تیم</span>
+                <span class="text-xs opacity-80">هیچ تیمی انتخاب نشده</span>
+              </span>
+              <Badge v-if="isNoneSelected()" variant="secondary" class="gap-1">
+                <CheckIcon class="size-3" />
+                انتخاب‌شده
+              </Badge>
+            </Button>
+          </li>
+          <li v-for="team in filteredTeams" :key="team.code">
             <Button
               class="h-auto w-full items-start justify-between py-3 whitespace-normal"
               :variant="isSelected(team) ? 'default' : 'outline'"
@@ -98,6 +150,18 @@ function isSelected(team) {
             </Button>
           </li>
         </ul>
+        <p
+          v-if="teams.length === 0"
+          class="text-muted-foreground mt-3 shrink-0 text-sm"
+        >
+          تیمی ثبت نشده است.
+        </p>
+        <p
+          v-else-if="filteredTeams.length === 0"
+          class="text-muted-foreground mt-3 shrink-0 text-sm"
+        >
+          تیمی پیدا نشد.
+        </p>
       </template>
     </div>
 

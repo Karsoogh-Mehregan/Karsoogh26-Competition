@@ -1,4 +1,5 @@
 <script setup>
+import 'vue-sonner/style.css'
 import GraphView from './components/GraphView.vue'
 import InfoPanel from './components/InfoPanel.vue'
 import { Toaster } from '@/components/ui/sonner'
@@ -10,6 +11,6 @@ import { Toaster } from '@/components/ui/sonner'
     <main class="h-full min-w-0 flex-1">
       <GraphView />
     </main>
-    <Toaster dir="rtl" rich-colors position="top-center" />
   </div>
+  <Toaster class="pointer-events-auto" close-button dir="rtl" position="top-center" rich-colors />
 </template>

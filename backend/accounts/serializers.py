@@ -26,4 +26,8 @@ class MeSerializer(serializers.ModelSerializer):
 
 
 class ActAsSerializer(serializers.Serializer):
-    team = serializers.SlugRelatedField(slug_field="code", queryset=Team.objects.all())
+    team = serializers.SlugRelatedField(
+        slug_field="code",
+        queryset=Team.objects.all(),
+        allow_null=True,
+    )

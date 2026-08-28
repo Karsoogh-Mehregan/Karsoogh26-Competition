@@ -9,7 +9,7 @@ const props = defineProps<ToasterProps>()
 
 <template>
   <Sonner
-    :class="cn('toaster group', props.class)"
+    :class="cn('toaster group pointer-events-auto', props.class)"
     :style="{
       '--normal-bg': 'var(--popover)',
       '--normal-text': 'var(--popover-foreground)',
@@ -17,6 +17,13 @@ const props = defineProps<ToasterProps>()
       '--border-radius': 'var(--radius)',
     }"
     v-bind="props"
+    :toast-options="{
+      ...(props.toastOptions ?? {}),
+      style: {
+        fontFamily: 'var(--font-primary)',
+        ...(props.toastOptions?.style ?? {}),
+      },
+    }"
   >
     <template #success-icon>
       <CircleCheckIcon class="size-4" />

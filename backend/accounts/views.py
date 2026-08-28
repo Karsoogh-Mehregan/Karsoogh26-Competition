@@ -9,7 +9,13 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .acting import ACTING_TEAM_SESSION_KEY, NoActingTeam, resolve_acting_team, set_acting_team
+from .acting import (
+    ACTING_TEAM_SESSION_KEY,
+    NoActingTeam,
+    clear_acting_team,
+    resolve_acting_team,
+    set_acting_team,
+)
 from .permissions import IsMentor
 from .serializers import ActAsSerializer, LoginSerializer, MeSerializer
 
@@ -88,5 +94,8 @@ class ActAsView(APIView):
         serializer = ActAsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         team = serializer.validated_data["team"]
+        if team is None:
+            clear_acting_team(request)
+            return _me_response(request, request.user)
         set_acting_team(request, team)
         return Response(MeSerializer(request.user, context={"acting_team": team}).data)

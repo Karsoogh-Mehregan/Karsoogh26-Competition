@@ -101,6 +101,42 @@ def test_act_as_survives_across_requests(auth_client, team):
     }
 
 
+def test_act_as_null_clears_selection(auth_client, team):
+    auth_client.post(
+        "/api/auth/act-as/",
+        {"team": team.code},
+        content_type="application/json",
+    )
+    response = auth_client.post(
+        "/api/auth/act-as/",
+        {"team": None},
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    assert response.json()["acting_team"] is None
+    assert auth_client.session[ACTING_TEAM_SESSION_KEY] is None
+    me = auth_client.get("/api/auth/me/")
+    assert me.status_code == 200
+    assert me.json()["acting_team"] is None
+
+
+def test_act_as_null_does_not_fall_back_to_user_team(auth_client, user, team):
+    user.team = team
+    user.save()
+    auth_client.post(
+        "/api/auth/act-as/",
+        {"team": team.code},
+        content_type="application/json",
+    )
+    response = auth_client.post(
+        "/api/auth/act-as/",
+        {"team": None},
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    assert response.json()["acting_team"] is None
+
+
 def test_act_as_unknown_code_is_400(auth_client):
     response = auth_client.post(
         "/api/auth/act-as/",
@@ -144,8 +180,21 @@ def test_teams_list_returns_code_name_balance(auth_client, team, other_team):
     ]
 
 
+def test_resolve_acting_team_falls_back_to_user_team(user, team):
+    user.team = team
+    request = SimpleNamespace(session={}, user=user)
+    assert resolve_acting_team(request) == team
+
+
 def test_resolve_acting_team_raises_when_unset(user):
     request = SimpleNamespace(session={}, user=user)
+    with pytest.raises(NoActingTeam):
+        resolve_acting_team(request)
+
+
+def test_resolve_acting_team_explicit_none_skips_user_team(user, team):
+    user.team = team
+    request = SimpleNamespace(session={ACTING_TEAM_SESSION_KEY: None}, user=user)
     with pytest.raises(NoActingTeam):
         resolve_acting_team(request)
 
