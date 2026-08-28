@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.core.cache import cache
 
 from accounts.acting import ACTING_TEAM_SESSION_KEY, NoActingTeam, resolve_acting_team
@@ -23,7 +24,9 @@ def _clear_throttle_cache():
 
 @pytest.fixture
 def user():
-    return User.objects.create_user("mentor", password="secret")
+    user = User.objects.create_user("mentor", password="secret")
+    user.groups.add(Group.objects.get(name="Mentors"))
+    return user
 
 
 @pytest.fixture

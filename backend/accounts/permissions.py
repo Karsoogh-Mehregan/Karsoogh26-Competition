@@ -2,15 +2,21 @@ from rest_framework.permissions import BasePermission
 
 from game.models import GameSettings
 
+MENTOR_PERM = "game.act_as_mentor"
+
 
 class IsMentor(BasePermission):
-    """Named seam for mentor-only views.
+    """The single mentor check for the whole API.
 
-    Today this is any authenticated user; tighten here rather than at call sites.
+    Backed by the `act_as_mentor` permission and the `Mentors` group that
+    `game/migrations/0004_seed_mentor_group.py` seeds. Superusers pass implicitly.
     """
 
+    message = "این عملیات فقط برای منتورها مجاز است."
+
     def has_permission(self, request, view):
-        return bool(request.user and request.user.is_authenticated)
+        user = request.user
+        return bool(user and user.is_authenticated and user.has_perm(MENTOR_PERM))
 
 
 class GameIsRunning(BasePermission):

@@ -62,7 +62,7 @@ class OccupancyInline(admin.TabularInline):
     model = Occupancy
     extra = 0
     can_delete = False
-    fields = ("team", "slot", "floor", "grade", "points_awarded", "is_spawn")
+    fields = ("team", "slot", "floor", "grade", "points", "is_spawn")
     readonly_fields = fields
 
     def has_add_permission(self, request, obj=None):
@@ -96,7 +96,7 @@ class OccupancyAdmin(admin.ModelAdmin):
         "slot",
         "floor",
         "grade",
-        "points_awarded",
+        "points",
         "is_spawn",
         "entered_at",
         "released_at",
@@ -112,7 +112,7 @@ class OccupancyAdmin(admin.ModelAdmin):
         "floor",
         "grade",
         "grade_multiplier",
-        "points_awarded",
+        "points",
         "question_assigned_at",
         "is_spawn",
         "expires_at",
