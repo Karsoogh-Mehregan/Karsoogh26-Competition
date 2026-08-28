@@ -75,6 +75,7 @@ def test_csrf_sets_cookie(client):
     response = client.get("/api/auth/csrf/")
     assert response.status_code == 200
     assert "csrftoken" in response.cookies
+    assert response.json()["csrf_token"]
 
 
 def test_logout_flushes_session(auth_client):
