@@ -1,7 +1,10 @@
 from decimal import ROUND_HALF_UP, Decimal
 
+from django.conf import settings
 from django.db import models
 from django.db.models import CheckConstraint, F, Q, UniqueConstraint
+
+from .validators import validate_upload_extension, validate_upload_size
 
 MAX_CAPACITY = 3
 
@@ -29,6 +32,12 @@ class GameStatus(models.TextChoices):
     RUNNING = "running", "در حال اجرا"
     PAUSED = "paused", "متوقف"
     FINISHED = "finished", "تمام شده"
+
+
+class AnswerType(models.TextChoices):
+    TEXT = "text", "متن"
+    FILE = "file", "فایل"
+    NUMERIC = "numeric", "عددی"
 
 
 class LevelConfig(models.Model):
@@ -166,6 +175,13 @@ class Occupancy(models.Model):
         help_text="Snapshot of the curve at judging time, so points stay reproducible.",
     )
     question_assigned_at = models.DateTimeField(null=True, blank=True)
+    question = models.ForeignKey(
+        "Question",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="occupancies",
+    )
     points_awarded = models.IntegerField(default=0)
 
     is_spawn = models.BooleanField(default=False)
@@ -254,3 +270,84 @@ class GameSettings(models.Model):
     @property
     def is_paused(self) -> bool:
         return self.status == GameStatus.PAUSED
+
+
+class Question(models.Model):
+    level = models.ForeignKey(
+        LevelConfig, on_delete=models.PROTECT, related_name="questions", db_column="level"
+    )
+    code = models.SlugField(max_length=32, unique=True)
+    title = models.CharField(max_length=200)
+    body = models.TextField(help_text="Markdown")
+    attachment = models.FileField(
+        upload_to="questions/",
+        blank=True,
+        validators=[validate_upload_extension, validate_upload_size],
+    )
+    answer_type = models.CharField(max_length=8, choices=AnswerType.choices)
+    answer_key = models.TextField(
+        blank=True,
+        help_text="Mentor reference only — never exposed to teams.",
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["level", "code"]
+        indexes = [
+            models.Index(fields=["level", "is_active"], name="question_level_active_idx"),
+        ]
+
+    def __str__(self):
+        return self.title or self.code
+
+
+class TeamQuestion(models.Model):
+    """Tracks which questions a team has already been served (no repeats)."""
+
+    team = models.ForeignKey("teams.Team", on_delete=models.CASCADE, related_name="served_questions")
+    question = models.ForeignKey(Question, on_delete=models.PROTECT, related_name="team_assignments")
+    occupancy = models.ForeignKey(
+        "Occupancy", on_delete=models.CASCADE, related_name="question_assignments"
+    )
+    assigned_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            UniqueConstraint(fields=["team", "question"], name="teamquestion_no_repeat"),
+        ]
+        indexes = [
+            models.Index(fields=["team", "question"], name="teamquestion_team_q_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.team} served {self.question.code}"
+
+
+class Submission(models.Model):
+    occupancy = models.OneToOneField(
+        Occupancy, on_delete=models.CASCADE, related_name="submission"
+    )
+    body = models.TextField(blank=True)
+    file = models.FileField(
+        upload_to="submissions/%Y/%m/",
+        blank=True,
+        validators=[validate_upload_extension, validate_upload_size],
+    )
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="submissions",
+    )
+
+    class Meta:
+        constraints = [
+            CheckConstraint(
+                condition=~Q(body="", file=""),
+                name="submission_has_content",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Submission for {self.occupancy_id}"
