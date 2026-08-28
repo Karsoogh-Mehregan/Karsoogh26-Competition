@@ -32,7 +32,7 @@ def test_occupancy_cannot_be_added_by_hand(client_admin):
 
 def test_occupancy_fields_are_readonly():
     readonly = admin.site._registry[Occupancy].readonly_fields
-    for field in ("slot", "floor", "grade", "points_awarded", "release_reason"):
+    for field in ("slot", "floor", "grade", "points", "release_reason"):
         assert field in readonly
 
 

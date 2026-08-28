@@ -2,6 +2,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from django.db import models
 from django.db.models import CheckConstraint, F, Q, UniqueConstraint
+from django.utils import timezone
 
 MAX_CAPACITY = 3
 
@@ -166,7 +167,6 @@ class Occupancy(models.Model):
         help_text="Snapshot of the curve at judging time, so points stay reproducible.",
     )
     question_assigned_at = models.DateTimeField(null=True, blank=True)
-    points_awarded = models.IntegerField(default=0)
 
     is_spawn = models.BooleanField(default=False)
     expires_at = models.DateTimeField(null=True, blank=True)
@@ -179,6 +179,7 @@ class Occupancy(models.Model):
 
     class Meta:
         verbose_name_plural = "occupancies"
+        permissions = [("act_as_mentor", "Can perform mentor actions")]
         constraints = [
             UniqueConstraint(
                 fields=["node", "slot"],
@@ -222,6 +223,17 @@ class Occupancy(models.Model):
 
     def __str__(self):
         return f"{self.team} @ {self.node} slot {self.slot}"
+
+    @property
+    def points(self) -> int:
+        if self.floor is None or self.grade_multiplier is None:
+            return 0
+        reward = FloorReward.objects.get(level_id=self.node.level_id, floor=self.floor)
+        return _round_half_up(reward.points * self.grade_multiplier)
+
+    @property
+    def is_expired(self) -> bool:
+        return self.expires_at is not None and self.expires_at <= timezone.now()
 
 
 class GameSettings(models.Model):
