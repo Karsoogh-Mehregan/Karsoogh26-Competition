@@ -1,7 +1,9 @@
 <script setup>
 import { computed, ref } from 'vue'
+import { useActing } from '../composables/useActing.js'
 import { useGraph } from '../composables/useGraph.js'
 
+const { me } = useActing()
 const {
   nodes,
   edges,
@@ -11,6 +13,16 @@ const {
   isSelected,
   selectNode,
 } = useGraph()
+
+const loggedIn = computed(() => !!me.value)
+
+function isNodeSelectable(id) {
+  return loggedIn.value && isSelectable(id)
+}
+
+function isNodeSelected(id) {
+  return loggedIn.value && isSelected(id)
+}
 
 const hoveredId = ref(null)
 
@@ -55,25 +67,26 @@ function shrunkTarget(e) {
 
 function isEdgeActive(e) {
   // Frontier edges: one end is in the component, the other is selectable.
-  if (!hasStarted.value) return false
-  const srcSelected = isSelected(e.source)
-  const tgtSelected = isSelected(e.target)
-  return (srcSelected && isSelectable(e.target)) || (tgtSelected && isSelectable(e.source))
+  if (!loggedIn.value || !hasStarted.value) return false
+  const srcSelected = isNodeSelected(e.source)
+  const tgtSelected = isNodeSelected(e.target)
+  return (srcSelected && isNodeSelectable(e.target)) || (tgtSelected && isNodeSelectable(e.source))
 }
 
 function isEdgeTraversed(e) {
   // Edge is inside the selected component (both ends chosen).
-  return isSelected(e.source) && isSelected(e.target)
+  return isNodeSelected(e.source) && isNodeSelected(e.target)
 }
 
 // ---- node helpers ----
 function nodeState(n) {
-  if (isSelected(n.id)) return 'visited'
-  if (isSelectable(n.id)) return 'selectable'
+  if (isNodeSelected(n.id)) return 'visited'
+  if (isNodeSelectable(n.id)) return 'selectable'
   return 'disabled'
 }
 
 function onNodeClick(n) {
+  if (!loggedIn.value) return
   selectNode(n.id)
 }
 
@@ -180,12 +193,12 @@ function shapePath(n) {
         <path v-else :d="shapePath(n)" :fill="n.color" class="node-shape" />
 
         <circle
-          v-if="isSelected(n.id)"
+          v-if="isNodeSelected(n.id)"
           :r="n.size + 5"
           class="ring-selected"
         />
         <circle
-          v-else-if="isSelectable(n.id)"
+          v-else-if="isNodeSelectable(n.id)"
           :r="n.size + 5"
           class="ring-selectable"
         />
