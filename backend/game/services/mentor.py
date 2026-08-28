@@ -1,4 +1,3 @@
-from datetime import timedelta
 from decimal import Decimal
 
 from django.db import transaction
@@ -7,9 +6,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import APIException
 
-from teams.models import Team
-
-from .models import (
+from game.models import (
     FloorReward,
     GameSettings,
     GradeMultiplier,
@@ -17,6 +14,7 @@ from .models import (
     ReleaseReason,
     _round_half_up,
 )
+from teams.models import Team
 
 # TODO: duel / buyout flow should be implemented later.
 MENTOR_RELEASE_REASONS = (ReleaseReason.ZERO_GRADE, ReleaseReason.EXPIRED)
@@ -32,20 +30,6 @@ def floor_points(rewards: dict[int, int], floor: int | None, multiplier: Decimal
     if floor is None or multiplier is None:
         return 0
     return _round_half_up(rewards[floor] * multiplier)
-
-
-def assign_question(holding: Occupancy) -> Occupancy:
-    settings = GameSettings.load()
-    if not settings.is_running:
-        raise Conflict("بازی در حال اجرا نیست.")
-    if holding.question_assigned_at is not None:
-        raise Conflict("سؤال قبلاً به این تیم تخصیص داده شده است.")
-
-    now = timezone.now()
-    holding.question_assigned_at = now
-    holding.expires_at = now + timedelta(minutes=settings.attempt_ttl_minutes)
-    holding.save(update_fields=["question_assigned_at", "expires_at"])
-    return holding
 
 
 @transaction.atomic

@@ -13,7 +13,15 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from game.models import GameSettings, GameStatus, LevelConfig, Node, Occupancy
+from game.models import (
+    AnswerType,
+    GameSettings,
+    GameStatus,
+    LevelConfig,
+    Node,
+    Occupancy,
+    Question,
+)
 from teams.models import Team
 
 pytestmark = pytest.mark.django_db
@@ -38,6 +46,23 @@ def hard_node():
     return Node.objects.create(
         code="h1", name="Hard 1", level=LevelConfig.objects.get(level="hard")
     )
+
+
+@pytest.fixture
+def hard_questions(hard_node):
+    """assign-question draws from the bank, so the hard level needs stock."""
+    return [
+        Question.objects.create(
+            level=hard_node.level,
+            code=f"hq{i}",
+            title=f"Hard {i}",
+            body=f"Body {i}",
+            answer_type=AnswerType.TEXT,
+            answer_key=f"key{i}",
+            is_active=True,
+        )
+        for i in range(1, 4)
+    ]
 
 
 @pytest.fixture
@@ -125,7 +150,9 @@ class TestAssignQuestion:
     def fresh(self, hard_node, teams):
         return Occupancy.objects.create(node=hard_node, team=teams["alpha"], slot=1)
 
-    def test_starts_the_clock_from_the_configured_ttl(self, client_mentor, running_game, fresh):
+    def test_starts_the_clock_from_the_configured_ttl(
+        self, client_mentor, running_game, hard_questions, fresh
+    ):
         response = client_mentor.post(action_url("assign-question", "alpha"))
         assert response.status_code == 200
 
@@ -136,7 +163,7 @@ class TestAssignQuestion:
         )
         assert response.data["is_expired"] is False
 
-    def test_second_assignment_conflicts(self, client_mentor, running_game, fresh):
+    def test_second_assignment_conflicts(self, client_mentor, running_game, hard_questions, fresh):
         client_mentor.post(action_url("assign-question", "alpha"))
         first = Occupancy.objects.get(pk=fresh.pk).question_assigned_at
 

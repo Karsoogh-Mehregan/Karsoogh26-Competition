@@ -8,6 +8,9 @@ from .models import (
     LevelConfig,
     Node,
     Occupancy,
+    Question,
+    Submission,
+    TeamQuestion,
 )
 
 
@@ -113,6 +116,7 @@ class OccupancyAdmin(admin.ModelAdmin):
         "grade",
         "grade_multiplier",
         "points",
+        "question",
         "question_assigned_at",
         "is_spawn",
         "expires_at",
@@ -133,4 +137,72 @@ class GameSettingsAdmin(admin.ModelAdmin):
         return not GameSettings.objects.exists()
 
     def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(Question)
+class QuestionAdmin(admin.ModelAdmin):
+    list_display = ("code", "title", "level", "answer_type", "is_active", "created_at")
+    list_filter = ("level", "answer_type", "is_active")
+    search_fields = ("code", "title")
+    list_select_related = ("level",)
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "level",
+                    "code",
+                    "title",
+                    "body",
+                    "attachment",
+                    "answer_type",
+                    "is_active",
+                )
+            },
+        ),
+        ("Mentor reference", {"fields": ("answer_key",), "classes": ("collapse",)}),
+    )
+
+
+@admin.register(TeamQuestion)
+class TeamQuestionAdmin(admin.ModelAdmin):
+    list_display = ("team", "question", "occupancy", "assigned_at")
+    list_filter = ("question__level",)
+    search_fields = ("team__code", "question__code")
+    list_select_related = ("team", "question", "occupancy")
+    readonly_fields = ("team", "question", "occupancy", "assigned_at")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(Submission)
+class SubmissionAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "occupancy",
+        "submitted_at",
+        "submitted_by",
+        "has_file",
+    )
+    list_filter = ("occupancy__node__level", "occupancy__team")
+    search_fields = ("occupancy__team__code", "occupancy__node__code")
+    list_select_related = ("occupancy__team", "occupancy__node", "submitted_by")
+    readonly_fields = (
+        "occupancy",
+        "body",
+        "file",
+        "submitted_at",
+        "submitted_by",
+    )
+
+    @admin.display(boolean=True, description="file")
+    def has_file(self, obj):
+        return bool(obj.file)
+
+    def has_add_permission(self, request):
         return False

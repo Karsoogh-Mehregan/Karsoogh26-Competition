@@ -81,7 +81,7 @@ and panzoom are installed but unwired. shadcn-vue is in use in the team picker.
 
 **SQLite gives false passes.** `select_for_update()` is ignored, not rejected, so
 `conftest.py` force-skips `postgres_only` tests off Postgres. `uv run pytest` on SQLite
-gives 49 passed / 1 skipped; on Postgres, 50 passed. Run row-lock work against real
+gives 87 passed / 2 skipped; on Postgres, 89 passed. Run row-lock work against real
 Postgres. CI does.
 
 **Money is Decimal-from-string, rounded half-up** (`_round_half_up`, since Python defaults
