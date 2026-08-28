@@ -1,7 +1,18 @@
 <script setup>
 import { computed, ref } from 'vue'
+import { toast } from 'vue-sonner'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useActing } from '../composables/useActing.js'
 import { useGraph } from '../composables/useGraph.js'
+
+const HOUSE_FILL = '#E8D5B0'
 
 const { me } = useActing()
 const {
@@ -15,6 +26,13 @@ const {
 } = useGraph()
 
 const loggedIn = computed(() => !!me.value)
+const pendingNode = ref(null)
+const dialogOpen = computed({
+  get: () => pendingNode.value !== null,
+  set: (open) => {
+    if (!open) pendingNode.value = null
+  },
+})
 
 function isNodeSelectable(id) {
   return loggedIn.value && isSelectable(id)
@@ -61,7 +79,7 @@ function shrunkTarget(e) {
   const dx = b.x - a.x
   const dy = b.y - a.y
   const len = Math.hypot(dx, dy) || 1
-  const r = (b.size ?? 6) + 6
+  const r = visualRadius(b) + 6
   return { x: b.x - (dx / len) * r, y: b.y - (dy / len) * r }
 }
 
@@ -86,8 +104,38 @@ function nodeState(n) {
 }
 
 function onNodeClick(n) {
-  if (!loggedIn.value) return
-  selectNode(n.id)
+  if (!loggedIn.value || !isNodeSelectable(n.id)) return
+  pendingNode.value = n
+}
+
+function enterHouse() {
+  const node = pendingNode.value
+  pendingNode.value = null
+  if (node) selectNode(node.id)
+}
+
+function startDuel() {
+  pendingNode.value = null
+  toast.info('دوئل هنوز فعال نشده است.')
+}
+
+function slotCount(n) {
+  if (n.type === 'l3' || n.type === 'l4') return 2
+  if (n.type === 'l5' || n.type === 'l6' || n.type === 'center') return 3
+  return 1
+}
+
+function visualRadius(n) {
+  if (!n) return 6
+  if (slotCount(n) > 1) return n.size * 3
+  if (n.type === 'l1' || n.type === 'l2') return n.size * 1.5
+  return n.size
+}
+
+function slotRadii(n) {
+  const outer = visualRadius(n)
+  const slots = slotCount(n)
+  return Array.from({ length: slots }, (_, i) => outer * ((slots - i) / slots))
 }
 
 function shapePath(n) {
@@ -104,7 +152,8 @@ function shapePath(n) {
 </script>
 
 <template>
-  <svg class="graph-svg" :viewBox="viewBox" preserveAspectRatio="xMidYMid meet">
+  <div class="graph-wrap">
+    <svg class="graph-svg" :viewBox="viewBox" preserveAspectRatio="xMidYMid meet">
     <defs>
       <marker
         id="arrow"
@@ -184,28 +233,37 @@ function shapePath(n) {
         @mouseenter="hoveredId = n.id"
         @mouseleave="hoveredId = null"
       >
+        <template v-if="slotCount(n) > 1">
+          <circle
+            v-for="(r, i) in slotRadii(n)"
+            :key="i"
+            :r="r"
+            :fill="HOUSE_FILL"
+            class="node-shape"
+          />
+        </template>
         <circle
-          v-if="n.shape === 'circle'"
-          :r="n.size"
-          :fill="n.color"
+          v-else-if="n.shape === 'circle'"
+          :r="visualRadius(n)"
+          :fill="HOUSE_FILL"
           class="node-shape"
         />
-        <path v-else :d="shapePath(n)" :fill="n.color" class="node-shape" />
+        <path v-else :d="shapePath(n)" :fill="HOUSE_FILL" class="node-shape" />
 
         <circle
           v-if="isNodeSelected(n.id)"
-          :r="n.size + 5"
+          :r="visualRadius(n) + 5"
           class="ring-selected"
         />
         <circle
           v-else-if="isNodeSelectable(n.id)"
-          :r="n.size + 5"
+          :r="visualRadius(n) + 5"
           class="ring-selectable"
         />
 
         <text
           v-if="hoveredId === n.id"
-          :y="-(n.size + 12)"
+          :y="-(visualRadius(n) + 12)"
           class="node-label"
           text-anchor="middle"
         >
@@ -218,16 +276,37 @@ function shapePath(n) {
     <text
       v-if="nodeById.get('CENTER')"
       :x="nodeById.get('CENTER').x"
-      :y="nodeById.get('CENTER').y + nodeById.get('CENTER').size + 22"
+      :y="nodeById.get('CENTER').y + visualRadius(nodeById.get('CENTER')) + 22"
       text-anchor="middle"
       class="center-label"
     >
       CENTER
     </text>
   </svg>
+
+    <Dialog v-model:open="dialogOpen">
+      <DialogContent class="sm:max-w-xs" dir="rtl" :show-close-button="false">
+        <DialogHeader class="text-center sm:text-center">
+          <DialogTitle>این خانه</DialogTitle>
+          <DialogDescription>
+            {{ pendingNode ? pendingNode.id : '' }}
+          </DialogDescription>
+        </DialogHeader>
+        <div class="flex flex-col gap-2">
+          <Button class="w-full" @click="enterHouse">ورود به این خانه</Button>
+          <Button class="w-full" variant="outline" @click="startDuel">دویل</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  </div>
 </template>
 
 <style scoped>
+.graph-wrap {
+  width: 100%;
+  height: 100%;
+}
+
 .graph-svg {
   width: 100%;
   height: 100%;
