@@ -55,9 +55,17 @@ PostgreSQL: `docker compose up -d db` from the repo root, then set `DATABASE_URL
 **The frontend map and the backend graph are unrelated.** `frontend/src/data/graph_data.json`
 (355 nodes) is static with **no generator in this repo**; each node carries baked-in
 `x`/`y`/`color`/`shape`, so there is no layout engine. Django's `game.Node`/`game.Edge`
-share no ids or vocabulary with it. They cannot talk: `core/urls.py` routes only `/admin/`
-plus drf-spectacular under `DEBUG`, **no views or serializers exist**, and the frontend
-makes zero network calls. Clicking the map is a local adjacency demo, not a game move.
+share no ids or vocabulary with it. The SPA still makes zero network calls; the Vite
+dev server proxies `/api` to `:8000` so session cookies will be same-origin once the
+frontend is wired. Clicking the map is a local adjacency demo, not a game move.
+
+**Auth / acting-as.** Mentors are any authenticated user (`IsMentor`). They pick a team
+via `POST /api/auth/act-as/` which stores `request.session["acting_team_id"]`. Every
+game endpoint must call `accounts.acting.resolve_acting_team(request)` — do not read
+the session key directly. `GET /api/auth/csrf/` (`@ensure_csrf_cookie`) is the SPA's
+CSRF entry point; `login()` rotates the token, and the login response sets the new
+cookie. `GameIsRunning` rejects actions unless `GameSettings.load().is_running`; apply
+it to move/duel/questions, not to auth or the team picker.
 
 **The root `README.md` is a roadmap, not a description.** SSE, Pinia, TanStack Query,
 panzoom and shadcn-vue are installed but unwired.
@@ -69,7 +77,7 @@ panzoom and shadcn-vue are installed but unwired.
 
 **SQLite gives false passes.** `select_for_update()` is ignored, not rejected, so
 `conftest.py` force-skips `postgres_only` tests off Postgres. `uv run pytest` on SQLite
-gives 34 passed / 1 skipped; on Postgres, 35 passed. Run row-lock work against real
+gives 49 passed / 1 skipped; on Postgres, 50 passed. Run row-lock work against real
 Postgres. CI does.
 
 **Money is Decimal-from-string, rounded half-up** (`_round_half_up`, since Python defaults

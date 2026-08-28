@@ -2,9 +2,10 @@ from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.permissions import IsMentor
+
 from . import services
 from .models import Occupancy
-from .permissions import IsMentor
 from .serializers import (
     AssignQuestionSerializer,
     GradeSerializer,
