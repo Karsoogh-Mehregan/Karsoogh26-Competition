@@ -7,12 +7,25 @@ from rest_framework.views import APIView
 from accounts.acting import resolve_acting_team
 from accounts.permissions import IsMentor
 from game.api_exceptions import Conflict
+from core.openapi import OpenApiExample, extend_schema
 
 from .models import Team
 from .serializers import ClaimStartSerializer, TeamSerializer
 from .start_colors import color_for_start
 
 
+@extend_schema(
+    tags=["teams"],
+    summary="List teams",
+    description="Every team: code, name, current balance.",
+    examples=[
+        OpenApiExample(
+            "team",
+            value={"code": "alpha", "name": "Alpha", "balance": 42},
+            response_only=True,
+        ),
+    ],
+)
 class TeamListView(ListAPIView):
     queryset = Team.objects.all()
     serializer_class = TeamSerializer

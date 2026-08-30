@@ -164,6 +164,7 @@ if DEBUG:
 
     SPECTACULAR_SETTINGS = {
         "TITLE": "Karsoogh 26 Competition API",
+        "DESCRIPTION": "Session cookie auth. GET /api/auth/csrf/ first; send X-CSRFToken on POST.",
         "VERSION": "0.1.0",
         "SERVE_INCLUDE_SCHEMA": False,
     }

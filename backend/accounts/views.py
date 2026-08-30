@@ -9,6 +9,8 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.openapi import OpenApiExample, OpenApiResponse, extend_schema
+
 from .acting import (
     ACTING_TEAM_SESSION_KEY,
     NoActingTeam,
@@ -17,9 +19,17 @@ from .acting import (
     set_acting_team,
 )
 from .permissions import IsMentor
-from .serializers import ActAsSerializer, LoginSerializer, MeSerializer
+from .serializers import ActAsSerializer, CsrfSerializer, LoginSerializer, MeSerializer
 
 logger = logging.getLogger("karsoogh.auth")
+
+_ME = {
+    "id": 1,
+    "username": "mentor",
+    "is_staff": False,
+    "acting_team": {"code": "alpha", "name": "Alpha", "balance": 42},
+}
+_ME_CLEARED = {**_ME, "acting_team": None}
 
 
 def _me_response(request, user):
@@ -30,6 +40,15 @@ def _me_response(request, user):
     return Response(MeSerializer(user, context={"acting_team": team}).data)
 
 
+@extend_schema(
+    tags=["auth"],
+    summary="Get CSRF token",
+    description="Sets the `csrftoken` cookie. Send it back as `X-CSRFToken` on POST.",
+    responses=CsrfSerializer,
+    examples=[
+        OpenApiExample("ok", value={"csrf_token": "abc123"}, response_only=True),
+    ],
+)
 @method_decorator(ensure_csrf_cookie, name="dispatch")
 class CsrfView(APIView):
     permission_classes = [AllowAny]
@@ -38,6 +57,21 @@ class CsrfView(APIView):
         return Response({"csrf_token": get_token(request)})
 
 
+@extend_schema(
+    tags=["auth"],
+    summary="Log in",
+    description="Creates a session. Clears any acting-as team. Rotates the CSRF cookie.",
+    request=LoginSerializer,
+    responses=MeSerializer,
+    examples=[
+        OpenApiExample(
+            "request",
+            value={"username": "mentor", "password": "secret"},
+            request_only=True,
+        ),
+        OpenApiExample("session", value=_ME_CLEARED, response_only=True),
+    ],
+)
 @method_decorator(csrf_protect, name="dispatch")
 @method_decorator(ensure_csrf_cookie, name="dispatch")
 class LoginView(APIView):
@@ -69,6 +103,13 @@ class LoginView(APIView):
         return _me_response(request, user)
 
 
+@extend_schema(
+    tags=["auth"],
+    summary="Log out",
+    description="Destroys the session cookie.",
+    request=None,
+    responses={204: OpenApiResponse(description="Session cleared.")},
+)
 @method_decorator(csrf_protect, name="dispatch")
 class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
@@ -78,6 +119,13 @@ class LogoutView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+@extend_schema(
+    tags=["auth"],
+    summary="Current user",
+    description="Who you are and which team you are acting as (null if none).",
+    responses=MeSerializer,
+    examples=[OpenApiExample("acting as alpha", value=_ME, response_only=True)],
+)
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
     serializer_class = MeSerializer
@@ -86,6 +134,18 @@ class MeView(APIView):
         return _me_response(request, request.user)
 
 
+@extend_schema(
+    tags=["auth"],
+    summary="Act as a team",
+    description="Stores the team on the session. Send `null` to stop acting as anyone.",
+    request=ActAsSerializer,
+    responses=MeSerializer,
+    examples=[
+        OpenApiExample("pick", value={"team": "alpha"}, request_only=True),
+        OpenApiExample("clear", value={"team": None}, request_only=True),
+        OpenApiExample("acting as alpha", value=_ME, response_only=True),
+    ],
+)
 class ActAsView(APIView):
     permission_classes = [IsMentor]
     serializer_class = ActAsSerializer
