@@ -1,12 +1,18 @@
 import { ref, computed } from 'vue'
 import graphData from '../data/graph_data.json'
+import { colorForStartId } from '../lib/startColors.js'
 
 // Module-level singleton state so every component that calls useGraph()
 // shares the exact same reactive traversal state.
 let singleton = null
 
 function createGraphState() {
-  const nodes = graphData.nodes
+  const nodes = graphData.nodes.map((n) => {
+    if (n.type === 'start' || n.shape === 'diamond') {
+      return { ...n, color: colorForStartId(n.id) ?? n.color }
+    }
+    return n
+  })
   const edges = graphData.edges
 
   const nodeById = new Map(nodes.map((n) => [n.id, n]))
