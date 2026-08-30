@@ -443,7 +443,7 @@ class MentorActionView(APIView):
 class AssignQuestionView(MentorActionView):
     serializer_class = AssignQuestionSerializer
 
-    def perform(self, holding, data):
+    def perform(self, holding: Occupancy, data):
         # The service is idempotent, but the mentor endpoint is not: handing the
         # same holding a second question is a mistake worth surfacing.
         if holding.question_assigned_at is not None:
