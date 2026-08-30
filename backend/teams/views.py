@@ -1,10 +1,10 @@
 from django.db import IntegrityError, transaction
 from rest_framework import status
+from rest_framework.exceptions import NotFound
 from rest_framework.generics import ListAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.acting import resolve_acting_team
 from accounts.permissions import IsMentor
 from core.openapi import OpenApiExample, extend_schema
 from game.api_exceptions import Conflict
@@ -47,11 +47,15 @@ class TeamListView(ListAPIView):
 
 
 class ClaimStartView(APIView):
+    """Claim a start node's color for the team named in the URL."""
+
     permission_classes = [IsMentor]
     serializer_class = ClaimStartSerializer
 
-    def post(self, request):
-        team = resolve_acting_team(request)
+    def post(self, request, team_code: str):
+        team = Team.objects.filter(code=team_code).first()
+        if team is None:
+            raise NotFound(f"تیم «{team_code}» پیدا نشد.")
         serializer = ClaimStartSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         node_id = serializer.validated_data["node"]

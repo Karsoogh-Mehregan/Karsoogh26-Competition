@@ -14,7 +14,7 @@ import { useGraph } from '../composables/useGraph.js'
 
 const HOUSE_FILL = '#E8D5B0'
 
-const { me, claimStart } = useActing()
+const { actingTeam, claimStart } = useActing()
 const {
   nodes,
   edges,
@@ -25,7 +25,7 @@ const {
   selectNode,
 } = useGraph()
 
-const hasTeam = computed(() => !!me.value?.acting_team)
+const hasTeam = computed(() => !!actingTeam.value)
 const pendingNode = ref(null)
 const dialogOpen = computed({
   get: () => pendingNode.value !== null,

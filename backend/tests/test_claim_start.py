@@ -1,4 +1,4 @@
-"""Claiming a start node's colour onto the acting team."""
+"""Claiming a start node's colour onto the team named in the URL."""
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -35,23 +35,16 @@ def auth_client(client, user):
     return client
 
 
-def _act_as(client, code):
-    response = client.post(
-        "/api/auth/act-as/",
-        {"team": code},
+def _claim(client, code, node):
+    return client.post(
+        f"/api/teams/{code}/claim-start/",
+        {"node": node},
         content_type="application/json",
     )
-    assert response.status_code == 200
-    return response
 
 
 def test_claim_start_writes_color(auth_client, team):
-    _act_as(auth_client, team.code)
-    response = auth_client.post(
-        "/api/teams/claim-start/",
-        {"node": "L1_0"},
-        content_type="application/json",
-    )
+    response = _claim(auth_client, team.code, "L1_0")
     assert response.status_code == 200
     assert response.json()["color"] == color_for_start("L1_0")
     team.refresh_from_db()
@@ -59,34 +52,16 @@ def test_claim_start_writes_color(auth_client, team):
 
 
 def test_claim_start_is_idempotent_for_same_node(auth_client, team):
-    _act_as(auth_client, team.code)
-    first = auth_client.post(
-        "/api/teams/claim-start/",
-        {"node": "L1_4"},
-        content_type="application/json",
-    )
-    second = auth_client.post(
-        "/api/teams/claim-start/",
-        {"node": "L1_4"},
-        content_type="application/json",
-    )
+    first = _claim(auth_client, team.code, "L1_4")
+    second = _claim(auth_client, team.code, "L1_4")
     assert first.status_code == 200
     assert second.status_code == 200
     assert first.json()["color"] == second.json()["color"] == color_for_start("L1_4")
 
 
 def test_claim_start_rejects_second_color(auth_client, team):
-    _act_as(auth_client, team.code)
-    auth_client.post(
-        "/api/teams/claim-start/",
-        {"node": "L1_0"},
-        content_type="application/json",
-    )
-    response = auth_client.post(
-        "/api/teams/claim-start/",
-        {"node": "L1_8"},
-        content_type="application/json",
-    )
+    _claim(auth_client, team.code, "L1_0")
+    response = _claim(auth_client, team.code, "L1_8")
     assert response.status_code == 409
     team.refresh_from_db()
     assert team.color == color_for_start("L1_0")
@@ -95,34 +70,29 @@ def test_claim_start_rejects_second_color(auth_client, team):
 def test_claim_start_rejects_taken_color(auth_client, team, other_team):
     other_team.color = color_for_start("L1_0")
     other_team.save()
-    _act_as(auth_client, team.code)
-    response = auth_client.post(
-        "/api/teams/claim-start/",
-        {"node": "L1_0"},
-        content_type="application/json",
-    )
+    response = _claim(auth_client, team.code, "L1_0")
     assert response.status_code == 409
     team.refresh_from_db()
     assert team.color is None
 
 
 def test_claim_start_rejects_non_start_node(auth_client, team):
-    _act_as(auth_client, team.code)
-    response = auth_client.post(
-        "/api/teams/claim-start/",
-        {"node": "L1_1"},
-        content_type="application/json",
-    )
+    response = _claim(auth_client, team.code, "L1_1")
     assert response.status_code == 400
 
 
-def test_claim_start_requires_acting_team(auth_client):
-    response = auth_client.post(
-        "/api/teams/claim-start/",
-        {"node": "L1_0"},
-        content_type="application/json",
-    )
-    assert response.status_code == 409
+def test_claim_start_unknown_team_is_404(auth_client):
+    response = _claim(auth_client, "nope", "L1_0")
+    assert response.status_code == 404
+
+
+def test_non_staff_mentor_can_claim_for_any_team(auth_client, user, other_team):
+    assert user.is_staff is False
+    assert user.team is None
+    response = _claim(auth_client, other_team.code, "L1_0")
+    assert response.status_code == 200
+    other_team.refresh_from_db()
+    assert other_team.color == color_for_start("L1_0")
 
 
 def test_start_colors_are_unique():

@@ -11,15 +11,7 @@ from rest_framework.views import APIView
 
 from core.openapi import OpenApiExample, OpenApiResponse, extend_schema
 
-from .acting import (
-    ACTING_TEAM_SESSION_KEY,
-    NoActingTeam,
-    clear_acting_team,
-    resolve_acting_team,
-    set_acting_team,
-)
-from .permissions import IsMentor
-from .serializers import ActAsSerializer, CsrfSerializer, LoginSerializer, MeSerializer
+from .serializers import CsrfSerializer, LoginSerializer, MeSerializer
 
 logger = logging.getLogger("karsoogh.auth")
 
@@ -27,17 +19,11 @@ _ME = {
     "id": 1,
     "username": "mentor",
     "is_staff": False,
-    "acting_team": {"code": "alpha", "name": "Alpha", "balance": 42},
 }
-_ME_CLEARED = {**_ME, "acting_team": None}
 
 
-def _me_response(request, user):
-    try:
-        team = resolve_acting_team(request)
-    except NoActingTeam:
-        team = None
-    return Response(MeSerializer(user, context={"acting_team": team}).data)
+def _me_response(user):
+    return Response(MeSerializer(user).data)
 
 
 @extend_schema(
@@ -60,7 +46,7 @@ class CsrfView(APIView):
 @extend_schema(
     tags=["auth"],
     summary="Log in",
-    description="Creates a session. Clears any acting-as team. Rotates the CSRF cookie.",
+    description="Creates a session. Rotates the CSRF cookie.",
     request=LoginSerializer,
     responses=MeSerializer,
     examples=[
@@ -69,7 +55,7 @@ class CsrfView(APIView):
             value={"username": "mentor", "password": "secret"},
             request_only=True,
         ),
-        OpenApiExample("session", value=_ME_CLEARED, response_only=True),
+        OpenApiExample("session", value=_ME, response_only=True),
     ],
 )
 @method_decorator(csrf_protect, name="dispatch")
@@ -99,8 +85,7 @@ class LoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         login(request, user)
-        request.session.pop(ACTING_TEAM_SESSION_KEY, None)
-        return _me_response(request, user)
+        return _me_response(user)
 
 
 @extend_schema(
@@ -122,40 +107,13 @@ class LogoutView(APIView):
 @extend_schema(
     tags=["auth"],
     summary="Current user",
-    description="Who you are and which team you are acting as (null if none).",
+    description="Who you are.",
     responses=MeSerializer,
-    examples=[OpenApiExample("acting as alpha", value=_ME, response_only=True)],
+    examples=[OpenApiExample("mentor", value=_ME, response_only=True)],
 )
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
     serializer_class = MeSerializer
 
     def get(self, request):
-        return _me_response(request, request.user)
-
-
-@extend_schema(
-    tags=["auth"],
-    summary="Act as a team",
-    description="Stores the team on the session. Send `null` to stop acting as anyone.",
-    request=ActAsSerializer,
-    responses=MeSerializer,
-    examples=[
-        OpenApiExample("pick", value={"team": "alpha"}, request_only=True),
-        OpenApiExample("clear", value={"team": None}, request_only=True),
-        OpenApiExample("acting as alpha", value=_ME, response_only=True),
-    ],
-)
-class ActAsView(APIView):
-    permission_classes = [IsMentor]
-    serializer_class = ActAsSerializer
-
-    def post(self, request):
-        serializer = ActAsSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        team = serializer.validated_data["team"]
-        if team is None:
-            clear_acting_team(request)
-            return _me_response(request, request.user)
-        set_acting_team(request, team)
-        return Response(MeSerializer(request.user, context={"acting_team": team}).data)
+        return _me_response(request.user)
