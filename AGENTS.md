@@ -63,7 +63,7 @@ The map itself is still a local adjacency demo, not a game move.
 **Auth / acting-as.** Mentors are any user holding `game.act_as_mentor` (`IsMentor`). The
 team a mentor acts for is **a path segment, never server state**: `/api/teams/<team_code>/…`,
 as in `claim-start/` and the `MentorActionView` routes. There is no `act-as` endpoint and no
-session key; the SPA owns the selection (`localStorage`, `useActing.js`). A team-scoped
+session key; the SPA owns the selection (`localStorage`, `stores/acting.ts`). A team-scoped
 endpoint therefore MUST keep `permission_classes = [IsMentor]` — a mentor may act for any
 team, so the URL is the whole authorisation story. When non-mentor players get endpoints,
 those must check `request.user.team_id` against the URL team.
@@ -75,8 +75,9 @@ apply it to move/duel/questions, not to auth or the team picker.
 `STATIC_URL` must start with `/` (`"/static/"`) or Django's StaticFilesHandler will
 not serve admin CSS.
 
-**The root `README.md` is a roadmap, not a description.** SSE, Pinia, TanStack Query,
-and panzoom are installed but unwired. shadcn-vue is in use in the team picker.
+**The root `README.md` is a roadmap, not a description.** SSE and panzoom are installed
+but unwired. Pinia and TanStack Query are wired (see **Frontend data layer**).
+shadcn-vue is in use in the team picker.
 
 **Occupancy is append-and-soft-release.** Rows are never deleted; a release sets
 `released_at`. Every uniqueness rule is therefore a *partial* constraint scoped to
@@ -97,13 +98,25 @@ seeded; `game/migrations/0002_seed_economy.py` does that. The two ruff ignores i
 **Frontend.** `useGraph()` is a module-level singleton, so all callers share one reactive
 `path` ref. Adjacency is built direction-agnostically, so the 102 `directed` edges draw
 arrowheads but do not constrain traversal. The side panel is the team picker (`InfoPanel`):
-it lists `GET /api/teams/` and selects locally — `useActing()` is a second module-level
-singleton holding `actingTeam` (persisted as a team code in `localStorage`, re-matched
-against the team list on bootstrap), and that code is what team-scoped URLs are built
-from. Selecting a team hits no endpoint. The UI is Persian and
-RTL; fonts are self-hosted in `src/assets/fonts/` via `--font-primary`/`--font-secondary` —
-do not reintroduce a Google Fonts CDN import. Entry point is `src/main.js`; `App.vue` and
-`useGraph.js` are plain JS despite the TS config.
+it lists `GET /api/teams/` and selects locally. Selecting a team hits no endpoint. The UI
+is Persian and RTL; fonts are self-hosted in `src/assets/fonts/` via
+`--font-primary`/`--font-secondary` — do not reintroduce a Google Fonts CDN import.
+Entry point is `src/main.ts`; `App.vue`, `useGraph.js`, `startColors.js`, `GraphView.vue`
+and `InfoPanel.vue` are still plain JS — `tsconfig.app.json` sets `allowJs` with
+`checkJs: false`, so they resolve but are not type-checked.
+
+**Frontend data layer — one direction only.** `lib/http.ts` (transport: CSRF, JSON,
+`ApiError`) ← `services/*.ts` (the only place URL strings live) ← `queries/*.ts`
+(TanStack Query keys, queries, mutations) ← `composables/useActing.ts` (the facade
+components use). A component never imports `http.ts`. Server state belongs to Query,
+keyed through `queries/keys.ts` — never write a bare `['teams']` array elsewhere, and
+never hand-merge a cached list; invalidate instead. Client state (which team the mentor
+acts for) is the Pinia store `stores/acting.ts`, which holds a team *code* in
+`localStorage` and must not import from `queries/`; `actingTeam` is a computed re-match
+against the team list. Every non-2xx throws `ApiError` carrying `status`, `detail` and
+DRF `fieldErrors` — branch on `status`, and keep Persian user-facing copy in
+`useActing.ts`, not in the transport. `http.ts` fetches the CSRF token lazily before the
+first unsafe method, so nothing else should call `ensureCsrf()`.
 
 **Build UI from the shadcn-vue components in `src/components/ui/`** (Reka UI + Tailwind +
 `cva`) rather than hand-rolling markup or bespoke scoped CSS. Available today: badge,

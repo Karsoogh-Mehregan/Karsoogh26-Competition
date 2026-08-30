@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { useActing } from '../composables/useActing.js'
+import { useActing } from '../composables/useActing'
 import { useGraph } from '../composables/useGraph.js'
 
 const HOUSE_FILL = '#E8D5B0'
