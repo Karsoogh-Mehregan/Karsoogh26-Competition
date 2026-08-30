@@ -1,21 +1,18 @@
 <script setup>
 import { CheckIcon, SearchIcon } from '@lucide/vue'
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useActing } from '../composables/useActing.js'
+import { useActing } from '../composables/useActing'
 
-const { me, teams, actingTeam, loading, error, submitting, bootstrap, login, actAs, logout } =
-  useActing()
+const { me, teams, actingTeam, loading, error, submitting, login, actAs, logout } = useActing()
 
 const username = ref('')
 const password = ref('')
 const query = ref('')
-
-onMounted(bootstrap)
 
 async function onLogin() {
   await login(username.value, password.value)
