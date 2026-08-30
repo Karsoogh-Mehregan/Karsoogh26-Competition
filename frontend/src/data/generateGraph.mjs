@@ -7,6 +7,7 @@
 import { writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { colorForStartId } from '../lib/startColors.js'
 
 const TEAM_COUNT = 48
 const LAYER_SIZES = [192, 144, 48, 32, 24, 8]
@@ -127,7 +128,7 @@ function buildNodes() {
       spec = {
         type: 'start',
         shape: 'diamond',
-        color: COLORS.start,
+        color: colorForStartId(nodeId(1, i)) || COLORS.start,
         layer: 1,
         size: SIZES.start,
         hasOutArrow: true,

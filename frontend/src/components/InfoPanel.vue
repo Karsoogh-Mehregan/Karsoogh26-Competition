@@ -55,7 +55,14 @@ function isNoneSelected() {
       <h1 class="text-lg font-bold">تیم‌ها</h1>
       <p v-if="me?.acting_team" class="text-muted-foreground mt-1 text-sm">
         در حال بازی به‌عنوان
-        <span class="text-foreground font-semibold">{{ me.acting_team.name }}</span>
+        <span class="text-foreground inline-flex items-center gap-1.5 font-semibold">
+          <span
+            v-if="me.acting_team.color"
+            class="size-3 shrink-0 rounded-full border"
+            :style="{ backgroundColor: me.acting_team.color }"
+          />
+          {{ me.acting_team.name }}
+        </span>
       </p>
       <p v-else-if="me" class="text-muted-foreground mt-1 text-sm">
         یک تیم را انتخاب کنید
@@ -140,7 +147,14 @@ function isNoneSelected() {
               @click="actAs(team)"
             >
               <span class="flex min-w-0 flex-col items-start gap-0.5 text-start">
-                <span class="font-semibold">{{ team.name }}</span>
+                <span class="flex items-center gap-2 font-semibold">
+                  <span
+                    v-if="team.color"
+                    class="size-3 shrink-0 rounded-full border"
+                    :style="{ backgroundColor: team.color }"
+                  />
+                  {{ team.name }}
+                </span>
                 <span class="text-xs opacity-80">{{ team.code }}</span>
               </span>
               <Badge v-if="isSelected(team)" variant="secondary" class="gap-1">

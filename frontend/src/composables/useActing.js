@@ -86,6 +86,7 @@ function createActingState() {
         throw new Error(await readApiError(response))
       }
       me.value = await response.json()
+      useGraph().reset()
       toast.success(team ? `تیم «${team.name}» انتخاب شد` : 'انتخاب تیم برداشته شد')
     } catch (err) {
       error.value = err.message || 'انتخاب تیم ناموفق بود.'
@@ -116,7 +117,36 @@ function createActingState() {
     }
   }
 
-  return { me, teams, loading, error, selecting, submitting, bootstrap, login, actAs, logout }
+  async function claimStart(nodeId) {
+    await ensureCsrf()
+    const response = await api('/api/teams/claim-start/', {
+      method: 'POST',
+      json: { node: nodeId },
+    })
+    if (!response.ok) {
+      throw new Error(await readApiError(response))
+    }
+    const team = await response.json()
+    if (me.value) {
+      me.value = { ...me.value, acting_team: team }
+    }
+    teams.value = teams.value.map((item) => (item.code === team.code ? { ...item, ...team } : item))
+    return team
+  }
+
+  return {
+    me,
+    teams,
+    loading,
+    error,
+    selecting,
+    submitting,
+    bootstrap,
+    login,
+    actAs,
+    logout,
+    claimStart,
+  }
 }
 
 export function useActing() {
