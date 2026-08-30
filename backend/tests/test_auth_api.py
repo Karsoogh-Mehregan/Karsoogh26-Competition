@@ -98,6 +98,7 @@ def test_act_as_survives_across_requests(auth_client, team):
         "code": "alpha",
         "name": "Alpha",
         "balance": 42,
+        "holdings": [],
     }
 
 
@@ -175,8 +176,8 @@ def test_teams_list_returns_code_name_balance(auth_client, team, other_team):
     response = auth_client.get("/api/teams/")
     assert response.status_code == 200
     assert response.json() == [
-        {"code": "alpha", "name": "Alpha", "balance": 42},
-        {"code": "beta", "name": "Beta", "balance": 7},
+        {"code": "alpha", "name": "Alpha", "balance": 42, "holdings": []},
+        {"code": "beta", "name": "Beta", "balance": 7, "holdings": []},
     ]
 
 

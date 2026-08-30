@@ -38,5 +38,5 @@ urlpatterns = [
         "media/questions/<int:pk>/",
         views.QuestionMediaView.as_view(),
         name="question-media",
-    ),
+    )
 ]
