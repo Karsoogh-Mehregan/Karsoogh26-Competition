@@ -1,6 +1,7 @@
 from django.utils import timezone
 from rest_framework import serializers
 
+from core.openapi import extend_schema_field
 from game.models import Occupancy, Question, Submission
 from game.services import MENTOR_RELEASE_REASONS
 
@@ -22,9 +23,11 @@ class QuestionForTeamSerializer(serializers.ModelSerializer):
             "remaining_seconds",
         )
 
+    @extend_schema_field(str | None)
     def get_expires_at(self, obj: Question):
         return self.context.get("expires_at")
 
+    @extend_schema_field(str | None)
     def get_attachment_url(self, obj: Question) -> str | None:
         if not obj.attachment:
             return None
@@ -51,6 +54,15 @@ class SubmitAnswerSerializer(serializers.Serializer):
         if not body.strip() and not file:
             raise serializers.ValidationError("Provide body or file.")
         return attrs
+
+
+class QuestionForMentorSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    title = serializers.CharField()
+    body = serializers.CharField()
+    answer_type = serializers.CharField()
+    answer_key = serializers.CharField(allow_blank=True, allow_null=True)
+    attachment_url = serializers.CharField(allow_null=True)
 
 
 class SubmissionListSerializer(serializers.ModelSerializer):
@@ -109,6 +121,7 @@ class SubmissionDetailSerializer(serializers.ModelSerializer):
             "question",
         )
 
+    @extend_schema_field(QuestionForMentorSerializer)
     def get_question(self, obj: Submission) -> dict:
         question = obj.occupancy.question
         request = self.context.get("request")
@@ -124,6 +137,7 @@ class SubmissionDetailSerializer(serializers.ModelSerializer):
             "attachment_url": attachment_url,
         }
 
+    @extend_schema_field(str | None)
     def get_file_url(self, obj: Submission) -> str | None:
         if not obj.file:
             return None
@@ -135,6 +149,20 @@ class SubmissionDetailSerializer(serializers.ModelSerializer):
 
 class GradeSubmissionSerializer(serializers.Serializer):
     grade = serializers.IntegerField(min_value=0, max_value=100)
+
+
+class SubmitCreatedSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    submitted_at = serializers.DateTimeField()
+
+
+class GradeResultSerializer(serializers.Serializer):
+    occupancy_id = serializers.IntegerField()
+    grade = serializers.IntegerField(allow_null=True)
+    grade_multiplier = serializers.DecimalField(max_digits=4, decimal_places=3, allow_null=True)
+    points = serializers.IntegerField()
+    released_at = serializers.DateTimeField(allow_null=True)
+    release_reason = serializers.CharField(allow_blank=True)
 
 
 class OccupancyQuestionResponseSerializer(serializers.Serializer):

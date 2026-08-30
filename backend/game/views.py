@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import IsMentor
+from core.openapi import OpenApiExample, OpenApiParameter, OpenApiTypes, extend_schema
 from game import services
 from game.api_exceptions import Conflict, Unprocessable
 from game.exceptions import (
@@ -24,17 +25,108 @@ from game.models import Occupancy, Question, Submission, TeamQuestion
 from game.permissions import IsTeamMember
 from game.serializers import (
     AssignQuestionSerializer,
+    GradeResultSerializer,
     GradeSerializer,
     GradeSubmissionSerializer,
     HoldingSerializer,
+    OccupancyQuestionResponseSerializer,
     QuestionForTeamSerializer,
     ReleaseSerializer,
     SubmissionDetailSerializer,
     SubmissionListSerializer,
     SubmitAnswerSerializer,
+    SubmitCreatedSerializer,
     occupancy_for_user,
 )
 from game.services import grade_submission, submit_answer
+
+_OCCUPANCY_PK = OpenApiParameter("pk", int, OpenApiParameter.PATH, description="Occupancy id")
+_SUBMISSION_PK = OpenApiParameter("pk", int, OpenApiParameter.PATH, description="Submission id")
+_QUESTION_PK = OpenApiParameter("pk", int, OpenApiParameter.PATH, description="Question id")
+
+_HOLDING_PARAMS = [
+    OpenApiParameter("team_code", str, OpenApiParameter.PATH, description="e.g. alpha"),
+    OpenApiParameter("node_code", str, OpenApiParameter.PATH, description="e.g. h1"),
+]
+
+_HOLDING_ASSIGNED = {
+    "team": {"code": "alpha", "name": "Alpha", "balance": 0},
+    "node": {"code": "h1", "name": "Hard 1", "level": "hard"},
+    "slot": 1,
+    "floor": None,
+    "grade": None,
+    "grade_multiplier": None,
+    "points": 0,
+    "question_assigned_at": "2026-08-30T10:00:00Z",
+    "expires_at": "2026-08-30T10:15:00Z",
+    "is_expired": False,
+    "entered_at": "2026-08-30T09:55:00Z",
+    "released_at": None,
+    "release_reason": "",
+}
+_HOLDING_GRADED = {
+    **_HOLDING_ASSIGNED,
+    "team": {"code": "alpha", "name": "Alpha", "balance": 200},
+    "floor": 1,
+    "grade": 90,
+    "grade_multiplier": "0.500",
+    "points": 200,
+}
+_HOLDING_RELEASED = {
+    **_HOLDING_ASSIGNED,
+    "released_at": "2026-08-30T10:12:00Z",
+    "release_reason": "expired",
+    "is_expired": True,
+}
+
+_QUESTION_FOR_TEAM = {
+    "code": "q1",
+    "title": "Question 1",
+    "body": "Body 1",
+    "answer_type": "text",
+    "attachment_url": None,
+    "expires_at": "2026-08-30T10:15:00Z",
+    "remaining_seconds": 600,
+}
+_OCCUPANCY_QUESTION = {
+    "occupancy_id": 1,
+    "expires_at": "2026-08-30T10:15:00Z",
+    "remaining_seconds": 600,
+    "question": _QUESTION_FOR_TEAM,
+}
+_SUBMISSION_ROW = {
+    "id": 1,
+    "submitted_at": "2026-08-30T10:05:00Z",
+    "team_code": "alpha",
+    "team_name": "Alpha",
+    "node_code": "e1",
+    "level": "easy",
+    "question_code": "q1",
+    "question_title": "Question 1",
+    "graded": False,
+}
+_SUBMISSION_DETAIL = {
+    "id": 1,
+    "submitted_at": "2026-08-30T10:05:00Z",
+    "submitted_by": 3,
+    "body": "42",
+    "file_url": None,
+    "team_code": "alpha",
+    "team_name": "Alpha",
+    "node_code": "e1",
+    "level": "easy",
+    "floor": 1,
+    "grade": None,
+    "points": 0,
+    "question": {
+        "code": "q1",
+        "title": "Question 1",
+        "body": "Body 1",
+        "answer_type": "text",
+        "answer_key": "key1",
+        "attachment_url": None,
+    },
+}
 
 
 def _map_service_error(exc: GameServiceError):
@@ -51,6 +143,14 @@ def _map_service_error(exc: GameServiceError):
     raise exc
 
 
+@extend_schema(
+    tags=["game"],
+    summary="Read assigned question",
+    description="The question on this occupancy. No answer_key.",
+    parameters=[_OCCUPANCY_PK],
+    responses=OccupancyQuestionResponseSerializer,
+    examples=[OpenApiExample("assigned", value=_OCCUPANCY_QUESTION, response_only=True)],
+)
 class OccupancyQuestionView(APIView):
     permission_classes = [IsAuthenticated, IsTeamMember]
 
@@ -78,6 +178,23 @@ class OccupancyQuestionView(APIView):
         )
 
 
+@extend_schema(
+    tags=["game"],
+    summary="Submit an answer",
+    description="Body and/or file. Once per occupancy.",
+    parameters=[_OCCUPANCY_PK],
+    request=SubmitAnswerSerializer,
+    responses={201: SubmitCreatedSerializer},
+    examples=[
+        OpenApiExample("request", value={"body": "42"}, request_only=True),
+        OpenApiExample(
+            "created",
+            value={"id": 1, "submitted_at": "2026-08-30T10:05:00Z"},
+            response_only=True,
+            status_codes=["201"],
+        ),
+    ],
+)
 class OccupancySubmitView(APIView):
     permission_classes = [IsAuthenticated, IsTeamMember]
 
@@ -105,6 +222,23 @@ class OccupancySubmitView(APIView):
         )
 
 
+@extend_schema(
+    tags=["game"],
+    summary="List submissions",
+    description="Mentor queue. Default is ungraded. Filter with `graded`, `level`, `team`.",
+    parameters=[
+        OpenApiParameter(
+            "graded",
+            str,
+            OpenApiParameter.QUERY,
+            description="true = graded, false (default) = pending",
+            enum=["true", "false"],
+        ),
+        OpenApiParameter("level", str, OpenApiParameter.QUERY, description="e.g. easy"),
+        OpenApiParameter("team", str, OpenApiParameter.QUERY, description="e.g. alpha"),
+    ],
+    examples=[OpenApiExample("pending", value=_SUBMISSION_ROW, response_only=True)],
+)
 class SubmissionListView(generics.ListAPIView):
     permission_classes = [IsMentor]
     serializer_class = SubmissionListSerializer
@@ -133,6 +267,13 @@ class SubmissionListView(generics.ListAPIView):
         return qs
 
 
+@extend_schema(
+    tags=["game"],
+    summary="Submission detail",
+    description="Includes answer_key. Mentor only.",
+    parameters=[_SUBMISSION_PK],
+    examples=[OpenApiExample("detail", value=_SUBMISSION_DETAIL, response_only=True)],
+)
 class SubmissionDetailView(generics.RetrieveAPIView):
     permission_classes = [IsMentor]
     serializer_class = SubmissionDetailSerializer
@@ -144,6 +285,29 @@ class SubmissionDetailView(generics.RetrieveAPIView):
     )
 
 
+@extend_schema(
+    tags=["game"],
+    summary="Grade a submission",
+    description="Score 0–100. Pays points; grade 0 releases the holding.",
+    parameters=[_SUBMISSION_PK],
+    request=GradeSubmissionSerializer,
+    responses=GradeResultSerializer,
+    examples=[
+        OpenApiExample("request", value={"grade": 50}, request_only=True),
+        OpenApiExample(
+            "scored",
+            value={
+                "occupancy_id": 1,
+                "grade": 50,
+                "grade_multiplier": "0.500",
+                "points": 50,
+                "released_at": None,
+                "release_reason": "",
+            },
+            response_only=True,
+        ),
+    ],
+)
 class SubmissionGradeView(APIView):
     permission_classes = [IsMentor]
 
@@ -174,6 +338,13 @@ class SubmissionGradeView(APIView):
         )
 
 
+@extend_schema(
+    tags=["game"],
+    summary="Download submission file",
+    description="Owning team or staff.",
+    parameters=[_SUBMISSION_PK],
+    responses={200: OpenApiTypes.BINARY},
+)
 class SubmissionMediaView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -191,6 +362,13 @@ class SubmissionMediaView(APIView):
         )
 
 
+@extend_schema(
+    tags=["game"],
+    summary="Download question attachment",
+    description="Staff, or a team that was served this question.",
+    parameters=[_QUESTION_PK],
+    responses={200: OpenApiTypes.BINARY},
+)
 class QuestionMediaView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -253,6 +431,15 @@ class MentorActionView(APIView):
         return Response(HoldingSerializer(holding).data)
 
 
+@extend_schema(
+    tags=["game"],
+    summary="Assign a question",
+    description="Starts the attempt clock on this holding. Empty body.",
+    parameters=_HOLDING_PARAMS,
+    request=None,
+    responses=HoldingSerializer,
+    examples=[OpenApiExample("clock started", value=_HOLDING_ASSIGNED, response_only=True)],
+)
 class AssignQuestionView(MentorActionView):
     serializer_class = AssignQuestionSerializer
 
@@ -266,6 +453,18 @@ class AssignQuestionView(MentorActionView):
         return holding
 
 
+@extend_schema(
+    tags=["game"],
+    summary="Grade the attempt",
+    description="Score 0–100. Places the team on a floor and pays points.",
+    parameters=_HOLDING_PARAMS,
+    request=GradeSerializer,
+    responses=HoldingSerializer,
+    examples=[
+        OpenApiExample("request", value={"grade": 90}, request_only=True),
+        OpenApiExample("placed on floor 1", value=_HOLDING_GRADED, response_only=True),
+    ],
+)
 class GradeView(MentorActionView):
     serializer_class = GradeSerializer
 
@@ -273,6 +472,18 @@ class GradeView(MentorActionView):
         return services.grade_attempt(holding, data["grade"])
 
 
+@extend_schema(
+    tags=["game"],
+    summary="Release the holding",
+    description="Frees the slot. `reason` is `expired` or `zero_grade`. Does not change balance.",
+    parameters=_HOLDING_PARAMS,
+    request=ReleaseSerializer,
+    responses=HoldingSerializer,
+    examples=[
+        OpenApiExample("request", value={"reason": "expired"}, request_only=True),
+        OpenApiExample("slot freed", value=_HOLDING_RELEASED, response_only=True),
+    ],
+)
 class ReleaseView(MentorActionView):
     serializer_class = ReleaseSerializer
 
