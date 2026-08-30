@@ -19,6 +19,7 @@ class Level(models.TextChoices):
     EASY = "easy", "آسان"
     MEDIUM = "medium", "متوسط"
     HARD = "hard", "سخت"
+    TOLL = "toll", "عوارضی"
 
 
 class ReleaseReason(models.TextChoices):
@@ -140,19 +141,22 @@ class Node(models.Model):
 
 
 class Edge(models.Model):
-    """An undirected edge. Normalised so a.id < b.id, so each pair stores once."""
+    """A link between two nodes. Directed ones run a -> b; undirected ones are
+    normalised to a.id < b.id, so each unordered pair stores once."""
 
     a = models.ForeignKey(Node, on_delete=models.CASCADE, related_name="edges_a")
     b = models.ForeignKey(Node, on_delete=models.CASCADE, related_name="edges_b")
+    directed = models.BooleanField(default=False)
 
     class Meta:
         constraints = [
             UniqueConstraint(fields=["a", "b"], name="edge_unique"),
-            CheckConstraint(condition=Q(a__lt=F("b")), name="edge_normalised"),
+            CheckConstraint(condition=Q(directed=True) | Q(a__lt=F("b")), name="edge_normalised"),
         ]
 
     def __str__(self):
-        return f"{self.a_id} <-> {self.b_id}"
+        arrow = "->" if self.directed else "<->"
+        return f"{self.a_id} {arrow} {self.b_id}"
 
 
 class OccupancyQuerySet(models.QuerySet):

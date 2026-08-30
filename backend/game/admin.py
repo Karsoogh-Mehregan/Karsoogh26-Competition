@@ -86,7 +86,8 @@ class NodeAdmin(admin.ModelAdmin):
 
 @admin.register(Edge)
 class EdgeAdmin(admin.ModelAdmin):
-    list_display = ("a", "b")
+    list_display = ("a", "b", "directed")
+    list_filter = ("directed",)
     autocomplete_fields = ("a", "b")
     list_select_related = ("a", "b")
 
