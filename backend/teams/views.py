@@ -6,8 +6,8 @@ from rest_framework.views import APIView
 
 from accounts.acting import resolve_acting_team
 from accounts.permissions import IsMentor
-from game.api_exceptions import Conflict
 from core.openapi import OpenApiExample, extend_schema
+from game.api_exceptions import Conflict
 
 from .models import Team
 from .serializers import ClaimStartSerializer, TeamSerializer
