@@ -85,6 +85,16 @@ not serve admin CSS.
 but unwired. Pinia and TanStack Query are wired (see **Frontend data layer**).
 shadcn-vue is in use in the team picker.
 
+**A move is one call.** `POST teams/<code>/nodes/<code>/assign-question/` reserves the node
+*and* starts the attempt clock (`services.claim_node`): there is no separate "enter" endpoint,
+because reserving without a question is not a game state. Reserving is not owning — the floor
+is captured at grading. The target must be reachable from a node the team holds *right now*
+(released rows do not extend reach), following `Edge.directed` one-way where set; a team with
+no active holdings may only take the start node matching its `Team.color`. It costs
+`LevelConfig.entry_cost` and takes the lowest free slot up to `capacity`. Posting again to a
+node the team already holds only tops up a missing question — it never charges twice.
+`grade/` and `release/` still address an existing holding and 404 without one.
+
 **Occupancy is append-and-soft-release.** Rows are never deleted; a release sets
 `released_at`. Every uniqueness rule is therefore a *partial* constraint scoped to
 `released_at__isnull=True`. Query current state via `.active()` or you will see history.

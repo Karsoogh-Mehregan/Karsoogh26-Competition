@@ -17,11 +17,12 @@ from game.exceptions import (
     GameServiceError,
     InvalidAnswerPayload,
     MissingFloor,
+    NoQuestionAvailable,
     NotTeamMember,
     OccupancyNotActive,
     SubmissionWindowClosed,
 )
-from game.models import Occupancy, Question, Submission, TeamQuestion
+from game.models import Node, Occupancy, Question, Submission, TeamQuestion
 from game.permissions import IsTeamMember
 from game.serializers import (
     AssignQuestionSerializer,
@@ -39,6 +40,7 @@ from game.serializers import (
     occupancy_for_user,
 )
 from game.services import grade_submission, submit_answer
+from teams.models import Team
 
 _OCCUPANCY_PK = OpenApiParameter("pk", int, OpenApiParameter.PATH, description="Occupancy id")
 _SUBMISSION_PK = OpenApiParameter("pk", int, OpenApiParameter.PATH, description="Submission id")
@@ -133,7 +135,14 @@ def _map_service_error(exc: GameServiceError):
     if isinstance(exc, NotTeamMember):
         raise PermissionDenied(str(exc)) from exc
     if isinstance(
-        exc, (OccupancyNotActive, GameNotRunning, SubmissionWindowClosed, AlreadySubmitted)
+        exc,
+        (
+            OccupancyNotActive,
+            GameNotRunning,
+            SubmissionWindowClosed,
+            AlreadySubmitted,
+            NoQuestionAvailable,
+        ),
     ):
         raise Conflict(str(exc)) from exc
     if isinstance(exc, InvalidAnswerPayload):
@@ -433,24 +442,38 @@ class MentorActionView(APIView):
 
 @extend_schema(
     tags=["game"],
-    summary="Assign a question",
-    description="Starts the attempt clock on this holding. Empty body.",
+    summary="Reserve a node and assign its question",
+    description=(
+        "Takes a free slot on the node and starts the attempt clock, in one move. "
+        "The node must be reachable from a node the team already holds; a team with no "
+        "holdings may only take its own start node. Reserving is not owning — the floor "
+        "is captured at grading. Charges the level's entry cost. Empty body."
+    ),
     parameters=_HOLDING_PARAMS,
     request=None,
     responses=HoldingSerializer,
     examples=[OpenApiExample("clock started", value=_HOLDING_ASSIGNED, response_only=True)],
 )
-class AssignQuestionView(MentorActionView):
+class AssignQuestionView(APIView):
+    permission_classes = [IsMentor]
     serializer_class = AssignQuestionSerializer
 
-    def perform(self, holding: Occupancy, data):
-        # The service is idempotent, but the mentor endpoint is not: handing the
-        # same holding a second question is a mistake worth surfacing.
-        if holding.question_assigned_at is not None:
-            raise services.Conflict("سؤال قبلاً به این تیم تخصیص داده شده است.")
-        services.assign_question(holding)
-        holding.refresh_from_db()
-        return holding
+    def post(self, request, team_code: str, node_code: str):
+        payload = self.serializer_class(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        team = Team.objects.filter(code=team_code).first()
+        if team is None:
+            raise NotFound(f"تیم «{team_code}» پیدا نشد.")
+        node = Node.objects.select_related("level").filter(code=node_code).first()
+        if node is None:
+            raise NotFound(f"خانهٔ «{node_code}» پیدا نشد.")
+
+        try:
+            holding = services.claim_node(team, node)
+        except GameServiceError as exc:
+            _map_service_error(exc)
+        return Response(HoldingSerializer(holding).data)
 
 
 @extend_schema(

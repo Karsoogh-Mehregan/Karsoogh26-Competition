@@ -130,12 +130,16 @@ class TestLookup:
     def test_unknown_team_is_404(self, client_mentor, holdings):
         assert client_mentor.post(action_url("assign-question", "nobody")).status_code == 404
 
-    def test_team_without_a_holding_on_that_node_is_404(self, client_mentor, hard_node, teams):
+    def test_team_without_a_holding_on_that_node_is_404(
+        self, client_mentor, running_game, hard_node, teams
+    ):
+        """grade/release address an existing holding; assign-question creates one instead."""
         other = Node.objects.create(
             code="h2", name="Hard 2", level=LevelConfig.objects.get(level="hard")
         )
         Occupancy.objects.create(node=other, team=teams["alpha"], slot=1)
-        assert client_mentor.post(action_url("assign-question", "alpha")).status_code == 404
+        response = client_mentor.post(action_url("grade", "alpha"), {"grade": 50}, format="json")
+        assert response.status_code == 404
 
     def test_released_holding_is_404(self, client_mentor, holdings, running_game):
         holding = holdings["alpha"]
