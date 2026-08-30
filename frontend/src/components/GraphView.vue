@@ -14,7 +14,7 @@ import { useGraph } from '../composables/useGraph.js'
 
 const HOUSE_FILL = '#E8D5B0'
 
-const { me } = useActing()
+const { me, claimStart } = useActing()
 const {
   nodes,
   edges,
@@ -25,7 +25,7 @@ const {
   selectNode,
 } = useGraph()
 
-const loggedIn = computed(() => !!me.value)
+const hasTeam = computed(() => !!me.value?.acting_team)
 const pendingNode = ref(null)
 const dialogOpen = computed({
   get: () => pendingNode.value !== null,
@@ -35,11 +35,11 @@ const dialogOpen = computed({
 })
 
 function isNodeSelectable(id) {
-  return loggedIn.value && isSelectable(id)
+  return hasTeam.value && isSelectable(id)
 }
 
 function isNodeSelected(id) {
-  return loggedIn.value && isSelected(id)
+  return hasTeam.value && isSelected(id)
 }
 
 const hoveredId = ref(null)
@@ -85,7 +85,7 @@ function shrunkTarget(e) {
 
 function isEdgeActive(e) {
   // Frontier edges: one end is in the component, the other is selectable.
-  if (!loggedIn.value || !hasStarted.value) return false
+  if (!hasTeam.value || !hasStarted.value) return false
   const srcSelected = isNodeSelected(e.source)
   const tgtSelected = isNodeSelected(e.target)
   return (srcSelected && isNodeSelectable(e.target)) || (tgtSelected && isNodeSelectable(e.source))
@@ -104,14 +104,30 @@ function nodeState(n) {
 }
 
 function onNodeClick(n) {
-  if (!loggedIn.value || !isNodeSelectable(n.id)) return
+  if (!hasTeam.value || !isNodeSelectable(n.id)) return
   pendingNode.value = n
 }
 
-function enterHouse() {
+async function enterHouse() {
   const node = pendingNode.value
   pendingNode.value = null
-  if (node) selectNode(node.id)
+  if (!node || !hasTeam.value) return
+  if (node.type === 'start' || node.shape === 'diamond') {
+    try {
+      await claimStart(node.id)
+    } catch (err) {
+      toast.error(err.message || 'ادعای خانهٔ شروع ناموفق بود.')
+      return
+    }
+  }
+  selectNode(node.id)
+}
+
+function nodeFill(n) {
+  if (n.type === 'start' || n.shape === 'diamond') {
+    return n.color
+  }
+  return HOUSE_FILL
 }
 
 function startDuel() {
@@ -238,17 +254,17 @@ function shapePath(n) {
             v-for="(r, i) in slotRadii(n)"
             :key="i"
             :r="r"
-            :fill="HOUSE_FILL"
+            :fill="nodeFill(n)"
             class="node-shape"
           />
         </template>
         <circle
           v-else-if="n.shape === 'circle'"
           :r="visualRadius(n)"
-          :fill="HOUSE_FILL"
+          :fill="nodeFill(n)"
           class="node-shape"
         />
-        <path v-else :d="shapePath(n)" :fill="HOUSE_FILL" class="node-shape" />
+        <path v-else :d="shapePath(n)" :fill="nodeFill(n)" class="node-shape" />
 
         <circle
           v-if="isNodeSelected(n.id)"

@@ -1,5 +1,6 @@
+from django.core.validators import RegexValidator
 from django.db import models
-from django.db.models import CheckConstraint, Prefetch, Q
+from django.db.models import CheckConstraint, Prefetch, Q, UniqueConstraint
 
 
 def active_holdings():
@@ -22,6 +23,14 @@ class Team(models.Model):
 
     balance = models.PositiveIntegerField(default=0)
 
+    # Claimed from a start node; empty until the team enters one.
+    color = models.CharField(
+        max_length=7,
+        null=True,
+        blank=True,
+        validators=[RegexValidator(r"^#[0-9a-f]{6}$", "Color must be a lowercase #rrggbb hex.")],
+    )
+
     # Spawn sequence for teams based on entry question solved
     draft_order = models.PositiveSmallIntegerField(null=True, blank=True, unique=True)
 
@@ -39,6 +48,11 @@ class Team(models.Model):
             CheckConstraint(
                 condition=Q(draft_order__isnull=True) | Q(draft_order__gte=1),
                 name="team_draft_order_positive",
+            ),
+            UniqueConstraint(
+                fields=["color"],
+                condition=Q(color__isnull=False),
+                name="team_color_unique_when_set",
             ),
         ]
 

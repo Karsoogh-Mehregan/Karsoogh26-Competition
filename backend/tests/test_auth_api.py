@@ -99,6 +99,7 @@ def test_act_as_survives_across_requests(auth_client, team):
         "name": "Alpha",
         "balance": 42,
         "holdings": [],
+        "color": None,
     }
 
 
@@ -164,6 +165,7 @@ def test_non_staff_mentor_can_act_as_any_team(auth_client, user, other_team):
         ("get", "/api/auth/me/", None),
         ("post", "/api/auth/act-as/", {"team": "alpha"}),
         ("get", "/api/teams/", None),
+        ("post", "/api/teams/claim-start/", {"node": "L1_0"}),
     ],
 )
 def test_anonymous_requests_are_403(client, method, path, payload):
@@ -176,8 +178,8 @@ def test_teams_list_returns_code_name_balance(auth_client, team, other_team):
     response = auth_client.get("/api/teams/")
     assert response.status_code == 200
     assert response.json() == [
-        {"code": "alpha", "name": "Alpha", "balance": 42, "holdings": []},
-        {"code": "beta", "name": "Beta", "balance": 7, "holdings": []},
+        {"code": "alpha", "name": "Alpha", "balance": 42, "holdings": [], "color": None},
+        {"code": "beta", "name": "Beta", "balance": 7, "holdings": [], "color": None},
     ]
 
 
