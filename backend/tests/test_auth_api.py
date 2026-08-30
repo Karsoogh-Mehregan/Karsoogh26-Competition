@@ -1,4 +1,4 @@
-"""Session-cookie auth, acting-as-team, and the shared game-status permission."""
+"""Session-cookie auth and the shared game-status permission."""
 
 from types import SimpleNamespace
 
@@ -7,7 +7,6 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.cache import cache
 
-from accounts.acting import ACTING_TEAM_SESSION_KEY, NoActingTeam, resolve_acting_team
 from accounts.permissions import GameIsRunning
 from game.models import GameSettings, GameStatus
 from teams.models import Team
@@ -57,7 +56,6 @@ def test_login_returns_me_shape(client, user):
         "id": user.pk,
         "username": "mentor",
         "is_staff": False,
-        "acting_team": None,
     }
 
 
@@ -83,89 +81,18 @@ def test_logout_flushes_session(auth_client):
     assert auth_client.get("/api/auth/me/").status_code == 403
 
 
-def test_act_as_survives_across_requests(auth_client, team):
-    response = auth_client.post(
-        "/api/auth/act-as/",
-        {"team": team.code},
-        content_type="application/json",
-    )
+def test_me_returns_no_team_state(auth_client, user):
+    response = auth_client.get("/api/auth/me/")
     assert response.status_code == 200
-    assert response.json()["acting_team"]["code"] == "alpha"
-
-    me = auth_client.get("/api/auth/me/")
-    assert me.status_code == 200
-    assert me.json()["acting_team"] == {
-        "code": "alpha",
-        "name": "Alpha",
-        "balance": 42,
-        "holdings": [],
-        "color": None,
-    }
-
-
-def test_act_as_null_clears_selection(auth_client, team):
-    auth_client.post(
-        "/api/auth/act-as/",
-        {"team": team.code},
-        content_type="application/json",
-    )
-    response = auth_client.post(
-        "/api/auth/act-as/",
-        {"team": None},
-        content_type="application/json",
-    )
-    assert response.status_code == 200
-    assert response.json()["acting_team"] is None
-    assert auth_client.session[ACTING_TEAM_SESSION_KEY] is None
-    me = auth_client.get("/api/auth/me/")
-    assert me.status_code == 200
-    assert me.json()["acting_team"] is None
-
-
-def test_act_as_null_does_not_fall_back_to_user_team(auth_client, user, team):
-    user.team = team
-    user.save()
-    auth_client.post(
-        "/api/auth/act-as/",
-        {"team": team.code},
-        content_type="application/json",
-    )
-    response = auth_client.post(
-        "/api/auth/act-as/",
-        {"team": None},
-        content_type="application/json",
-    )
-    assert response.status_code == 200
-    assert response.json()["acting_team"] is None
-
-
-def test_act_as_unknown_code_is_400(auth_client):
-    response = auth_client.post(
-        "/api/auth/act-as/",
-        {"team": "nope"},
-        content_type="application/json",
-    )
-    assert response.status_code == 400
-
-
-def test_non_staff_mentor_can_act_as_any_team(auth_client, user, other_team):
-    assert user.is_staff is False
-    response = auth_client.post(
-        "/api/auth/act-as/",
-        {"team": other_team.code},
-        content_type="application/json",
-    )
-    assert response.status_code == 200
-    assert auth_client.session[ACTING_TEAM_SESSION_KEY] == other_team.pk
+    assert response.json() == {"id": user.pk, "username": "mentor", "is_staff": False}
 
 
 @pytest.mark.parametrize(
     "method,path,payload",
     [
         ("get", "/api/auth/me/", None),
-        ("post", "/api/auth/act-as/", {"team": "alpha"}),
         ("get", "/api/teams/", None),
-        ("post", "/api/teams/claim-start/", {"node": "L1_0"}),
+        ("post", "/api/teams/alpha/claim-start/", {"node": "L1_0"}),
     ],
 )
 def test_anonymous_requests_are_403(client, method, path, payload):
@@ -181,32 +108,6 @@ def test_teams_list_returns_code_name_balance(auth_client, team, other_team):
         {"code": "alpha", "name": "Alpha", "balance": 42, "holdings": [], "color": None},
         {"code": "beta", "name": "Beta", "balance": 7, "holdings": [], "color": None},
     ]
-
-
-def test_resolve_acting_team_falls_back_to_user_team(user, team):
-    user.team = team
-    request = SimpleNamespace(session={}, user=user)
-    assert resolve_acting_team(request) == team
-
-
-def test_resolve_acting_team_raises_when_unset(user):
-    request = SimpleNamespace(session={}, user=user)
-    with pytest.raises(NoActingTeam):
-        resolve_acting_team(request)
-
-
-def test_resolve_acting_team_explicit_none_skips_user_team(user, team):
-    user.team = team
-    request = SimpleNamespace(session={ACTING_TEAM_SESSION_KEY: None}, user=user)
-    with pytest.raises(NoActingTeam):
-        resolve_acting_team(request)
-
-
-def test_resolve_acting_team_clears_stale_id(user):
-    request = SimpleNamespace(session={ACTING_TEAM_SESSION_KEY: 999999}, user=user)
-    with pytest.raises(NoActingTeam):
-        resolve_acting_team(request)
-    assert ACTING_TEAM_SESSION_KEY not in request.session
 
 
 def test_game_is_running_permission():

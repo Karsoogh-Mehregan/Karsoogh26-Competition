@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useActing } from '../composables/useActing.js'
 
-const { me, teams, loading, error, selecting, submitting, bootstrap, login, actAs, logout } =
+const { me, teams, actingTeam, loading, error, submitting, bootstrap, login, actAs, logout } =
   useActing()
 
 const username = ref('')
@@ -41,11 +41,11 @@ const filteredTeams = computed(() => {
 })
 
 function isSelected(team) {
-  return me.value?.acting_team?.code === team.code
+  return actingTeam.value?.code === team.code
 }
 
 function isNoneSelected() {
-  return !me.value?.acting_team
+  return !actingTeam.value
 }
 </script>
 
@@ -53,15 +53,15 @@ function isNoneSelected() {
   <aside class="flex h-full w-80 shrink-0 flex-col overflow-hidden border-e bg-card">
     <header class="border-b px-5 py-4">
       <h1 class="text-lg font-bold">تیم‌ها</h1>
-      <p v-if="me?.acting_team" class="text-muted-foreground mt-1 text-sm">
+      <p v-if="actingTeam" class="text-muted-foreground mt-1 text-sm">
         در حال بازی به‌عنوان
         <span class="text-foreground inline-flex items-center gap-1.5 font-semibold">
           <span
-            v-if="me.acting_team.color"
+            v-if="actingTeam.color"
             class="size-3 shrink-0 rounded-full border"
-            :style="{ backgroundColor: me.acting_team.color }"
+            :style="{ backgroundColor: actingTeam.color }"
           />
-          {{ me.acting_team.name }}
+          {{ actingTeam.name }}
         </span>
       </p>
       <p v-else-if="me" class="text-muted-foreground mt-1 text-sm">
@@ -126,7 +126,6 @@ function isNoneSelected() {
             <Button
               class="h-auto w-full items-start justify-between py-3 whitespace-normal"
               :variant="isNoneSelected() ? 'default' : 'outline'"
-              :disabled="selecting === '__none__'"
               @click="actAs(null)"
             >
               <span class="flex min-w-0 flex-col items-start gap-0.5 text-start">
@@ -143,7 +142,6 @@ function isNoneSelected() {
             <Button
               class="h-auto w-full items-start justify-between py-3 whitespace-normal"
               :variant="isSelected(team) ? 'default' : 'outline'"
-              :disabled="selecting === team.code"
               @click="actAs(team)"
             >
               <span class="flex min-w-0 flex-col items-start gap-0.5 text-start">

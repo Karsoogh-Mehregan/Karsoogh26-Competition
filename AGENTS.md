@@ -66,10 +66,14 @@ session cookies stay same-origin. The side panel lists teams from the API; the m
 is locked until the mentor is logged in (clicks do nothing, nodes stay disabled).
 The map itself is still a local adjacency demo, not a game move.
 
-**Auth / acting-as.** Mentors are any authenticated user (`IsMentor`). They pick a team
-via `POST /api/auth/act-as/` which stores `request.session["acting_team_id"]`. Every
-game endpoint must call `accounts.acting.resolve_acting_team(request)` — do not read
-the session key directly. `GET /api/auth/csrf/` (`@ensure_csrf_cookie`) is the SPA's
+**Auth / acting-as.** Mentors are any user holding `game.act_as_mentor` (`IsMentor`). The
+team a mentor acts for is **a path segment, never server state**: `/api/teams/<team_code>/…`,
+as in `claim-start/` and the `MentorActionView` routes. There is no `act-as` endpoint and no
+session key; the SPA owns the selection (`localStorage`, `useActing.js`). A team-scoped
+endpoint therefore MUST keep `permission_classes = [IsMentor]` — a mentor may act for any
+team, so the URL is the whole authorisation story. When non-mentor players get endpoints,
+those must check `request.user.team_id` against the URL team.
+`GET /api/auth/csrf/` (`@ensure_csrf_cookie`) is the SPA's
 CSRF entry point and also returns `{"csrf_token": "..."}` so the SPA does not have
 to scrape `document.cookie`. `login()` rotates the token, and the login response
 sets the new cookie. `GameIsRunning` rejects actions unless `GameSettings.load().is_running`;
@@ -99,7 +103,10 @@ seeded; `game/migrations/0002_seed_economy.py` does that. The two ruff ignores i
 **Frontend.** `useGraph()` is a module-level singleton, so all callers share one reactive
 `path` ref. Adjacency is built direction-agnostically, so the 102 `directed` edges draw
 arrowheads but do not constrain traversal. The side panel is the team picker (`InfoPanel`):
-it lists `GET /api/teams/` and selects via `POST /api/auth/act-as/`. The UI is Persian and
+it lists `GET /api/teams/` and selects locally — `useActing()` is a second module-level
+singleton holding `actingTeam` (persisted as a team code in `localStorage`, re-matched
+against the team list on bootstrap), and that code is what team-scoped URLs are built
+from. Selecting a team hits no endpoint. The UI is Persian and
 RTL; fonts are self-hosted in `src/assets/fonts/` via `--font-primary`/`--font-secondary` —
 do not reintroduce a Google Fonts CDN import. Entry point is `src/main.js`; `App.vue` and
 `useGraph.js` are plain JS despite the TS config.
