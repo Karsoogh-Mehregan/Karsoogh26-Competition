@@ -52,10 +52,16 @@ PostgreSQL: `docker compose up -d db` from the repo root, then set `DATABASE_URL
 
 ## Architecture
 
-**The frontend map and the backend graph are unrelated.** `frontend/src/data/graph_data.json`
-(355 nodes) is static with **no generator in this repo**; each node carries baked-in
-`x`/`y`/`color`/`shape`, so there is no layout engine. Django's `game.Node`/`game.Edge`
-share no ids or vocabulary with it. The Vite dev server proxies `/api` to `:8000` so
+**`graph_data.json` is the map's single source of truth.** `frontend/src/data/graph_data.json`
+(473 nodes, 780 edges) is static with **no generator in this repo**; each node carries baked-in
+`x`/`y`/`color`/`shape`/`theta`/`r`, so there is no layout engine. Those layout fields stay
+frontend-only; the backend takes just the topology, via
+`uv run manage.py import_graph` (`game/management/commands/import_graph.py`), so `game.Node.code`
+holds the same ids the SPA uses (`L1_0`, `CENTER`, …). Re-running upserts and never deletes,
+so `Occupancy`'s `PROTECT` FK is safe mid-game. `TYPE_TO_LEVEL` in that command maps the 11
+frontend `type` values onto the four playable levels plus `toll`; the `c34`/`c45` connectors are
+imported as `toll` nodes with no `FloorReward` rows, which makes them inert — their real
+pass-through rules are not designed yet. The Vite dev server proxies `/api` to `:8000` so
 session cookies stay same-origin. The side panel lists teams from the API; the map
 is locked until the mentor is logged in (clicks do nothing, nodes stay disabled).
 The map itself is still a local adjacency demo, not a game move.
@@ -81,7 +87,7 @@ and panzoom are installed but unwired. shadcn-vue is in use in the team picker.
 
 **SQLite gives false passes.** `select_for_update()` is ignored, not rejected, so
 `conftest.py` force-skips `postgres_only` tests off Postgres. `uv run pytest` on SQLite
-gives 87 passed / 2 skipped; on Postgres, 89 passed. Run row-lock work against real
+gives 111 passed / 2 skipped; on Postgres, 113 passed. Run row-lock work against real
 Postgres. CI does.
 
 **Money is Decimal-from-string, rounded half-up** (`_round_half_up`, since Python defaults
