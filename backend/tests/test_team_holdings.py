@@ -95,5 +95,7 @@ def test_teams_list_holding_shape(auth_client, team, nodes):
             "level": "hard",
             "slot": 2,
             "floor": 3,
+            "grade": None,
+            "is_spawn": False,
         }
     ]

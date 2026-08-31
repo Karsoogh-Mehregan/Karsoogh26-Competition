@@ -4,6 +4,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 
+from game.models import LevelConfig, Node, Occupancy
 from teams.models import Team
 from teams.start_colors import color_for_start
 
@@ -35,6 +36,13 @@ def auth_client(client, user):
     return client
 
 
+@pytest.fixture(autouse=True)
+def spawn_starts():
+    spawn = LevelConfig.objects.get(level="spawn")
+    for code in ("L1_0", "L1_4", "L1_8"):
+        Node.objects.get_or_create(code=code, defaults={"name": code, "level": spawn})
+
+
 def _claim(client, code, node):
     return client.post(
         f"/api/teams/{code}/claim-start/",
@@ -51,12 +59,31 @@ def test_claim_start_writes_color(auth_client, team):
     assert team.color == color_for_start("L1_0")
 
 
+def test_claim_start_creates_spawn_occupancy(auth_client, team):
+    response = _claim(auth_client, team.code, "L1_0")
+    assert response.status_code == 200
+    occupancy = Occupancy.objects.active().get(team=team, node__code="L1_0")
+    assert occupancy.is_spawn is True
+    assert occupancy.slot == 1
+    assert response.json()["holdings"][0]["node_code"] == "L1_0"
+
+
+def test_claim_start_missing_node_is_404(auth_client, team):
+    Node.objects.filter(code="L1_0").delete()
+    response = _claim(auth_client, team.code, "L1_0")
+    assert response.status_code == 404
+    team.refresh_from_db()
+    assert team.color is None
+    assert not Occupancy.objects.filter(team=team).exists()
+
+
 def test_claim_start_is_idempotent_for_same_node(auth_client, team):
     first = _claim(auth_client, team.code, "L1_4")
     second = _claim(auth_client, team.code, "L1_4")
     assert first.status_code == 200
     assert second.status_code == 200
     assert first.json()["color"] == second.json()["color"] == color_for_start("L1_4")
+    assert Occupancy.objects.active().filter(team=team, node__code="L1_4").count() == 1
 
 
 def test_claim_start_rejects_second_color(auth_client, team):

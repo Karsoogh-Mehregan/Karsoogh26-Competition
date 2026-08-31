@@ -88,6 +88,7 @@ function createGraphState() {
     edges,
     nodeById,
     adjacency,
+    startEligibleIds,
     path,
     currentNodeId,
     hasStarted,

@@ -14,17 +14,10 @@ import { useGraph } from '../composables/useGraph.js'
 
 const HOUSE_FILL = '#E8D5B0'
 
-const { actingTeam, claimStart } = useActing()
-const {
-  nodes,
-  edges,
-  nodeById,
-  hasStarted,
-  isSelectable,
-  isSelected,
-  selectNode,
-} = useGraph()
+const { me, teams, actingTeam, claimStart, assignQuestion } = useActing()
+const { nodes, edges, nodeById, adjacency, startEligibleIds } = useGraph()
 
+const loggedIn = computed(() => !!me.value)
 const hasTeam = computed(() => !!actingTeam.value)
 const pendingNode = ref(null)
 const dialogOpen = computed({
@@ -34,12 +27,88 @@ const dialogOpen = computed({
   },
 })
 
+function isStartNode(n) {
+  return !!n && (n.type === 'start' || n.shape === 'diamond')
+}
+
+const paintedHoldings = computed(() => {
+  if (actingTeam.value) {
+    const color = actingTeam.value.color
+    return actingTeam.value.holdings.map((holding) => ({ ...holding, color }))
+  }
+  return teams.value.flatMap((team) =>
+    team.holdings.map((holding) => ({ ...holding, color: team.color })),
+  )
+})
+
+const holdingsByNode = computed(() => {
+  const map = new Map()
+  for (const holding of paintedHoldings.value) {
+    const list = map.get(holding.node_code) ?? []
+    list.push(holding)
+    map.set(holding.node_code, list)
+  }
+  return map
+})
+
+const claimedStartIds = computed(() => {
+  const ids = new Set()
+  for (const team of teams.value) {
+    for (const holding of team.holdings) {
+      const node = nodeById.get(holding.node_code)
+      if (isStartNode(node)) {
+        ids.add(holding.node_code)
+      }
+    }
+    if (!team.color) continue
+    for (const node of nodes) {
+      if (isStartNode(node) && node.color === team.color) {
+        ids.add(node.id)
+      }
+    }
+  }
+  return ids
+})
+
+const actingHeldIds = computed(() => {
+  if (!actingTeam.value) return new Set()
+  return new Set(actingTeam.value.holdings.map((holding) => holding.node_code))
+})
+
+function holdingUnlocksNeighbors(holding) {
+  return holding.is_spawn === true || holding.grade != null
+}
+
+const expandableHeldIds = computed(() => {
+  if (!actingTeam.value) return new Set()
+  return new Set(
+    actingTeam.value.holdings
+      .filter(holdingUnlocksNeighbors)
+      .map((holding) => holding.node_code),
+  )
+})
+
+function isHeld(id) {
+  return holdingsByNode.value.has(id)
+}
+
 function isNodeSelectable(id) {
-  return hasTeam.value && isSelectable(id)
+  if (!loggedIn.value || !hasTeam.value) return false
+  const held = actingHeldIds.value
+  if (held.size === 0) {
+    return startEligibleIds.has(id) && !claimedStartIds.value.has(id)
+  }
+  if (held.has(id)) return false
+  const expandable = expandableHeldIds.value
+  if (expandable.size === 0) return false
+  for (const heldId of expandable) {
+    if (adjacency.get(heldId)?.has(id)) return true
+  }
+  return false
 }
 
 function isNodeSelected(id) {
-  return hasTeam.value && isSelected(id)
+  return isHeld(id)
 }
 
 const hoveredId = ref(null)
@@ -84,15 +153,16 @@ function shrunkTarget(e) {
 }
 
 function isEdgeActive(e) {
-  // Frontier edges: one end is in the component, the other is selectable.
-  if (!hasTeam.value || !hasStarted.value) return false
-  const srcSelected = isNodeSelected(e.source)
-  const tgtSelected = isNodeSelected(e.target)
-  return (srcSelected && isNodeSelectable(e.target)) || (tgtSelected && isNodeSelectable(e.source))
+  if (!hasTeam.value || expandableHeldIds.value.size === 0) return false
+  const srcExpandable = expandableHeldIds.value.has(e.source)
+  const tgtExpandable = expandableHeldIds.value.has(e.target)
+  return (
+    (srcExpandable && isNodeSelectable(e.target)) ||
+    (tgtExpandable && isNodeSelectable(e.source))
+  )
 }
 
 function isEdgeTraversed(e) {
-  // Edge is inside the selected component (both ends chosen).
   return isNodeSelected(e.source) && isNodeSelected(e.target)
 }
 
@@ -100,33 +170,56 @@ function isEdgeTraversed(e) {
 function nodeState(n) {
   if (isNodeSelected(n.id)) return 'visited'
   if (isNodeSelectable(n.id)) return 'selectable'
+  if (isStartNode(n) && !claimedStartIds.value.has(n.id)) return 'idle'
   return 'disabled'
 }
 
 function onNodeClick(n) {
-  if (!hasTeam.value || !isNodeSelectable(n.id)) return
+  if (!isNodeSelectable(n.id)) return
   pendingNode.value = n
 }
 
-async function enterHouse() {
+const pendingIsStart = computed(
+  () => isStartNode(pendingNode.value) && actingHeldIds.value.size === 0,
+)
+
+async function confirmNodeAction() {
   const node = pendingNode.value
+  const claimStartNode = pendingIsStart.value
   pendingNode.value = null
   if (!node || !hasTeam.value) return
-  if (node.type === 'start' || node.shape === 'diamond') {
-    try {
+  try {
+    if (claimStartNode) {
       await claimStart(node.id)
-    } catch (err) {
-      toast.error(err.message || 'ادعای خانهٔ شروع ناموفق بود.')
+      toast.success('خانهٔ شروع ثبت شد')
       return
     }
+    const result = await assignQuestion(node.id)
+    toast.success(`سؤال ${result.question_id ?? ''} رزرو شد`)
+  } catch (err) {
+    toast.error(err.message || 'عملیات ناموفق بود.')
   }
-  selectNode(node.id)
+}
+
+function ringFill(n, ringIndexFromOutside) {
+  const holdings = holdingsByNode.value.get(n.id) ?? []
+  const floor = ringIndexFromOutside + 1
+  const onFloor = holdings.find((holding) => holding.floor === floor)
+  if (onFloor?.color) return onFloor.color
+  if (ringIndexFromOutside === 0) {
+    const pending = holdings.find((holding) => holding.floor == null)
+    if (pending?.color) return pending.color
+  }
+  return HOUSE_FILL
 }
 
 function nodeFill(n) {
-  if (n.type === 'start' || n.shape === 'diamond') {
-    return n.color
+  const holdings = holdingsByNode.value.get(n.id) ?? []
+  const colored = holdings.find((holding) => holding.color)
+  if (colored?.color && (slotCount(n) === 1 || isStartNode(n))) {
+    return colored.color
   }
+  if (isStartNode(n)) return n.color
   return HOUSE_FILL
 }
 
@@ -254,7 +347,7 @@ function shapePath(n) {
             v-for="(r, i) in slotRadii(n)"
             :key="i"
             :r="r"
-            :fill="nodeFill(n)"
+            :fill="ringFill(n, i)"
             class="node-shape"
           />
         </template>
@@ -309,7 +402,9 @@ function shapePath(n) {
           </DialogDescription>
         </DialogHeader>
         <div class="flex flex-col gap-2">
-          <Button class="w-full" @click="enterHouse">ورود به این خانه</Button>
+          <Button class="w-full" @click="confirmNodeAction">
+            {{ pendingIsStart ? 'ورود به این خانه' : 'رزرو این خانه' }}
+          </Button>
           <Button class="w-full" variant="outline" @click="startDuel">دویل</Button>
         </div>
       </DialogContent>
@@ -374,6 +469,11 @@ function shapePath(n) {
 .state-disabled {
   opacity: 0.32;
   cursor: not-allowed;
+}
+
+.state-idle {
+  opacity: 1;
+  cursor: default;
 }
 
 .state-selectable {

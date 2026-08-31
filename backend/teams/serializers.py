@@ -13,7 +13,7 @@ class HoldingSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Occupancy
-        fields = ("id", "node_code", "node_name", "level", "slot", "floor")
+        fields = ("id", "node_code", "node_name", "level", "slot", "floor", "grade", "is_spawn")
 
 
 class TeamSerializer(serializers.ModelSerializer):

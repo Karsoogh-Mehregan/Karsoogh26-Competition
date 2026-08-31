@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
@@ -17,11 +18,12 @@ from game.exceptions import (
     GameServiceError,
     InvalidAnswerPayload,
     MissingFloor,
+    NoQuestionAvailable,
     NotTeamMember,
     OccupancyNotActive,
     SubmissionWindowClosed,
 )
-from game.models import Occupancy, Question, Submission, TeamQuestion
+from game.models import Node, Occupancy, Question, Submission, TeamQuestion
 from game.permissions import IsTeamMember
 from game.serializers import (
     AssignQuestionSerializer,
@@ -39,6 +41,7 @@ from game.serializers import (
     occupancy_for_user,
 )
 from game.services import grade_submission, submit_answer
+from teams.models import Team
 
 _OCCUPANCY_PK = OpenApiParameter("pk", int, OpenApiParameter.PATH, description="Occupancy id")
 _SUBMISSION_PK = OpenApiParameter("pk", int, OpenApiParameter.PATH, description="Submission id")
@@ -132,8 +135,13 @@ _SUBMISSION_DETAIL = {
 def _map_service_error(exc: GameServiceError):
     if isinstance(exc, NotTeamMember):
         raise PermissionDenied(str(exc)) from exc
+    if isinstance(exc, GameNotRunning):
+        raise Conflict("بازی در حال اجرا نیست.") from exc
+    if isinstance(exc, NoQuestionAvailable):
+        raise Conflict("سؤال استفاده نشده‌ای برای این سطح باقی نمانده است.") from exc
     if isinstance(
-        exc, (OccupancyNotActive, GameNotRunning, SubmissionWindowClosed, AlreadySubmitted)
+        exc,
+        (OccupancyNotActive, SubmissionWindowClosed, AlreadySubmitted),
     ):
         raise Conflict(str(exc)) from exc
     if isinstance(exc, InvalidAnswerPayload):
@@ -443,14 +451,52 @@ class MentorActionView(APIView):
 class AssignQuestionView(MentorActionView):
     serializer_class = AssignQuestionSerializer
 
-    def perform(self, holding, data):
-        # The service is idempotent, but the mentor endpoint is not: handing the
-        # same holding a second question is a mistake worth surfacing.
-        if holding.question_assigned_at is not None:
-            raise services.Conflict("سؤال قبلاً به این تیم تخصیص داده شده است.")
-        services.assign_question(holding)
-        holding.refresh_from_db()
-        return holding
+    def post(self, request, team_code: str, node_code: str):
+        payload = self.serializer_class(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        team = Team.objects.filter(code=team_code).first()
+        if team is None:
+            raise NotFound(f"تیم «{team_code}» پیدا نشد.")
+        node = Node.objects.select_related("level").filter(code=node_code).first()
+        if node is None:
+            raise NotFound(f"خانه «{node_code}» پیدا نشد.")
+
+        try:
+            with transaction.atomic():
+                holding = (
+                    Occupancy.objects.active()
+                    .select_related("node", "node__level", "team")
+                    .filter(team=team, node=node)
+                    .first()
+                )
+                if holding is None:
+                    if not Occupancy.objects.active().filter(team=team).exists():
+                        raise Conflict("ابتدا یک خانهٔ شروع برای این تیم بگیرید.")
+                    if not services.is_adjacent_to_team(team, node):
+                        if not services.team_has_expandable_holding(team):
+                            raise Conflict(
+                                "تا وقتی این خانه نمره نداشته باشد نمی‌توان همسایه را رزرو کرد."
+                            )
+                        raise Conflict("این خانه همسایهٔ خانه‌های این تیم نیست.")
+                    holding = services.enter_node(team, node)
+                if holding.question_assigned_at is not None:
+                    raise Conflict("سؤال قبلاً به این تیم تخصیص داده شده است.")
+                services.assign_question(holding)
+                holding.refresh_from_db()
+                submission, _created = Submission.objects.get_or_create(
+                    occupancy=holding,
+                    defaults={
+                        "body": "mentor-assigned",
+                        "submitted_by": request.user,
+                    },
+                )
+        except GameServiceError as exc:
+            _map_service_error(exc)
+
+        data = HoldingSerializer(holding).data
+        data["submission_id"] = submission.pk
+        return Response(data)
 
 
 @extend_schema(
