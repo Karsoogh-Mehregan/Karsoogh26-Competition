@@ -29,6 +29,7 @@ Backend, in `backend/` (`SECRET_KEY` is the only required env var — `cp .env.e
 uv sync                                   # .venv from uv.lock
 uv run manage.py migrate
 uv run manage.py runserver                # :8000, /admin/, /api/docs/ (DEBUG only)
+uv run manage.py create_team_users --fund --csv teams.csv  # one login per team
 
 uv run pytest
 uv run pytest tests/test_constraints.py::TestCapacity                 # one class
@@ -66,18 +67,25 @@ session cookies stay same-origin. The side panel lists teams from the API; the m
 is locked until the mentor is logged in (clicks do nothing, nodes stay disabled).
 The map itself is still a local adjacency demo, not a game move.
 
-**Auth / acting-as.** Mentors are any user holding `game.act_as_mentor` (`IsMentor`). The
-team a mentor acts for is **a path segment, never server state**: `/api/teams/<team_code>/…`,
-as in `claim-start/` and the `MentorActionView` routes. There is no `act-as` endpoint and no
-session key; the SPA owns the selection (`localStorage`, `stores/acting.ts`). A team-scoped
-endpoint therefore MUST keep `permission_classes = [IsMentor]` — a mentor may act for any
-team, so the URL is the whole authorisation story. When non-mentor players get endpoints,
-those must check `request.user.team_id` against the URL team.
+**Auth / acting-as.** The event is played online: each team logs in as itself, one shared
+account per team (`accounts.User.team`, username = `Team.code`), created by
+`create_team_users`. Mentors are any user holding `game.act_as_mentor` (`IsMentor`) and no
+longer move for a team — they only grade/release. A team-scoped endpoint (`claim-start/`,
+`assign-question/`) is `permission_classes = [IsAuthenticated, IsOwnTeam, GameIsRunning]`:
+`IsOwnTeam` (`game/permissions.py`) requires the `<team_code>` path segment to equal
+`request.user.team.code`, so the URL is a claim the server verifies, not the whole
+authorisation story. `grade/`, `release/` and `/api/submissions/…` stay `[IsMentor]`.
+There is no `act-as` endpoint and no session key for mentors; the SPA still owns which team
+a mentor is *viewing* (`localStorage`, `stores/acting.ts`) — that selection carries no
+authority now, unlike a team's own session.
 `GET /api/auth/csrf/` (`@ensure_csrf_cookie`) is the SPA's
 CSRF entry point and also returns `{"csrf_token": "..."}` so the SPA does not have
 to scrape `document.cookie`. `login()` rotates the token, and the login response
-sets the new cookie. `GameIsRunning` rejects actions unless `GameSettings.load().is_running`;
-apply it to move/duel/questions, not to auth or the team picker.
+sets the new cookie. `GET /api/auth/me/` returns `is_mentor` (`has_perm("game.act_as_mentor")`,
+not `is_staff`) and `team` (`{code, name}` or `null`) so the SPA can tell the two roles apart.
+`GameIsRunning` rejects actions unless `GameSettings.load().is_running`; it is wired into the
+two move endpoints above (closing a prior hole where `claim-start/` worked before the game
+started) plus duel/questions, not auth or the team picker.
 `STATIC_URL` must start with `/` (`"/static/"`) or Django's StaticFilesHandler will
 not serve admin CSS.
 
@@ -94,8 +102,10 @@ is graded, and released rows never extend reach; reach follows `Edge.directed` o
 set. A team with no active holdings may only take the start node matching its `Team.color`.
 It costs `LevelConfig.entry_cost` and takes the lowest free slot up to `capacity`. Posting
 again to a node the team already holds only tops up a missing question — it never charges
-twice. The view layers one thing on `claim_node`: a `Submission` row (`"mentor-assigned"`) so
-the mentor has something to grade, returned as `submission_id` alongside the holding.
+twice. The team answers through `POST /api/occupancies/<pk>/question/` and
+`/submit/` (`IsTeamMember`, ownership enforced inside `submit_answer`); a mentor grades the
+resulting `Submission` through `/api/submissions/…`, so `assign-question/`'s response carries
+no `submission_id` — none exists until the team actually answers.
 `POST teams/<code>/claim-start/` is the other half — it writes the team's colour *and* seats
 it on the matching spawn node (`services.claim_spawn`), which is what unblocks the first
 `assign-question`. `grade/` and `release/` still address an existing holding and 404 without one.
@@ -107,7 +117,7 @@ it on the matching spawn node (`services.claim_spawn`), which is what unblocks t
 
 **SQLite gives false passes.** `select_for_update()` is ignored, not rejected, so
 `conftest.py` force-skips `postgres_only` tests off Postgres. `uv run pytest` on SQLite
-gives 111 passed / 2 skipped; on Postgres, 113 passed. Run row-lock work against real
+gives 135 passed / 2 skipped; on Postgres, 137 passed. Run row-lock work against real
 Postgres. CI does.
 
 **Money is Decimal-from-string, rounded half-up** (`_round_half_up`, since Python defaults

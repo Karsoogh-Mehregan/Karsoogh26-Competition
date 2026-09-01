@@ -26,3 +26,17 @@ class GameIsRunning(BasePermission):
 
     def has_permission(self, request, view):
         return GameSettings.load().is_running
+
+
+class CanViewLeaderboard(BasePermission):
+    """Mentors always see the leaderboard; teams only once it is made public."""
+
+    message = "جدول امتیازات پنهان است."
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not (user and user.is_authenticated):
+            return False
+        if user.has_perm(MENTOR_PERM):
+            return True
+        return GameSettings.load().leaderboard_public

@@ -29,6 +29,13 @@ def claim_url(team: str, node: str) -> str:
     return reverse("game:assign-question", kwargs={"team_code": team, "node_code": node})
 
 
+def client_for(django_user_model, team: Team) -> APIClient:
+    user = django_user_model.objects.create_user(f"user-{team.code}", password="x", team=team)
+    client = APIClient()
+    client.force_authenticate(user)
+    return client
+
+
 @pytest.fixture
 def running_game():
     settings = GameSettings.load()
@@ -93,12 +100,8 @@ def team():
 
 
 @pytest.fixture
-def client_mentor(django_user_model):
-    mentor = django_user_model.objects.create_user("mentor", password="conductor")
-    mentor.groups.add(Group.objects.get(name="Mentors"))
-    client = APIClient()
-    client.force_authenticate(mentor)
-    return client
+def client_team(django_user_model, team):
+    return client_for(django_user_model, team)
 
 
 def hold(team: Team, node: Node, **kwargs) -> Occupancy:
@@ -112,9 +115,9 @@ def hold(team: Team, node: Node, **kwargs) -> Occupancy:
 
 class TestFirstMove:
     def test_start_node_is_reserved_and_handed_a_question(
-        self, client_mentor, running_game, graph, questions, team
+        self, client_team, running_game, graph, questions, team
     ):
-        response = client_mentor.post(claim_url("alpha", START_CODE))
+        response = client_team.post(claim_url("alpha", START_CODE))
 
         assert response.status_code == 200
         assert response.data["node"]["code"] == START_CODE
@@ -126,35 +129,37 @@ class TestFirstMove:
         assert holding.question_id is not None
 
     def test_a_team_with_no_holdings_cannot_start_elsewhere(
-        self, client_mentor, running_game, graph, questions, team
+        self, client_team, running_game, graph, questions, team
     ):
-        response = client_mentor.post(claim_url("alpha", "e1"))
+        response = client_team.post(claim_url("alpha", "e1"))
 
         assert response.status_code == 409
         assert not Occupancy.objects.filter(team=team).exists()
 
     def test_another_teams_start_node_is_refused(
-        self, client_mentor, running_game, graph, questions, team
+        self, client_team, running_game, graph, questions, team
     ):
         node = Node.objects.create(
             code="L1_4", name="L1_4", level=LevelConfig.objects.get(level="spawn")
         )
         undirected(node, Node.objects.get(code="e1"))
 
-        assert client_mentor.post(claim_url("alpha", "L1_4")).status_code == 409
+        assert client_team.post(claim_url("alpha", "L1_4")).status_code == 409
 
-    def test_colorless_team_cannot_move(self, client_mentor, running_game, graph, questions):
-        Team.objects.create(code="bravo", name="Bravo", balance=500)
-        assert client_mentor.post(claim_url("bravo", START_CODE)).status_code == 409
+    def test_colorless_team_cannot_move(self, django_user_model, running_game, graph, questions):
+        bravo = Team.objects.create(code="bravo", name="Bravo", balance=500)
+        client = client_for(django_user_model, bravo)
+
+        assert client.post(claim_url("bravo", START_CODE)).status_code == 409
 
 
 class TestAdjacency:
     def test_neighbour_of_a_held_node_is_reachable(
-        self, client_mentor, running_game, graph, questions, team
+        self, client_team, running_game, graph, questions, team
     ):
         hold(team, graph[START_CODE], is_spawn=True)
 
-        response = client_mentor.post(claim_url("alpha", "e1"))
+        response = client_team.post(claim_url("alpha", "e1"))
 
         assert response.status_code == 200
         assert set(Occupancy.objects.active().values_list("node__code", flat=True)) == {
@@ -162,23 +167,21 @@ class TestAdjacency:
             "e1",
         }
 
-    def test_disconnected_node_is_refused(
-        self, client_mentor, running_game, graph, questions, team
-    ):
+    def test_disconnected_node_is_refused(self, client_team, running_game, graph, questions, team):
         hold(team, graph[START_CODE], is_spawn=True)
 
-        response = client_mentor.post(claim_url("alpha", "far"))
+        response = client_team.post(claim_url("alpha", "far"))
 
         assert response.status_code == 409
         assert not Occupancy.objects.filter(node__code="far").exists()
 
-    def test_two_hops_away_is_refused(self, client_mentor, running_game, graph, questions, team):
+    def test_two_hops_away_is_refused(self, client_team, running_game, graph, questions, team):
         hold(team, graph[START_CODE], is_spawn=True)
 
-        assert client_mentor.post(claim_url("alpha", "m1")).status_code == 409
+        assert client_team.post(claim_url("alpha", "m1")).status_code == 409
 
     def test_released_holdings_do_not_extend_reach(
-        self, client_mentor, running_game, graph, questions, team
+        self, client_team, running_game, graph, questions, team
     ):
         hold(team, graph[START_CODE], is_spawn=True)
         released = hold(team, graph["e1"], slot=2)
@@ -186,26 +189,26 @@ class TestAdjacency:
         released.release_reason = "expired"
         released.save(update_fields=["released_at", "release_reason"])
 
-        assert client_mentor.post(claim_url("alpha", "m1")).status_code == 409
+        assert client_team.post(claim_url("alpha", "m1")).status_code == 409
 
-    def test_directed_edge_is_one_way(self, client_mentor, running_game, graph, questions, team):
+    def test_directed_edge_is_one_way(self, client_team, running_game, graph, questions, team):
         hold(team, graph["e1"], grade=80)
 
-        assert client_mentor.post(claim_url("alpha", "e2")).status_code == 200
+        assert client_team.post(claim_url("alpha", "e2")).status_code == 200
 
     def test_directed_edge_is_refused_backwards(
-        self, client_mentor, running_game, graph, questions, team
+        self, client_team, running_game, graph, questions, team
     ):
         hold(team, graph["e2"], grade=80)
 
-        assert client_mentor.post(claim_url("alpha", "e1")).status_code == 409
+        assert client_team.post(claim_url("alpha", "e1")).status_code == 409
 
     def test_an_ungraded_reservation_does_not_extend_reach(
-        self, client_mentor, running_game, graph, questions, team
+        self, client_team, running_game, graph, questions, team
     ):
         hold(team, graph["e1"])
 
-        response = client_mentor.post(claim_url("alpha", "m1"))
+        response = client_team.post(claim_url("alpha", "m1"))
 
         assert response.status_code == 409
         assert "نمره" in response.json()["detail"]
@@ -213,47 +216,47 @@ class TestAdjacency:
 
 
 class TestSlotsAndCost:
-    def test_entry_cost_is_charged_once(self, client_mentor, running_game, graph, questions, team):
+    def test_entry_cost_is_charged_once(self, client_team, running_game, graph, questions, team):
         hold(team, graph[START_CODE], is_spawn=True)
         cost = LevelConfig.objects.get(level="easy").entry_cost
 
-        assert client_mentor.post(claim_url("alpha", "e1")).status_code == 200
+        assert client_team.post(claim_url("alpha", "e1")).status_code == 200
         team.refresh_from_db()
         assert team.balance == 500 - cost
 
         # Re-posting hits the already-assigned guard, not the wallet.
-        assert client_mentor.post(claim_url("alpha", "e1")).status_code == 409
+        assert client_team.post(claim_url("alpha", "e1")).status_code == 409
         team.refresh_from_db()
         assert team.balance == 500 - cost
 
-    def test_a_poor_team_cannot_move(self, client_mentor, running_game, graph, questions, team):
+    def test_a_poor_team_cannot_move(self, client_team, running_game, graph, questions, team):
         hold(team, graph[START_CODE], is_spawn=True)
         Team.objects.filter(pk=team.pk).update(balance=1)
 
-        response = client_mentor.post(claim_url("alpha", "e1"))
+        response = client_team.post(claim_url("alpha", "e1"))
 
         assert response.status_code == 409
         team.refresh_from_db()
         assert team.balance == 1
 
-    def test_the_next_free_slot_is_taken(self, client_mentor, running_game, graph, questions, team):
+    def test_the_next_free_slot_is_taken(self, client_team, running_game, graph, questions, team):
         other = Team.objects.create(code="bravo", name="Bravo", balance=500)
         hold(other, graph["m1"], slot=1)
         hold(team, graph["e1"], grade=80)
 
-        response = client_mentor.post(claim_url("alpha", "m1"))
+        response = client_team.post(claim_url("alpha", "m1"))
 
         assert response.status_code == 200
         assert response.data["slot"] == 2
 
-    def test_a_full_node_is_refused(self, client_mentor, running_game, graph, questions, team):
+    def test_a_full_node_is_refused(self, client_team, running_game, graph, questions, team):
         capacity = LevelConfig.objects.get(level="easy").capacity
         for slot in range(1, capacity + 1):
             filler = Team.objects.create(code=f"t{slot}", name=f"T{slot}", balance=0)
             hold(filler, graph["e3"], slot=slot)
         hold(team, graph["e1"], grade=80)
 
-        response = client_mentor.post(claim_url("alpha", "e3"))
+        response = client_team.post(claim_url("alpha", "e3"))
 
         assert response.status_code == 409
         team.refresh_from_db()
@@ -261,25 +264,36 @@ class TestSlotsAndCost:
 
 
 class TestGuards:
-    def test_unknown_node_is_404(self, client_mentor, running_game, graph, questions, team):
-        assert client_mentor.post(claim_url("alpha", "nowhere")).status_code == 404
+    def test_unknown_node_is_404(self, client_team, running_game, graph, questions, team):
+        assert client_team.post(claim_url("alpha", "nowhere")).status_code == 404
 
-    def test_unknown_team_is_404(self, client_mentor, running_game, graph, questions):
-        assert client_mentor.post(claim_url("nobody", START_CODE)).status_code == 404
+    def test_another_teams_code_is_403(self, client_team, running_game, graph, questions, team):
+        Team.objects.create(code="nobody", name="Nobody", balance=500)
+        assert client_team.post(claim_url("nobody", START_CODE)).status_code == 403
 
-    def test_requires_a_running_game(self, client_mentor, graph, questions, team):
-        assert client_mentor.post(claim_url("alpha", START_CODE)).status_code == 409
+    def test_requires_a_running_game(self, client_team, graph, questions, team):
+        assert client_team.post(claim_url("alpha", START_CODE)).status_code == 403
 
-    def test_an_empty_question_bank_reserves_nothing(
-        self, client_mentor, running_game, graph, team
-    ):
-        response = client_mentor.post(claim_url("alpha", START_CODE))
+    def test_an_empty_question_bank_reserves_nothing(self, client_team, running_game, graph, team):
+        response = client_team.post(claim_url("alpha", START_CODE))
 
         assert response.status_code == 409
         assert not Occupancy.objects.filter(team=team).exists()
 
-    def test_non_mentor_is_rejected(self, django_user_model, running_game, graph, questions, team):
+    def test_user_without_team_is_rejected(
+        self, django_user_model, running_game, graph, questions, team
+    ):
         client = APIClient()
         client.force_authenticate(django_user_model.objects.create_user("player", password="x"))
+
+        assert client.post(claim_url("alpha", START_CODE)).status_code == 403
+
+    def test_mentor_cannot_move_for_a_team(
+        self, django_user_model, running_game, graph, questions, team
+    ):
+        mentor = django_user_model.objects.create_user("mentor", password="x")
+        mentor.groups.add(Group.objects.get(name="Mentors"))
+        client = APIClient()
+        client.force_authenticate(mentor)
 
         assert client.post(claim_url("alpha", START_CODE)).status_code == 403

@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from accounts.permissions import MENTOR_PERM
 from game.models import Occupancy
 
 from .models import Team
@@ -18,10 +19,25 @@ class HoldingSerializer(serializers.ModelSerializer):
 
 class TeamSerializer(serializers.ModelSerializer):
     holdings = HoldingSerializer(many=True, read_only=True)
+    balance = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
         fields = ("code", "name", "balance", "color", "holdings")
+
+    def get_balance(self, team: Team) -> int | None:
+        """Only mentors and the team itself see the number; other teams see null."""
+        user = self.context["request"].user
+        if user.has_perm(MENTOR_PERM) or user.team_id == team.pk:
+            return team.balance
+        return None
+
+
+class LeaderboardRowSerializer(serializers.Serializer):
+    rank = serializers.IntegerField(read_only=True)
+    code = serializers.SlugField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    balance = serializers.IntegerField(read_only=True)
 
 
 class ClaimStartSerializer(serializers.Serializer):

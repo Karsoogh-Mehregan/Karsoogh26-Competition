@@ -132,7 +132,13 @@ class OccupancyAdmin(admin.ModelAdmin):
 
 @admin.register(GameSettings)
 class GameSettingsAdmin(admin.ModelAdmin):
-    list_display = ("__str__", "status", "initial_balance", "attempt_ttl_minutes")
+    list_display = (
+        "__str__",
+        "status",
+        "initial_balance",
+        "attempt_ttl_minutes",
+        "leaderboard_public",
+    )
 
     def has_add_permission(self, request):
         return not GameSettings.objects.exists()

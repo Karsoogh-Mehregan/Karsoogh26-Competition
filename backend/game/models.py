@@ -266,6 +266,7 @@ class GameSettings(models.Model):
     status = models.CharField(
         max_length=12, choices=GameStatus.choices, default=GameStatus.NOT_STARTED
     )
+    leaderboard_public = models.BooleanField(default=False)
 
     class Meta:
         verbose_name = "game settings"

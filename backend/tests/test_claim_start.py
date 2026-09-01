@@ -4,20 +4,13 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 
-from game.models import LevelConfig, Node, Occupancy
+from game.models import GameSettings, GameStatus, LevelConfig, Node, Occupancy
 from teams.models import Team
 from teams.start_colors import color_for_start
 
 pytestmark = pytest.mark.django_db
 
 User = get_user_model()
-
-
-@pytest.fixture
-def user():
-    mentor = User.objects.create_user("mentor", password="secret")
-    mentor.groups.add(Group.objects.get(name="Mentors"))
-    return mentor
 
 
 @pytest.fixture
@@ -31,9 +24,18 @@ def other_team():
 
 
 @pytest.fixture
-def auth_client(client, user):
+def auth_client(client, team):
+    user = User.objects.create_user("user-alpha", password="secret", team=team)
     client.force_login(user)
     return client
+
+
+@pytest.fixture(autouse=True)
+def running_game():
+    settings = GameSettings.load()
+    settings.status = GameStatus.RUNNING
+    settings.save(update_fields=["status"])
+    return settings
 
 
 @pytest.fixture(autouse=True)
@@ -108,18 +110,31 @@ def test_claim_start_rejects_non_start_node(auth_client, team):
     assert response.status_code == 400
 
 
-def test_claim_start_unknown_team_is_404(auth_client):
+def test_claim_start_other_teams_code_is_403(auth_client):
     response = _claim(auth_client, "nope", "L1_0")
-    assert response.status_code == 404
+    assert response.status_code == 403
 
 
-def test_non_staff_mentor_can_claim_for_any_team(auth_client, user, other_team):
-    assert user.is_staff is False
-    assert user.team is None
-    response = _claim(auth_client, other_team.code, "L1_0")
-    assert response.status_code == 200
+def test_claim_start_requires_a_running_game(client, team):
+    settings = GameSettings.load()
+    settings.status = GameStatus.NOT_STARTED
+    settings.save(update_fields=["status"])
+    user = User.objects.create_user("user-alpha2", password="secret", team=team)
+    client.force_login(user)
+
+    response = _claim(client, team.code, "L1_0")
+    assert response.status_code == 403
+
+
+def test_mentor_cannot_claim_start_for_a_team(client, other_team):
+    mentor = User.objects.create_user("mentor", password="secret")
+    mentor.groups.add(Group.objects.get(name="Mentors"))
+    client.force_login(mentor)
+
+    response = _claim(client, other_team.code, "L1_0")
+    assert response.status_code == 403
     other_team.refresh_from_db()
-    assert other_team.color == color_for_start("L1_0")
+    assert other_team.color is None
 
 
 def test_start_colors_are_unique():
