@@ -4,21 +4,25 @@ import { ensureCsrf, getMe, login, logout } from '@/services/auth'
 import type { LoginCredentials, Me } from '@/types/api'
 import { queryKeys } from './keys'
 
-export function useMeQuery() {
-  return useQuery({
-    queryKey: queryKeys.me(),
-    queryFn: async ({ signal }): Promise<Me | null> => {
-      try {
-        return await getMe(signal)
-      } catch (error) {
-        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
-          return null
-        }
-        throw error
+// Shared with the router guard (router.ts), which prefetches `me` via
+// queryClient.ensureQueryData(meQueryOptions) before resolving a navigation.
+export const meQueryOptions = {
+  queryKey: queryKeys.me(),
+  queryFn: async ({ signal }: { signal?: AbortSignal }): Promise<Me | null> => {
+    try {
+      return await getMe(signal)
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+        return null
       }
-    },
-    retry: false,
-  })
+      throw error
+    }
+  },
+  retry: false,
+}
+
+export function useMeQuery() {
+  return useQuery(meQueryOptions)
 }
 
 export function useLoginMutation() {

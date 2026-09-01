@@ -1,15 +1,29 @@
 <script setup>
-import { CheckIcon, SearchIcon } from '@lucide/vue'
+import { CheckIcon, CircleCheckIcon, CoinsIcon, HourglassIcon, SearchIcon } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { formatBalance } from '@/lib/format'
 import { useActing } from '../composables/useActing'
 
-const { me, teams, actingTeam, loading, error, submitting, login, actAs, logout } = useActing()
+const {
+  me,
+  teams,
+  actingTeam,
+  isMentor,
+  isPlayer,
+  loading,
+  error,
+  submitting,
+  login,
+  actAs,
+  logout,
+} = useActing()
 const route = useRoute()
 
 const username = ref('')
@@ -63,18 +77,38 @@ function isNoneSelected() {
           {{ actingTeam.name }}
         </span>
       </p>
-      <p v-else-if="me" class="text-muted-foreground mt-1 text-sm">
+      <p v-else-if="isMentor" class="text-muted-foreground mt-1 text-sm">
         یک تیم را انتخاب کنید
       </p>
       <p v-else class="text-muted-foreground mt-1 text-sm">
         برای دیدن تیم‌ها وارد شوید
       </p>
-      <nav v-if="me" class="mt-3 flex gap-2">
+      <nav v-if="me" class="mt-3 flex flex-wrap gap-2">
         <Button as-child size="sm" :variant="route.path === '/' ? 'default' : 'outline'">
-          <RouterLink to="/">نقشه</RouterLink>
+          <RouterLink to="/" :aria-current="route.path === '/' ? 'page' : undefined">
+            نقشه
+          </RouterLink>
         </Button>
-        <Button as-child size="sm" :variant="route.path === '/grading' ? 'default' : 'outline'">
-          <RouterLink to="/grading">نمره‌دهی</RouterLink>
+        <Button
+          v-if="isMentor"
+          as-child
+          size="sm"
+          :variant="route.path === '/grading' ? 'default' : 'outline'"
+        >
+          <RouterLink
+            to="/grading"
+            :aria-current="route.path === '/grading' ? 'page' : undefined"
+          >
+            نمره‌دهی
+          </RouterLink>
+        </Button>
+        <Button as-child size="sm" :variant="route.path === '/leaderboard' ? 'default' : 'outline'">
+          <RouterLink
+            to="/leaderboard"
+            :aria-current="route.path === '/leaderboard' ? 'page' : undefined"
+          >
+            جدول امتیازات
+          </RouterLink>
         </Button>
       </nav>
     </header>
@@ -113,7 +147,7 @@ function isNoneSelected() {
         </Button>
       </form>
 
-      <template v-else>
+      <template v-else-if="isMentor">
         <div class="relative mb-3 shrink-0">
           <Label for="team-search" class="sr-only">جستجوی تیم</Label>
           <SearchIcon
@@ -182,6 +216,56 @@ function isNoneSelected() {
           تیمی پیدا نشد.
         </p>
       </template>
+
+      <Card v-else-if="isPlayer" class="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+        <CardHeader>
+          <CardTitle class="flex items-center gap-2">
+            <span
+              v-if="actingTeam?.color"
+              class="size-3 shrink-0 rounded-full border"
+              :style="{ backgroundColor: actingTeam.color }"
+            />
+            {{ actingTeam?.name ?? me.team.name }}
+          </CardTitle>
+          <div class="mt-3 flex items-center gap-2">
+            <CoinsIcon class="text-muted-foreground size-4 shrink-0" />
+            <span class="text-muted-foreground text-xs">موجودی</span>
+            <span class="ms-auto text-xl leading-none font-bold tabular-nums">
+              {{ formatBalance(actingTeam?.balance) }}
+            </span>
+          </div>
+        </CardHeader>
+        <CardContent class="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+          <h2 class="text-muted-foreground text-xs font-medium">خانه‌های من</h2>
+          <p v-if="!actingTeam?.holdings.length" class="text-muted-foreground text-sm">
+            هنوز خانه‌ای رزرو نشده است.
+          </p>
+          <ul v-else class="-mx-1 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-1">
+            <li
+              v-for="holding in actingTeam.holdings"
+              :key="holding.id"
+              class="bg-muted/40 flex flex-col gap-1.5 rounded-md border p-2.5"
+            >
+              <div class="flex items-start justify-between gap-2">
+                <span class="text-sm font-medium">{{ holding.node_name }}</span>
+                <Badge variant="outline" class="shrink-0 font-normal">{{ holding.level }}</Badge>
+              </div>
+              <Badge
+                v-if="holding.grade == null"
+                variant="secondary"
+                class="w-fit font-normal"
+              >
+                <HourglassIcon class="size-3" />
+                در انتظار پاسخ یا نمره
+              </Badge>
+              <Badge v-else variant="outline" class="w-fit font-normal">
+                <CircleCheckIcon class="size-3" />
+                نمره {{ holding.grade }}
+              </Badge>
+            </li>
+          </ul>
+        </CardContent>
+      </Card>
     </div>
 
     <footer v-if="me && !loading" class="border-t px-5 py-3">

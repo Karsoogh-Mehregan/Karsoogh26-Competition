@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
-import { claimStart, listTeams } from '@/services/teams'
+import { claimStart, getLeaderboard, listTeams } from '@/services/teams'
 import type { Team } from '@/types/api'
 import { queryKeys } from './keys'
 
@@ -7,6 +7,14 @@ export function useTeamsQuery(enabled: () => boolean) {
   return useQuery({
     queryKey: queryKeys.teams(),
     queryFn: ({ signal }) => listTeams(signal),
+    enabled,
+  })
+}
+
+export function useLeaderboardQuery(enabled: () => boolean) {
+  return useQuery({
+    queryKey: queryKeys.leaderboard(),
+    queryFn: ({ signal }) => getLeaderboard(signal),
     enabled,
   })
 }

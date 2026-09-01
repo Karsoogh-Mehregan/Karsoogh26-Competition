@@ -8,6 +8,7 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export interface RequestOptions {
   method?: HttpMethod
   json?: unknown
+  form?: FormData
   signal?: AbortSignal
 }
 
@@ -101,12 +102,13 @@ async function toApiError(response: Response): Promise<ApiError> {
 }
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', json, signal } = options
+  const { method = 'GET', json, form, signal } = options
   const headers: Record<string, string> = {}
 
   if (json !== undefined) {
     headers['Content-Type'] = 'application/json'
   }
+  // No Content-Type for `form`: the browser sets multipart/form-data with the boundary itself.
 
   if (!SAFE_METHODS.has(method)) {
     if (!csrfToken) {
@@ -124,7 +126,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     method,
     credentials: 'include',
     headers,
-    body: json !== undefined ? JSON.stringify(json) : undefined,
+    body: form ?? (json !== undefined ? JSON.stringify(json) : undefined),
     signal,
   })
 
@@ -146,6 +148,10 @@ export function get<T>(path: string, signal?: AbortSignal): Promise<T> {
 
 export function post<T>(path: string, json?: unknown, signal?: AbortSignal): Promise<T> {
   return request<T>(path, { method: 'POST', json, signal })
+}
+
+export function postForm<T>(path: string, form: FormData, signal?: AbortSignal): Promise<T> {
+  return request<T>(path, { method: 'POST', form, signal })
 }
 
 export function del<T>(path: string, signal?: AbortSignal): Promise<T> {
