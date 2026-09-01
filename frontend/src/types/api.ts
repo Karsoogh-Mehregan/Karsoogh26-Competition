@@ -95,3 +95,67 @@ export interface GradeResult {
   released_at: string | null
   release_reason: string
 }
+
+export interface TerritoryTeam {
+  code: string
+  name: string
+  color: string | null
+}
+
+export interface TerritoryPlayer extends TerritoryTeam {
+  score: number
+  has_selected_start: boolean
+}
+
+export interface TerritoryCell {
+  row: number
+  column: number
+  value: number
+  owner: TerritoryTeam | null
+}
+
+export type TerritoryAction =
+  | 'starting_position'
+  | 'neutral_capture'
+  | 'opponent_attack'
+
+export interface TerritoryTurn {
+  number: number
+  acting_player: TerritoryTeam
+  target: { row: number; column: number }
+  target_value: number
+  action_type: TerritoryAction
+  dice_result: number | null
+  success: boolean
+  attacker_score_change: number
+  defender_score_change: number
+  ownership_change: {
+    previous_owner: TerritoryTeam | null
+    new_owner: TerritoryTeam | null
+  }
+}
+
+export interface TerritoryGame {
+  id: number
+  board: TerritoryCell[][]
+  players: [TerritoryPlayer, TerritoryPlayer]
+  active_player: TerritoryTeam | null
+  turns_completed: number
+  turns_remaining: number
+  status: 'running' | 'finished'
+  winner: TerritoryTeam | null
+  is_draw: boolean
+  previous_turn: TerritoryTurn | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateTerritoryGameInput {
+  player_one: string
+  player_two: string
+}
+
+export interface PlayTerritoryTurnInput {
+  row: number
+  column: number
+}

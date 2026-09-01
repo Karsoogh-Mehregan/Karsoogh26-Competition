@@ -4,11 +4,18 @@ import { meQueryOptions } from '@/queries/auth'
 import GradingPage from '@/pages/GradingPage.vue'
 import LeaderboardPage from '@/pages/LeaderboardPage.vue'
 import MapPage from '@/pages/MapPage.vue'
+import TerritoryEventPage from '@/pages/TerritoryEventPage.vue'
 
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', name: 'map', component: MapPage },
+    {
+      path: '/events/territory-control',
+      name: 'territory-event',
+      component: TerritoryEventPage,
+      meta: { requiresAuth: true },
+    },
     { path: '/grading', name: 'grading', component: GradingPage, meta: { requiresMentor: true } },
     { path: '/leaderboard', name: 'leaderboard', component: LeaderboardPage, meta: { requiresAuth: true } },
   ],

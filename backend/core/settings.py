@@ -20,7 +20,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 env = environ.Env(
     DEBUG=(bool, False),
     ALLOWED_HOSTS=(list, []),
-    CSRF_TRUSTED_ORIGINS=(list, ["http://localhost:3000", "http://127.0.0.1:3000"]),
+    CSRF_TRUSTED_ORIGINS=(
+        list,
+        [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:3001",
+            "http://127.0.0.1:3001",
+        ],
+    ),
 )
 environ.Env.read_env(BASE_DIR / ".env")
 
@@ -65,6 +73,7 @@ INSTALLED_APPS = [
     "teams",
     "accounts",
     "game",
+    "events",
 ]
 
 AUTH_USER_MODEL = "accounts.User"

@@ -1,5 +1,12 @@
 <script setup>
-import { CheckIcon, CircleCheckIcon, CoinsIcon, HourglassIcon, SearchIcon } from '@lucide/vue'
+import {
+  CheckIcon,
+  CircleCheckIcon,
+  CoinsIcon,
+  HourglassIcon,
+  SearchIcon,
+  SwordsIcon,
+} from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { Badge } from '@/components/ui/badge'
@@ -63,7 +70,7 @@ function isNoneSelected() {
 </script>
 
 <template>
-  <aside class="flex h-full w-80 shrink-0 flex-col overflow-hidden border-e bg-card">
+  <aside class="flex h-full w-full shrink-0 flex-col overflow-hidden border-e bg-card">
     <header class="border-b px-5 py-4">
       <h1 class="text-lg font-bold">تیم‌ها</h1>
       <p v-if="actingTeam" class="text-muted-foreground mt-1 text-sm">
@@ -87,6 +94,21 @@ function isNoneSelected() {
         <Button as-child size="sm" :variant="route.path === '/' ? 'default' : 'outline'">
           <RouterLink to="/" :aria-current="route.path === '/' ? 'page' : undefined">
             نقشه
+          </RouterLink>
+        </Button>
+        <Button
+          as-child
+          size="sm"
+          :variant="route.path.startsWith('/events/territory-control') ? 'default' : 'outline'"
+        >
+          <RouterLink
+            to="/events/territory-control"
+            :aria-current="
+              route.path.startsWith('/events/territory-control') ? 'page' : undefined
+            "
+          >
+            <SwordsIcon class="size-3.5" />
+            نبرد قلمرو
           </RouterLink>
         </Button>
         <Button

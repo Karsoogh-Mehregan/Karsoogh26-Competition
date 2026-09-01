@@ -4,4 +4,7 @@ export const queryKeys = {
   submissions: () => ['submissions'] as const,
   occupancyQuestion: () => ['occupancy-question'] as const,
   leaderboard: () => ['leaderboard'] as const,
+  territoryGames: () => ['events', 'territory-control', 'games'] as const,
+  territoryGame: (gameId: number | 'none') =>
+    ['events', 'territory-control', 'games', gameId] as const,
 }
