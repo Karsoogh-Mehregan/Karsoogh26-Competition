@@ -2,9 +2,10 @@ import { computed, ref } from 'vue'
 import { toast } from 'vue-sonner'
 import { ApiError } from '@/lib/http'
 import { useLoginMutation, useLogoutMutation, useMeQuery } from '@/queries/auth'
+import { useAssignQuestionMutation } from '@/queries/game'
 import { useClaimStartMutation, useTeamsQuery } from '@/queries/teams'
 import { useActingStore } from '@/stores/acting'
-import type { Team } from '@/types/api'
+import type { AssignQuestionResult, Team } from '@/types/api'
 import { useGraph } from './useGraph.js'
 
 function messageOf(error: unknown): string {
@@ -27,6 +28,7 @@ export function useActing() {
   const loginMutation = useLoginMutation()
   const logoutMutation = useLogoutMutation()
   const claimStartMutation = useClaimStartMutation()
+  const assignQuestionMutation = useAssignQuestionMutation()
 
   const actionError = ref('')
 
@@ -88,6 +90,14 @@ export function useActing() {
     return claimStartMutation.mutateAsync({ teamCode, node: nodeId })
   }
 
+  async function assignQuestion(nodeCode: string): Promise<AssignQuestionResult> {
+    const teamCode = store.actingCode
+    if (!teamCode) {
+      throw new Error('ابتدا یک تیم انتخاب کنید.')
+    }
+    return assignQuestionMutation.mutateAsync({ teamCode, nodeCode })
+  }
+
   return {
     me,
     teams,
@@ -99,5 +109,6 @@ export function useActing() {
     logout,
     actAs,
     claimStart,
+    assignQuestion,
   }
 }

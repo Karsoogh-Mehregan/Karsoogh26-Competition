@@ -1,6 +1,5 @@
 <script setup>
 import 'vue-sonner/style.css'
-import GraphView from './components/GraphView.vue'
 import InfoPanel from './components/InfoPanel.vue'
 import { Toaster } from '@/components/ui/sonner'
 </script>
@@ -9,7 +8,7 @@ import { Toaster } from '@/components/ui/sonner'
   <div class="flex h-full w-full overflow-hidden">
     <InfoPanel />
     <main class="h-full min-w-0 flex-1">
-      <GraphView />
+      <RouterView />
     </main>
   </div>
   <Toaster class="pointer-events-auto" close-button dir="rtl" position="top-center" rich-colors />

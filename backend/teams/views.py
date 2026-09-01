@@ -8,6 +8,8 @@ from rest_framework.views import APIView
 from accounts.permissions import IsMentor
 from core.openapi import OpenApiExample, extend_schema
 from game.api_exceptions import Conflict
+from game.models import Node
+from game.services import claim_spawn
 
 from .models import Team
 from .serializers import ClaimStartSerializer, TeamSerializer
@@ -33,6 +35,8 @@ from .start_colors import color_for_start
                         "level": "easy",
                         "slot": 1,
                         "floor": 2,
+                        "grade": 90,
+                        "is_spawn": False,
                     }
                 ],
             },
@@ -60,16 +64,21 @@ class ClaimStartView(APIView):
         serializer.is_valid(raise_exception=True)
         node_id = serializer.validated_data["node"]
         color = color_for_start(node_id)
-        if team.color == color:
-            return Response(TeamSerializer(team).data)
-        if team.color:
-            raise Conflict("این تیم قبلاً رنگ گرفته است.")
-        if Team.objects.filter(color=color).exists():
-            raise Conflict("این خانهٔ شروع قبلاً گرفته شده است.")
+        node = Node.objects.select_related("level").filter(code=node_id).first()
+        if node is None:
+            raise NotFound(f"خانه «{node_id}» در نقشهٔ سرور نیست.")
         try:
             with transaction.atomic():
-                team.color = color
-                team.save(update_fields=["color"])
+                if team.color == color:
+                    claim_spawn(team, node)
+                elif team.color:
+                    raise Conflict("این تیم قبلاً رنگ گرفته است.")
+                elif Team.objects.filter(color=color).exists():
+                    raise Conflict("این خانهٔ شروع قبلاً گرفته شده است.")
+                else:
+                    team.color = color
+                    team.save(update_fields=["color"])
+                    claim_spawn(team, node)
         except IntegrityError as exc:
             raise Conflict("این خانهٔ شروع قبلاً گرفته شده است.") from exc
         return Response(TeamSerializer(team).data, status=status.HTTP_200_OK)

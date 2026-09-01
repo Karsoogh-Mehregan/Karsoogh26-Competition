@@ -3,6 +3,7 @@
 import pytest
 from django.contrib.auth.models import Group
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from game.models import (
@@ -10,6 +11,7 @@ from game.models import (
     Edge,
     GameSettings,
     GameStatus,
+    GradeMultiplier,
     LevelConfig,
     Node,
     Occupancy,
@@ -101,6 +103,10 @@ def client_mentor(django_user_model):
 
 def hold(team: Team, node: Node, **kwargs) -> Occupancy:
     kwargs.setdefault("slot", 1)
+    grade = kwargs.get("grade")
+    if grade is not None:
+        kwargs.setdefault("question_assigned_at", timezone.now())
+        kwargs.setdefault("grade_multiplier", GradeMultiplier.factor_for(grade))
     return Occupancy.objects.create(team=team, node=node, **kwargs)
 
 
@@ -183,16 +189,27 @@ class TestAdjacency:
         assert client_mentor.post(claim_url("alpha", "m1")).status_code == 409
 
     def test_directed_edge_is_one_way(self, client_mentor, running_game, graph, questions, team):
-        hold(team, graph["e1"])
+        hold(team, graph["e1"], grade=80)
 
         assert client_mentor.post(claim_url("alpha", "e2")).status_code == 200
 
     def test_directed_edge_is_refused_backwards(
         self, client_mentor, running_game, graph, questions, team
     ):
-        hold(team, graph["e2"])
+        hold(team, graph["e2"], grade=80)
 
         assert client_mentor.post(claim_url("alpha", "e1")).status_code == 409
+
+    def test_an_ungraded_reservation_does_not_extend_reach(
+        self, client_mentor, running_game, graph, questions, team
+    ):
+        hold(team, graph["e1"])
+
+        response = client_mentor.post(claim_url("alpha", "m1"))
+
+        assert response.status_code == 409
+        assert "نمره" in response.json()["detail"]
+        assert not Occupancy.objects.filter(node__code="m1").exists()
 
 
 class TestSlotsAndCost:
@@ -222,7 +239,7 @@ class TestSlotsAndCost:
     def test_the_next_free_slot_is_taken(self, client_mentor, running_game, graph, questions, team):
         other = Team.objects.create(code="bravo", name="Bravo", balance=500)
         hold(other, graph["m1"], slot=1)
-        hold(team, graph["e1"])
+        hold(team, graph["e1"], grade=80)
 
         response = client_mentor.post(claim_url("alpha", "m1"))
 
@@ -234,7 +251,7 @@ class TestSlotsAndCost:
         for slot in range(1, capacity + 1):
             filler = Team.objects.create(code=f"t{slot}", name=f"T{slot}", balance=0)
             hold(filler, graph["e3"], slot=slot)
-        hold(team, graph["e1"])
+        hold(team, graph["e1"], grade=80)
 
         response = client_mentor.post(claim_url("alpha", "e3"))
 

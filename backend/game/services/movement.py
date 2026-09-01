@@ -18,9 +18,21 @@ def is_reachable(node: Node, held_ids: set[int]) -> bool:
     ).exists()
 
 
+def _expandable_node_ids(team: Team) -> set[int]:
+    """A reservation only opens its neighbours once it is graded; spawns start open."""
+    return set(
+        Occupancy.objects.active()
+        .filter(team=team)
+        .filter(Q(is_spawn=True) | Q(grade__isnull=False))
+        .values_list("node_id", flat=True)
+    )
+
+
 def _reserve(team: Team, node: Node) -> Occupancy:
-    held_ids = set(Occupancy.objects.active().filter(team=team).values_list("node_id", flat=True))
-    if held_ids:
+    if Occupancy.objects.active().filter(team=team).exists():
+        held_ids = _expandable_node_ids(team)
+        if not held_ids:
+            raise Conflict("تا وقتی این خانه نمره نداشته باشد نمی‌توان همسایه را رزرو کرد.")
         if not is_reachable(node, held_ids):
             raise Conflict("این خانه به هیچ‌کدام از خانه‌های فعلی تیم متصل نیست.")
     elif team.color is None or color_for_start(node.code) != team.color:
@@ -59,6 +71,21 @@ def _reserve(team: Team, node: Node) -> Occupancy:
     holding.node = node
     holding.team = team
     return holding
+
+
+@transaction.atomic
+def claim_spawn(team: Team, node: Node) -> Occupancy:
+    """Seat a team on its start node, free of charge and without a question.
+
+    Colour ownership is the caller's rule; this only takes the single spawn slot.
+    """
+    holding = Occupancy.objects.active().filter(team=team, node=node).first()
+    if holding is not None:
+        return holding
+    try:
+        return Occupancy.objects.create(team=team, node=node, slot=1, is_spawn=True)
+    except IntegrityError as exc:
+        raise Conflict("این خانهٔ شروع قبلاً گرفته شده است.") from exc
 
 
 @transaction.atomic

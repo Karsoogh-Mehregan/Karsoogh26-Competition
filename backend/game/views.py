@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
@@ -134,15 +135,13 @@ _SUBMISSION_DETAIL = {
 def _map_service_error(exc: GameServiceError):
     if isinstance(exc, NotTeamMember):
         raise PermissionDenied(str(exc)) from exc
+    if isinstance(exc, GameNotRunning):
+        raise Conflict("بازی در حال اجرا نیست.") from exc
+    if isinstance(exc, NoQuestionAvailable):
+        raise Conflict("سؤال استفاده نشده‌ای برای این سطح باقی نمانده است.") from exc
     if isinstance(
         exc,
-        (
-            OccupancyNotActive,
-            GameNotRunning,
-            SubmissionWindowClosed,
-            AlreadySubmitted,
-            NoQuestionAvailable,
-        ),
+        (OccupancyNotActive, SubmissionWindowClosed, AlreadySubmitted),
     ):
         raise Conflict(str(exc)) from exc
     if isinstance(exc, InvalidAnswerPayload):
@@ -470,10 +469,21 @@ class AssignQuestionView(APIView):
             raise NotFound(f"خانهٔ «{node_code}» پیدا نشد.")
 
         try:
-            holding = services.claim_node(team, node)
+            with transaction.atomic():
+                holding = services.claim_node(team, node)
+                submission, _created = Submission.objects.get_or_create(
+                    occupancy=holding,
+                    defaults={
+                        "body": "mentor-assigned",
+                        "submitted_by": request.user,
+                    },
+                )
         except GameServiceError as exc:
             _map_service_error(exc)
-        return Response(HoldingSerializer(holding).data)
+
+        data = HoldingSerializer(holding).data
+        data["submission_id"] = submission.pk
+        return Response(data)
 
 
 @extend_schema(

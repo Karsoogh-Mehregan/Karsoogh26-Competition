@@ -66,10 +66,12 @@ class QuestionForMentorSerializer(serializers.Serializer):
 
 
 class SubmissionListSerializer(serializers.ModelSerializer):
+    team_id = serializers.IntegerField(source="occupancy.team_id", read_only=True)
     team_code = serializers.CharField(source="occupancy.team.code", read_only=True)
     team_name = serializers.CharField(source="occupancy.team.name", read_only=True)
     node_code = serializers.CharField(source="occupancy.node.code", read_only=True)
     level = serializers.CharField(source="occupancy.node.level_id", read_only=True)
+    question_id = serializers.IntegerField(source="occupancy.question_id", read_only=True)
     question_code = serializers.CharField(source="occupancy.question.code", read_only=True)
     question_title = serializers.CharField(source="occupancy.question.title", read_only=True)
     graded = serializers.SerializerMethodField()
@@ -79,10 +81,12 @@ class SubmissionListSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "submitted_at",
+            "team_id",
             "team_code",
             "team_name",
             "node_code",
             "level",
+            "question_id",
             "question_code",
             "question_title",
             "graded",
@@ -202,6 +206,7 @@ class HoldingSerializer(serializers.ModelSerializer):
     class Meta:
         model = Occupancy
         fields = (
+            "id",
             "team",
             "node",
             "slot",
@@ -209,6 +214,7 @@ class HoldingSerializer(serializers.ModelSerializer):
             "grade",
             "grade_multiplier",
             "points",
+            "question_id",
             "question_assigned_at",
             "expires_at",
             "is_expired",

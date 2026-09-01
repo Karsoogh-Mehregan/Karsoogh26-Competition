@@ -1,6 +1,7 @@
 <script setup>
 import { CheckIcon, SearchIcon } from '@lucide/vue'
 import { computed, ref } from 'vue'
+import { RouterLink, useRoute } from 'vue-router'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useActing } from '../composables/useActing'
 
 const { me, teams, actingTeam, loading, error, submitting, login, actAs, logout } = useActing()
+const route = useRoute()
 
 const username = ref('')
 const password = ref('')
@@ -67,6 +69,14 @@ function isNoneSelected() {
       <p v-else class="text-muted-foreground mt-1 text-sm">
         برای دیدن تیم‌ها وارد شوید
       </p>
+      <nav v-if="me" class="mt-3 flex gap-2">
+        <Button as-child size="sm" :variant="route.path === '/' ? 'default' : 'outline'">
+          <RouterLink to="/">نقشه</RouterLink>
+        </Button>
+        <Button as-child size="sm" :variant="route.path === '/grading' ? 'default' : 'outline'">
+          <RouterLink to="/grading">نمره‌دهی</RouterLink>
+        </Button>
+      </nav>
     </header>
 
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-4">
