@@ -2,17 +2,19 @@ from django.db import IntegrityError, transaction
 from rest_framework import status
 from rest_framework.exceptions import NotFound
 from rest_framework.generics import ListAPIView
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.permissions import IsMentor
+from accounts.permissions import CanViewLeaderboard, GameIsRunning
 from core.openapi import OpenApiExample, extend_schema
 from game.api_exceptions import Conflict
 from game.models import Node
+from game.permissions import IsOwnTeam
 from game.services import claim_spawn
 
 from .models import Team
-from .serializers import ClaimStartSerializer, TeamSerializer
+from .serializers import ClaimStartSerializer, LeaderboardRowSerializer, TeamSerializer
 from .start_colors import color_for_start
 
 
@@ -47,13 +49,40 @@ from .start_colors import color_for_start
 class TeamListView(ListAPIView):
     queryset = Team.objects.with_holdings()
     serializer_class = TeamSerializer
-    permission_classes = [IsMentor]
+    permission_classes = [IsAuthenticated]
+
+
+@extend_schema(
+    tags=["teams"],
+    summary="Leaderboard",
+    description=(
+        "Teams ranked by balance. Visible to mentors always; to teams only once "
+        "GameSettings.leaderboard_public is on."
+    ),
+    examples=[
+        OpenApiExample(
+            "ranked",
+            value=[{"rank": 1, "code": "alpha", "name": "Alpha", "balance": 420}],
+            response_only=True,
+        ),
+    ],
+)
+class LeaderboardView(APIView):
+    permission_classes = [CanViewLeaderboard]
+
+    def get(self, request):
+        teams = Team.objects.order_by("-balance", "code")
+        rows = [
+            {"rank": rank, "code": team.code, "name": team.name, "balance": team.balance}
+            for rank, team in enumerate(teams, start=1)
+        ]
+        return Response(LeaderboardRowSerializer(rows, many=True).data)
 
 
 class ClaimStartView(APIView):
     """Claim a start node's color for the team named in the URL."""
 
-    permission_classes = [IsMentor]
+    permission_classes = [IsAuthenticated, IsOwnTeam, GameIsRunning]
     serializer_class = ClaimStartSerializer
 
     def post(self, request, team_code: str):
@@ -81,4 +110,5 @@ class ClaimStartView(APIView):
                     claim_spawn(team, node)
         except IntegrityError as exc:
             raise Conflict("این خانهٔ شروع قبلاً گرفته شده است.") from exc
-        return Response(TeamSerializer(team).data, status=status.HTTP_200_OK)
+        data = TeamSerializer(team, context={"request": request}).data
+        return Response(data, status=status.HTTP_200_OK)

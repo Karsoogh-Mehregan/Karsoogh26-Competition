@@ -1,5 +1,5 @@
 import { get, post } from '@/lib/http'
-import type { Team } from '@/types/api'
+import type { LeaderboardRow, Team } from '@/types/api'
 
 export function listTeams(signal?: AbortSignal): Promise<Team[]> {
   return get<Team[]>('/teams/', signal)
@@ -7,4 +7,8 @@ export function listTeams(signal?: AbortSignal): Promise<Team[]> {
 
 export function claimStart(teamCode: string, node: string): Promise<Team> {
   return post<Team>(`/teams/${encodeURIComponent(teamCode)}/claim-start/`, { node })
+}
+
+export function getLeaderboard(signal?: AbortSignal): Promise<LeaderboardRow[]> {
+  return get<LeaderboardRow[]>('/leaderboard/', signal)
 }

@@ -56,6 +56,8 @@ def test_login_returns_me_shape(client, user):
         "id": user.pk,
         "username": "mentor",
         "is_staff": False,
+        "is_mentor": True,
+        "team": None,
     }
 
 
@@ -81,10 +83,27 @@ def test_logout_flushes_session(auth_client):
     assert auth_client.get("/api/auth/me/").status_code == 403
 
 
-def test_me_returns_no_team_state(auth_client, user):
+def test_me_returns_mentor_identity(auth_client, user):
     response = auth_client.get("/api/auth/me/")
     assert response.status_code == 200
-    assert response.json() == {"id": user.pk, "username": "mentor", "is_staff": False}
+    assert response.json() == {
+        "id": user.pk,
+        "username": "mentor",
+        "is_staff": False,
+        "is_mentor": True,
+        "team": None,
+    }
+
+
+def test_me_returns_team_identity_for_a_team_account(client, team):
+    user = User.objects.create_user("user-alpha", password="secret", team=team)
+    client.force_login(user)
+
+    response = client.get("/api/auth/me/")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_mentor"] is False
+    assert body["team"] == {"code": team.code, "name": team.name}
 
 
 @pytest.mark.parametrize(
@@ -108,6 +127,16 @@ def test_teams_list_returns_code_name_balance(auth_client, team, other_team):
         {"code": "alpha", "name": "Alpha", "balance": 42, "holdings": [], "color": None},
         {"code": "beta", "name": "Beta", "balance": 7, "holdings": [], "color": None},
     ]
+
+
+def test_teams_list_hides_other_teams_balance_from_a_team_account(client, team, other_team):
+    user = User.objects.create_user("user-alpha", password="secret", team=team)
+    client.force_login(user)
+
+    response = client.get("/api/teams/")
+    assert response.status_code == 200
+    by_code = {row["code"]: row["balance"] for row in response.json()}
+    assert by_code == {"alpha": 42, "beta": None}
 
 
 def test_game_is_running_permission():

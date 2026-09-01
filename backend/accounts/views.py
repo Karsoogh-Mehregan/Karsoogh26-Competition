@@ -19,6 +19,8 @@ _ME = {
     "id": 1,
     "username": "mentor",
     "is_staff": False,
+    "is_mentor": True,
+    "team": None,
 }
 
 

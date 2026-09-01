@@ -12,7 +12,7 @@ export interface Holding {
 export interface Team {
   code: string
   name: string
-  balance: number
+  balance: number | null
   color: string | null
   holdings: Holding[]
 }
@@ -21,6 +21,8 @@ export interface Me {
   id: number
   username: string
   is_staff: boolean
+  is_mentor: boolean
+  team: { code: string; name: string } | null
 }
 
 export interface LoginCredentials {
@@ -35,10 +37,40 @@ export interface AssignQuestionResult {
   slot: number
   floor: number | null
   question_id: number | null
-  submission_id: number
   question_assigned_at: string | null
   expires_at: string | null
   is_expired: boolean
+}
+
+export type AnswerType = 'text' | 'file' | 'numeric'
+
+export interface QuestionForTeam {
+  code: string
+  title: string
+  body: string
+  answer_type: AnswerType
+  attachment_url: string | null
+  expires_at: string | null
+  remaining_seconds: number
+}
+
+export interface OccupancyQuestion {
+  occupancy_id: number
+  expires_at: string | null
+  remaining_seconds: number
+  question: QuestionForTeam
+}
+
+export interface SubmitCreated {
+  id: number
+  submitted_at: string
+}
+
+export interface LeaderboardRow {
+  rank: number
+  code: string
+  name: string
+  balance: number
 }
 
 export interface SubmissionRow {

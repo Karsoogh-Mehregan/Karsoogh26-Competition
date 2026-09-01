@@ -34,9 +34,21 @@ export function useActing() {
 
   const me = computed(() => meQuery.data.value ?? null)
   const teams = computed<Team[]>(() => teamsQuery.data.value ?? [])
-  const actingTeam = computed<Team | null>(
-    () => teams.value.find((team) => team.code === store.actingCode) ?? null,
-  )
+  const isMentor = computed(() => me.value?.is_mentor ?? false)
+  const isPlayer = computed(() => me.value != null && me.value.team != null)
+
+  // A player's team is a server fact (me.team); a mentor's is a client-side
+  // filter over the map (stores/acting.ts) that carries no authority.
+  const actingTeam = computed<Team | null>(() => {
+    const playerTeamCode = me.value?.team?.code
+    if (playerTeamCode) {
+      return teams.value.find((team) => team.code === playerTeamCode) ?? null
+    }
+    if (!isMentor.value) {
+      return null
+    }
+    return teams.value.find((team) => team.code === store.actingCode) ?? null
+  })
 
   const loading = computed(
     () => meQuery.isPending.value || (isAuthenticated() && teamsQuery.isPending.value),
@@ -74,6 +86,9 @@ export function useActing() {
   }
 
   function actAs(team: Team | null): void {
+    if (!isMentor.value) {
+      return
+    }
     if (!store.setActingCode(team?.code ?? null)) {
       return
     }
@@ -83,7 +98,7 @@ export function useActing() {
   }
 
   async function claimStart(nodeId: string): Promise<Team> {
-    const teamCode = store.actingCode
+    const teamCode = actingTeam.value?.code
     if (!teamCode) {
       throw new Error('ابتدا یک تیم انتخاب کنید.')
     }
@@ -91,7 +106,7 @@ export function useActing() {
   }
 
   async function assignQuestion(nodeCode: string): Promise<AssignQuestionResult> {
-    const teamCode = store.actingCode
+    const teamCode = actingTeam.value?.code
     if (!teamCode) {
       throw new Error('ابتدا یک تیم انتخاب کنید.')
     }
@@ -102,6 +117,8 @@ export function useActing() {
     me,
     teams,
     actingTeam,
+    isMentor,
+    isPlayer,
     loading,
     error,
     submitting,

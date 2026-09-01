@@ -9,16 +9,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import QuestionDialog from './QuestionDialog.vue'
 import { useActing } from '../composables/useActing'
 import { useGraph } from '../composables/useGraph.js'
 
 const HOUSE_FILL = '#E8D5B0'
 
-const { me, teams, actingTeam, claimStart, assignQuestion } = useActing()
+const { me, teams, actingTeam, isPlayer, claimStart, assignQuestion } = useActing()
 const { nodes, edges, nodeById, adjacency, startEligibleIds } = useGraph()
 
 const loggedIn = computed(() => !!me.value)
 const hasTeam = computed(() => !!actingTeam.value)
+// A mentor can pick a team to view its state on the map, but only the team
+// itself can move — mentors would otherwise see clickable nodes that 403.
+const canAct = computed(() => loggedIn.value && hasTeam.value && isPlayer.value)
 const pendingNode = ref(null)
 const dialogOpen = computed({
   get: () => pendingNode.value !== null,
@@ -26,6 +30,7 @@ const dialogOpen = computed({
     if (!open) pendingNode.value = null
   },
 })
+const pendingOccupancyId = ref(null)
 
 function isStartNode(n) {
   return !!n && (n.type === 'start' || n.shape === 'diamond')
@@ -93,7 +98,7 @@ function isHeld(id) {
 }
 
 function isNodeSelectable(id) {
-  if (!loggedIn.value || !hasTeam.value) return false
+  if (!canAct.value) return false
   const held = actingHeldIds.value
   if (held.size === 0) {
     return startEligibleIds.has(id) && !claimedStartIds.value.has(id)
@@ -109,6 +114,19 @@ function isNodeSelectable(id) {
 
 function isNodeSelected(id) {
   return isHeld(id)
+}
+
+function answerableHolding(id) {
+  if (!canAct.value) return null
+  return (
+    actingTeam.value.holdings.find(
+      (h) => h.node_code === id && !h.is_spawn && h.grade == null,
+    ) ?? null
+  )
+}
+
+function isNodeAnswerable(id) {
+  return answerableHolding(id) !== null
 }
 
 const hoveredId = ref(null)
@@ -168,13 +186,30 @@ function isEdgeTraversed(e) {
 
 // ---- node helpers ----
 function nodeState(n) {
+  if (isNodeAnswerable(n.id)) return 'answerable'
   if (isNodeSelected(n.id)) return 'visited'
   if (isNodeSelectable(n.id)) return 'selectable'
   if (isStartNode(n) && !claimedStartIds.value.has(n.id)) return 'idle'
   return 'disabled'
 }
 
+function isNodeInteractive(n) {
+  return isNodeAnswerable(n.id) || isNodeSelectable(n.id)
+}
+
+function nodeLabel(n) {
+  const state = nodeState(n)
+  if (state === 'answerable') return `${n.id} — پاسخ به سؤال`
+  if (state === 'selectable') return `${n.id} — قابل انتخاب`
+  return n.id
+}
+
 function onNodeClick(n) {
+  const holding = answerableHolding(n.id)
+  if (holding) {
+    pendingOccupancyId.value = holding.id
+    return
+  }
   if (!isNodeSelectable(n.id)) return
   pendingNode.value = n
 }
@@ -338,9 +373,16 @@ function shapePath(n) {
         :key="n.id"
         :transform="`translate(${n.x}, ${n.y})`"
         :class="['node', 'state-' + nodeState(n), 'shape-' + n.shape]"
+        :role="isNodeInteractive(n) ? 'button' : undefined"
+        :tabindex="isNodeInteractive(n) ? 0 : undefined"
+        :aria-label="isNodeInteractive(n) ? nodeLabel(n) : undefined"
         @click="onNodeClick(n)"
+        @keydown.enter.prevent="onNodeClick(n)"
+        @keydown.space.prevent="onNodeClick(n)"
         @mouseenter="hoveredId = n.id"
         @mouseleave="hoveredId = null"
+        @focus="hoveredId = n.id"
+        @blur="hoveredId = null"
       >
         <template v-if="slotCount(n) > 1">
           <circle
@@ -409,13 +451,63 @@ function shapePath(n) {
         </div>
       </DialogContent>
     </Dialog>
+
+    <QuestionDialog
+      :occupancy-id="pendingOccupancyId"
+      @close="pendingOccupancyId = null"
+    />
+
+    <ul v-if="canAct" class="legend" aria-label="راهنمای رنگ خانه‌ها">
+      <li><span class="legend-dot legend-answerable" />پاسخ به سؤال</li>
+      <li><span class="legend-dot legend-selectable" />قابل رزرو</li>
+      <li><span class="legend-dot legend-visited" />در اختیار شما</li>
+    </ul>
   </div>
 </template>
 
 <style scoped>
 .graph-wrap {
+  position: relative;
   width: 100%;
   height: 100%;
+}
+
+.legend {
+  position: absolute;
+  inset-block-end: 1rem;
+  inset-inline-start: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  list-style: none;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--card) 92%, transparent);
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  backdrop-filter: blur(4px);
+}
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+.legend-dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 9999px;
+  border: 1px solid #1a1a1a;
+}
+.legend-answerable {
+  background: #e67e22;
+}
+.legend-selectable {
+  background: #2b6ca8;
+}
+.legend-visited {
+  background: v-bind('actingTeam?.color || HOUSE_FILL');
 }
 
 .graph-svg {
@@ -495,6 +587,39 @@ function shapePath(n) {
   filter: drop-shadow(0 0 6px rgba(43, 108, 168, 0.55));
 }
 
+.state-answerable {
+  opacity: 1;
+  cursor: pointer;
+}
+.state-answerable .node-shape {
+  filter: drop-shadow(0 0 6px rgba(230, 126, 34, 0.75));
+  animation: answerable-pulse 1.8s ease-in-out infinite;
+}
+.state-answerable:hover .node-shape,
+.state-answerable:focus-visible .node-shape {
+  stroke-width: 2.2;
+  animation: none;
+  filter: drop-shadow(0 0 8px rgba(230, 126, 34, 0.95));
+}
+
+@keyframes answerable-pulse {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 4px rgba(230, 126, 34, 0.55));
+  }
+  50% {
+    filter: drop-shadow(0 0 10px rgba(230, 126, 34, 1));
+  }
+}
+
+.node:focus {
+  outline: none;
+}
+.node:focus-visible .node-shape {
+  stroke: #1d4ed8;
+  stroke-width: 3;
+}
+
 .state-current {
   cursor: default;
 }
@@ -534,5 +659,13 @@ function shapePath(n) {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ring-current,
+  .ring-selectable,
+  .state-answerable .node-shape {
+    animation: none;
+  }
 }
 </style>

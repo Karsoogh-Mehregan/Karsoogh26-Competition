@@ -22,7 +22,6 @@ from game.models import (
     Node,
     Occupancy,
     Question,
-    Submission,
 )
 from teams.models import Team
 
@@ -129,8 +128,9 @@ class TestPermission:
 
 
 class TestLookup:
-    def test_unknown_team_is_404(self, client_mentor, holdings):
-        assert client_mentor.post(action_url("assign-question", "nobody")).status_code == 404
+    def test_unknown_team_is_404(self, client_mentor, running_game, holdings):
+        response = client_mentor.post(action_url("grade", "nobody"), {"grade": 50}, format="json")
+        assert response.status_code == 404
 
     def test_team_without_a_holding_on_that_node_is_404(
         self, client_mentor, running_game, hard_node, teams
@@ -152,14 +152,25 @@ class TestLookup:
 
 
 class TestAssignQuestion:
+    """assign-question is a team's own move now — mentors only grade/release."""
+
     @pytest.fixture
     def fresh(self, hard_node, teams):
         return Occupancy.objects.create(node=hard_node, team=teams["alpha"], slot=1)
 
+    @pytest.fixture
+    def client_alpha(self, django_user_model, teams):
+        user = django_user_model.objects.create_user(
+            "user-alpha", password="x", team=teams["alpha"]
+        )
+        client = APIClient()
+        client.force_authenticate(user)
+        return client
+
     def test_starts_the_clock_from_the_configured_ttl(
-        self, client_mentor, running_game, hard_questions, fresh
+        self, client_alpha, running_game, hard_questions, fresh
     ):
-        response = client_mentor.post(action_url("assign-question", "alpha"))
+        response = client_alpha.post(action_url("assign-question", "alpha"))
         assert response.status_code == 200
 
         fresh.refresh_from_db()
@@ -169,12 +180,9 @@ class TestAssignQuestion:
         )
         assert response.data["is_expired"] is False
         assert response.data["question_id"] == fresh.question_id
-        assert Submission.objects.filter(
-            pk=response.data["submission_id"], occupancy=fresh
-        ).exists()
 
     def test_enters_an_adjacent_node_then_assigns(
-        self, client_mentor, running_game, hard_node, hard_questions, teams
+        self, client_alpha, running_game, hard_node, hard_questions, teams
     ):
         spawn = LevelConfig.objects.get(level="spawn")
         start = Node.objects.create(code="s1", name="Start", level=spawn)
@@ -183,23 +191,27 @@ class TestAssignQuestion:
         Edge.objects.create(a=a, b=b, directed=False)
         Team.objects.filter(pk=teams["alpha"].pk).update(balance=hard_node.level.entry_cost)
 
-        response = client_mentor.post(action_url("assign-question", "alpha"))
+        response = client_alpha.post(action_url("assign-question", "alpha"))
         assert response.status_code == 200
         holding = Occupancy.objects.active().get(team=teams["alpha"], node=hard_node)
         assert holding.question_id is not None
-        assert response.data["submission_id"]
         assert holding.is_spawn is False
 
-    def test_second_assignment_conflicts(self, client_mentor, running_game, hard_questions, fresh):
-        client_mentor.post(action_url("assign-question", "alpha"))
+    def test_second_assignment_conflicts(self, client_alpha, running_game, hard_questions, fresh):
+        client_alpha.post(action_url("assign-question", "alpha"))
         first = Occupancy.objects.get(pk=fresh.pk).question_assigned_at
 
-        response = client_mentor.post(action_url("assign-question", "alpha"))
+        response = client_alpha.post(action_url("assign-question", "alpha"))
         assert response.status_code == 409
         assert Occupancy.objects.get(pk=fresh.pk).question_assigned_at == first
 
-    def test_requires_a_running_game(self, client_mentor, fresh):
-        assert client_mentor.post(action_url("assign-question", "alpha")).status_code == 409
+    def test_requires_a_running_game(self, client_alpha, fresh):
+        assert client_alpha.post(action_url("assign-question", "alpha")).status_code == 403
+
+    def test_mentor_cannot_assign_a_question(
+        self, client_mentor, running_game, hard_questions, fresh
+    ):
+        assert client_mentor.post(action_url("assign-question", "alpha")).status_code == 403
 
 
 class TestGrade:

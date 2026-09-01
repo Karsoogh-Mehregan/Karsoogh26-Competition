@@ -1,4 +1,3 @@
-from django.db import transaction
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
@@ -7,7 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.permissions import IsMentor
+from accounts.permissions import GameIsRunning, IsMentor
 from core.openapi import OpenApiExample, OpenApiParameter, OpenApiTypes, extend_schema
 from game import services
 from game.api_exceptions import Conflict, Unprocessable
@@ -24,7 +23,7 @@ from game.exceptions import (
     SubmissionWindowClosed,
 )
 from game.models import Node, Occupancy, Question, Submission, TeamQuestion
-from game.permissions import IsTeamMember
+from game.permissions import IsOwnTeam, IsTeamMember
 from game.serializers import (
     AssignQuestionSerializer,
     GradeResultSerializer,
@@ -454,7 +453,7 @@ class MentorActionView(APIView):
     examples=[OpenApiExample("clock started", value=_HOLDING_ASSIGNED, response_only=True)],
 )
 class AssignQuestionView(APIView):
-    permission_classes = [IsMentor]
+    permission_classes = [IsAuthenticated, IsOwnTeam, GameIsRunning]
     serializer_class = AssignQuestionSerializer
 
     def post(self, request, team_code: str, node_code: str):
@@ -469,21 +468,11 @@ class AssignQuestionView(APIView):
             raise NotFound(f"خانهٔ «{node_code}» پیدا نشد.")
 
         try:
-            with transaction.atomic():
-                holding = services.claim_node(team, node)
-                submission, _created = Submission.objects.get_or_create(
-                    occupancy=holding,
-                    defaults={
-                        "body": "mentor-assigned",
-                        "submitted_by": request.user,
-                    },
-                )
+            holding = services.claim_node(team, node)
         except GameServiceError as exc:
             _map_service_error(exc)
 
-        data = HoldingSerializer(holding).data
-        data["submission_id"] = submission.pk
-        return Response(data)
+        return Response(HoldingSerializer(holding).data)
 
 
 @extend_schema(

@@ -37,6 +37,19 @@ ALLOWED_HOSTS = env("ALLOWED_HOSTS")
 CSRF_TRUSTED_ORIGINS = env("CSRF_TRUSTED_ORIGINS")
 
 
+# Session/CSRF cookie hardening. DEBUG is only true in local dev (see README),
+# so a real deployment gets these without a separate env flag. The contest is
+# now played online by teams over the public internet, not just mentors on a LAN.
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_AGE = 60 * 60 * 24 * 14  # 2 weeks — outlasts the contest
+SECURE_SSL_REDIRECT = not DEBUG
+# Only trust the forwarded-proto header behind our own reverse proxy.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if not DEBUG else None
+
+
 # Application definition
 
 INSTALLED_APPS = [
