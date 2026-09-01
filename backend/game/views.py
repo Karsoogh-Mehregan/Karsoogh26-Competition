@@ -441,14 +441,20 @@ class MentorActionView(APIView):
 
 @extend_schema(
     tags=["game"],
-    summary="Assign a question",
-    description="Starts the attempt clock on this holding. Empty body.",
+    summary="Reserve a node and assign its question",
+    description=(
+        "Takes a free slot on the node and starts the attempt clock, in one move. "
+        "The node must be reachable from a node the team already holds; a team with no "
+        "holdings may only take its own start node. Reserving is not owning — the floor "
+        "is captured at grading. Charges the level's entry cost. Empty body."
+    ),
     parameters=_HOLDING_PARAMS,
     request=None,
     responses=HoldingSerializer,
     examples=[OpenApiExample("clock started", value=_HOLDING_ASSIGNED, response_only=True)],
 )
-class AssignQuestionView(MentorActionView):
+class AssignQuestionView(APIView):
+    permission_classes = [IsMentor]
     serializer_class = AssignQuestionSerializer
 
     def post(self, request, team_code: str, node_code: str):
@@ -460,30 +466,11 @@ class AssignQuestionView(MentorActionView):
             raise NotFound(f"تیم «{team_code}» پیدا نشد.")
         node = Node.objects.select_related("level").filter(code=node_code).first()
         if node is None:
-            raise NotFound(f"خانه «{node_code}» پیدا نشد.")
+            raise NotFound(f"خانهٔ «{node_code}» پیدا نشد.")
 
         try:
             with transaction.atomic():
-                holding = (
-                    Occupancy.objects.active()
-                    .select_related("node", "node__level", "team")
-                    .filter(team=team, node=node)
-                    .first()
-                )
-                if holding is None:
-                    if not Occupancy.objects.active().filter(team=team).exists():
-                        raise Conflict("ابتدا یک خانهٔ شروع برای این تیم بگیرید.")
-                    if not services.is_adjacent_to_team(team, node):
-                        if not services.team_has_expandable_holding(team):
-                            raise Conflict(
-                                "تا وقتی این خانه نمره نداشته باشد نمی‌توان همسایه را رزرو کرد."
-                            )
-                        raise Conflict("این خانه همسایهٔ خانه‌های این تیم نیست.")
-                    holding = services.enter_node(team, node)
-                if holding.question_assigned_at is not None:
-                    raise Conflict("سؤال قبلاً به این تیم تخصیص داده شده است.")
-                services.assign_question(holding)
-                holding.refresh_from_db()
+                holding = services.claim_node(team, node)
                 submission, _created = Submission.objects.get_or_create(
                     occupancy=holding,
                     defaults={

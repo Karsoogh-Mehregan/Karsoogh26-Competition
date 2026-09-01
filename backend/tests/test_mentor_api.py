@@ -132,38 +132,16 @@ class TestLookup:
     def test_unknown_team_is_404(self, client_mentor, holdings):
         assert client_mentor.post(action_url("assign-question", "nobody")).status_code == 404
 
-    def test_unknown_node_is_404(self, client_mentor, teams):
-        assert (
-            client_mentor.post(action_url("assign-question", "alpha", "missing")).status_code == 404
-        )
-
-    def test_team_without_a_holding_on_that_node_conflicts_if_not_adjacent(
-        self, client_mentor, hard_node, teams
+    def test_team_without_a_holding_on_that_node_is_404(
+        self, client_mentor, running_game, hard_node, teams
     ):
-        spawn = LevelConfig.objects.get(level="spawn")
-        start = Node.objects.create(code="s1", name="Start", level=spawn)
-        Occupancy.objects.create(node=start, team=teams["alpha"], slot=1, is_spawn=True)
-        response = client_mentor.post(action_url("assign-question", "alpha"))
-        assert response.status_code == 409
-        assert "همسایه" in response.json()["detail"]
-
-    def test_ungraded_non_spawn_does_not_unlock_neighbors(self, client_mentor, hard_node, teams):
+        """grade/release address an existing holding; assign-question creates one instead."""
         other = Node.objects.create(
             code="h2", name="Hard 2", level=LevelConfig.objects.get(level="hard")
         )
         Occupancy.objects.create(node=other, team=teams["alpha"], slot=1)
-        a, b = (other, hard_node) if other.pk < hard_node.pk else (hard_node, other)
-        Edge.objects.create(a=a, b=b, directed=False)
-
-        response = client_mentor.post(action_url("assign-question", "alpha"))
-        assert response.status_code == 409
-        assert "نمره" in response.json()["detail"]
-        assert not Occupancy.objects.active().filter(team=teams["alpha"], node=hard_node).exists()
-
-    def test_assign_without_any_holding_conflicts(self, client_mentor, hard_node, teams):
-        response = client_mentor.post(action_url("assign-question", "alpha"))
-        assert response.status_code == 409
-        assert Occupancy.objects.active().filter(team=teams["alpha"]).count() == 0
+        response = client_mentor.post(action_url("grade", "alpha"), {"grade": 50}, format="json")
+        assert response.status_code == 404
 
     def test_released_holding_is_404(self, client_mentor, holdings, running_game):
         holding = holdings["alpha"]
@@ -203,6 +181,7 @@ class TestAssignQuestion:
         Occupancy.objects.create(node=start, team=teams["alpha"], slot=1, is_spawn=True)
         a, b = (start, hard_node) if start.pk < hard_node.pk else (hard_node, start)
         Edge.objects.create(a=a, b=b, directed=False)
+        Team.objects.filter(pk=teams["alpha"].pk).update(balance=hard_node.level.entry_cost)
 
         response = client_mentor.post(action_url("assign-question", "alpha"))
         assert response.status_code == 200

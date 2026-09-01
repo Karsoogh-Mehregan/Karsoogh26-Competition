@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from django.db import IntegrityError, transaction
+from django.db.models import Count
 from django.utils import timezone
 
 from game.exceptions import (
@@ -26,8 +27,10 @@ from game.services.mentor import grade_attempt, release_attempt
 
 
 def assign_question(occupancy: Occupancy) -> Question:
-    """Draw a random unused question for the occupancy's node level.
+    """Draw a least-served unused question for the occupancy's node level.
 
+    Ties on serve count are broken randomly, so the pool spreads evenly
+    instead of hammering whatever a pure random draw happens to favour.
     Idempotent: if the occupancy already has a question, returns it.
     """
     occupancy = Occupancy.objects.select_related("node__level", "team").get(pk=occupancy.pk)
@@ -61,7 +64,8 @@ def assign_question(occupancy: Occupancy) -> Question:
                 is_active=True,
             )
             .exclude(id__in=served_ids)
-            .order_by("?")
+            .annotate(serve_count=Count("team_assignments"))
+            .order_by("serve_count", "?")
             .first()
         )
         if question is None:
