@@ -11,3 +11,9 @@ def _skip_postgres_only(request):
     """
     if request.node.get_closest_marker("postgres_only") and connection.vendor != "postgresql":
         pytest.skip(f"needs PostgreSQL, running on {connection.vendor}")
+
+
+@pytest.fixture(autouse=True)
+def _no_ssl_redirect(settings):
+    """The test client speaks plain HTTP; SECURE_SSL_REDIRECT would 301 every request."""
+    settings.SECURE_SSL_REDIRECT = False
