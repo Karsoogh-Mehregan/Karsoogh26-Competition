@@ -10,6 +10,9 @@ from .models import (
     CharityBagEvent,
     CharityBagParticipation,
     CharityBagStatus,
+    OlympicsMatch,
+    OlympicsMiniGame,
+    OlympicsResult,
     TerritoryCell,
     TerritoryGame,
     TerritoryGameStatus,
@@ -338,5 +341,113 @@ class PlayCentipedeActionSerializer(serializers.Serializer):
                     field: "Reward and balance values are calculated by the backend."
                     for field in unexpected
                 }
+            )
+        return super().to_internal_value(data)
+
+
+class OlympicsScoringZoneSerializer(serializers.Serializer):
+    code = serializers.SlugField(max_length=32)
+    label = serializers.CharField(max_length=64)
+    score = serializers.IntegerField(min_value=0, max_value=100000)
+
+
+class OlympicsResultSerializer(serializers.ModelSerializer):
+    recorded_by = serializers.CharField(source="recorded_by.username", read_only=True)
+
+    class Meta:
+        model = OlympicsResult
+        fields = (
+            "request_id",
+            "round_number",
+            "player_one_attempts",
+            "player_two_attempts",
+            "player_one_total",
+            "player_two_total",
+            "player_one_best_distance",
+            "player_two_best_distance",
+            "outcome",
+            "recorded_by",
+            "created_at",
+        )
+        read_only_fields = fields
+
+
+class OlympicsMatchSerializer(serializers.ModelSerializer):
+    players = serializers.SerializerMethodField()
+    winner = TeamIdentitySerializer(read_only=True, allow_null=True)
+    results = OlympicsResultSerializer(many=True, read_only=True)
+    tiebreak_occurred = serializers.SerializerMethodField()
+
+    class Meta:
+        model = OlympicsMatch
+        fields = (
+            "id",
+            "mini_game",
+            "players",
+            "scoring_zones",
+            "status",
+            "tiebreak_occurred",
+            "winner",
+            "results",
+            "started_at",
+            "finished_at",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+    def get_players(self, match: OlympicsMatch) -> list[dict]:
+        return [
+            {**TeamIdentitySerializer(match.player_one).data, "position": 1},
+            {**TeamIdentitySerializer(match.player_two).data, "position": 2},
+        ]
+
+    def get_tiebreak_occurred(self, match: OlympicsMatch) -> bool:
+        return match.results.count() > 1 or match.status == "tiebreak"
+
+
+class CreateOlympicsMatchSerializer(serializers.Serializer):
+    mini_game = serializers.ChoiceField(choices=OlympicsMiniGame.values)
+    player_one = serializers.SlugField(max_length=32)
+    player_two = serializers.SlugField(max_length=32)
+    scoring_zones = OlympicsScoringZoneSerializer(many=True, required=False, default=list)
+
+    def validate(self, attrs):
+        if attrs["player_one"] == attrs["player_two"]:
+            raise serializers.ValidationError("Two different teams are required.")
+        return attrs
+
+
+class RecordOlympicsResultSerializer(serializers.Serializer):
+    request_id = serializers.UUIDField()
+    winner = serializers.SlugField(max_length=32, required=False, allow_null=True)
+    is_tie = serializers.BooleanField(default=False)
+    player_one_best_distance = serializers.DecimalField(
+        max_digits=9,
+        decimal_places=2,
+        required=False,
+        allow_null=True,
+        min_value=0,
+    )
+    player_two_best_distance = serializers.DecimalField(
+        max_digits=9,
+        decimal_places=2,
+        required=False,
+        allow_null=True,
+        min_value=0,
+    )
+    player_one_attempts = serializers.ListField(
+        child=serializers.JSONField(), required=False, default=list
+    )
+    player_two_attempts = serializers.ListField(
+        child=serializers.JSONField(), required=False, default=list
+    )
+
+    def to_internal_value(self, data):
+        allowed = set(self.fields)
+        unexpected = set(data) - allowed
+        if unexpected:
+            raise serializers.ValidationError(
+                {field: "This physical result field is not accepted." for field in unexpected}
             )
         return super().to_internal_value(data)

@@ -6,6 +6,7 @@ import {
   HourglassIcon,
   HandHeartIcon,
   RouteIcon,
+  MedalIcon,
   SearchIcon,
   SwordsIcon,
 } from '@lucide/vue'
@@ -109,6 +110,19 @@ function isNoneSelected() {
           >
             <RouteIcon class="size-3.5" />
             بازی هزارپا
+          </RouterLink>
+        </Button>
+        <Button
+          as-child
+          size="sm"
+          :variant="route.path.startsWith('/events/olympics') ? 'default' : 'outline'"
+        >
+          <RouterLink
+            to="/events/olympics"
+            :aria-current="route.path.startsWith('/events/olympics') ? 'page' : undefined"
+          >
+            <MedalIcon class="size-3.5" />
+            گیلیمپیک
           </RouterLink>
         </Button>
         <Button

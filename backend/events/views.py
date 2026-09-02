@@ -20,6 +20,7 @@ from .exceptions import (
     CentipedeNotParticipant,
     CharityBagError,
     NotParticipant,
+    OlympicsError,
     TerritoryEventError,
 )
 from .models import (
@@ -27,29 +28,37 @@ from .models import (
     CentipedeGame,
     CharityBagEvent,
     CharityBagParticipation,
+    OlympicsMatch,
+    OlympicsResult,
     TerritoryCell,
     TerritoryGame,
     TerritoryTurn,
 )
-from .permissions import IsCentipedeParticipant, IsTerritoryParticipant
+from .permissions import IsCentipedeParticipant, IsOlympicsParticipant, IsTerritoryParticipant
 from .serializers import (
     CentipedeGameSerializer,
     CharityBagEventSerializer,
     CreateCentipedeGameSerializer,
     CreateCharityBagSerializer,
+    CreateOlympicsMatchSerializer,
     CreateTerritoryGameSerializer,
     EnterCharityBagSerializer,
+    OlympicsMatchSerializer,
     PlayCentipedeActionSerializer,
     PlayTerritoryTurnSerializer,
+    RecordOlympicsResultSerializer,
     TerritoryGameStateSerializer,
 )
 from .services import (
     create_centipede_game,
     create_charity_bag,
+    create_olympics_match,
     create_territory_game,
     enter_charity_bag,
     play_centipede_action,
     play_territory_turn,
+    record_olympics_result,
+    start_olympics_match,
     sync_charity_bag,
     sync_due_charity_bags,
 )
@@ -343,3 +352,97 @@ class CentipedeActionView(APIView):
         except CentipedeError as exc:
             _map_centipede_error(exc)
         return _centipede_response(game)
+
+
+def olympics_matches():
+    return OlympicsMatch.objects.select_related(
+        "player_one", "player_two", "winner"
+    ).prefetch_related(
+        Prefetch("results", queryset=OlympicsResult.objects.select_related("recorded_by"))
+    )
+
+
+def _olympics_response(match, *, response_status=status.HTTP_200_OK):
+    match = olympics_matches().get(pk=match.pk)
+    return Response(OlympicsMatchSerializer(match).data, status=response_status)
+
+
+class OlympicsMatchListCreateView(APIView):
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsMentor()]
+        return [IsAuthenticated()]
+
+    def get(self, request):
+        queryset = olympics_matches()
+        if not request.user.has_perm(MENTOR_PERM):
+            if request.user.team_id is None:
+                queryset = queryset.none()
+            else:
+                queryset = queryset.filter(
+                    Q(player_one_id=request.user.team_id) | Q(player_two_id=request.user.team_id)
+                )
+        return Response(OlympicsMatchSerializer(queryset, many=True).data)
+
+    def post(self, request):
+        payload = CreateOlympicsMatchSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        player_one = get_object_or_404(Team, code=payload.validated_data["player_one"])
+        player_two = get_object_or_404(Team, code=payload.validated_data["player_two"])
+        try:
+            match = create_olympics_match(
+                payload.validated_data["mini_game"],
+                player_one,
+                player_two,
+                payload.validated_data["scoring_zones"],
+            )
+        except OlympicsError as exc:
+            raise Conflict(str(exc)) from exc
+        return _olympics_response(match, response_status=status.HTTP_201_CREATED)
+
+
+class OlympicsMatchDetailView(APIView):
+    permission_classes = [IsAuthenticated, IsOlympicsParticipant]
+
+    def get(self, request, pk: int):
+        match = get_object_or_404(olympics_matches(), pk=pk)
+        self.check_object_permissions(request, match)
+        return Response(OlympicsMatchSerializer(match).data)
+
+
+class OlympicsMatchStartView(APIView):
+    permission_classes = [IsMentor]
+
+    def post(self, request, pk: int):
+        get_object_or_404(OlympicsMatch, pk=pk)
+        try:
+            match = start_olympics_match(pk)
+        except OlympicsError as exc:
+            raise Conflict(str(exc)) from exc
+        return _olympics_response(match)
+
+
+class OlympicsResultView(APIView):
+    permission_classes = [IsMentor]
+
+    def post(self, request, pk: int):
+        get_object_or_404(OlympicsMatch, pk=pk)
+        payload = RecordOlympicsResultSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        winner_code = payload.validated_data.get("winner")
+        winner = get_object_or_404(Team, code=winner_code) if winner_code else None
+        try:
+            match = record_olympics_result(
+                pk,
+                request_id=payload.validated_data["request_id"],
+                recorded_by=request.user,
+                winner=winner,
+                is_tie=payload.validated_data["is_tie"],
+                player_one_best_distance=payload.validated_data.get("player_one_best_distance"),
+                player_two_best_distance=payload.validated_data.get("player_two_best_distance"),
+                player_one_attempts=payload.validated_data["player_one_attempts"],
+                player_two_attempts=payload.validated_data["player_two_attempts"],
+            )
+        except OlympicsError as exc:
+            raise Conflict(str(exc)) from exc
+        return _olympics_response(match)

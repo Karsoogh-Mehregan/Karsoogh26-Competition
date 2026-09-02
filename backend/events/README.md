@@ -3,12 +3,13 @@
 This document describes only the competition event subsystem. The Django app lives in
 `backend/events/`; its Vue pages and client data layer live under `frontend/src/`.
 
-The app currently contains three independent events:
+The app currently contains four independent events:
 
 - **Territory Control** — a two-team, 20-turn board game.
 - **Charity Bag** — a timed, shared risk/reward event using team Glorium balances.
 - **Centipede Game** — a two-player, alternating risk/reward game with an unbounded number of
   rounds.
+- **Gillympics / Olympics** — supervisor-operated physical matches with pluggable mini-games.
 
 Both events reuse the existing `teams.Team` model and session authentication. Domain mutations
 belong in `events/services.py`; API views validate input and translate domain errors, but do not
@@ -36,6 +37,7 @@ implement game rules themselves.
 - `frontend/src/components/territory/TerritoryBoard.vue`
 - `frontend/src/pages/CharityBagPage.vue`
 - `frontend/src/pages/CentipedeGamePage.vue`
+- `frontend/src/pages/OlympicsPage.vue`
 - `frontend/src/services/events.ts` — all event API paths.
 - `frontend/src/queries/events.ts` — TanStack Query polling, mutations, and cache updates.
 - `frontend/src/queries/keys.ts` — event query keys.
@@ -48,6 +50,7 @@ The SPA routes are:
 - `/events/territory-control`
 - `/events/charity-bag`
 - `/events/centipede-game`
+- `/events/olympics`
 
 Both routes require an authenticated session. Navigation is exposed through `InfoPanel.vue`.
 
@@ -62,6 +65,8 @@ team. Client-selected team state is never accepted as permission to act.
 - Mentors can inspect Territory matches but cannot take a team's turn.
 - Mentors cannot participate in Charity Bag unless they are using a real team account.
 - Mentors can inspect Centipede matches but cannot decide for a player.
+- Mentors are the only users who can create, start, and record Gillympics results; participating
+  teams may inspect their own matches.
 - Dice results, legal moves, timing, balance checks, deductions, and payouts are always decided by
   the backend.
 
@@ -305,6 +310,70 @@ it stacks the action and history panels on smaller screens.
 Mentor creation explicitly records Player 1 and Player 2 after the external rock-paper-scissors
 result. Team users can see the game but action controls appear only for the currently active player.
 
+## Gillympics / Olympics
+
+### Scope and model
+
+Gillympics records human-supervised physical games; it does not simulate coin or marble movement.
+`OlympicsMatch` is the reusable match shell for two ordered teams, a mini-game type, lifecycle
+status, optional scoring-zone configuration, winner, and start/finish timestamps.
+`OlympicsResult` is the immutable audit record for each main or tiebreak round. It stores the
+operator, an idempotency UUID, round number, normalized attempts, totals or best distances, outcome,
+and timestamp.
+
+Supported mini-games are:
+
+- `coin_near_wall` — each side throws three coins; the nearer best coin wins.
+- `marble_target` — each side plays four marbles; the higher configured-zone total wins.
+
+The available lifecycle values are `created`, `active`, `waiting_for_result`, `tiebreak`, and
+`finished`. Current operator flow uses `created` → `active` → either `tiebreak` or `finished`;
+`waiting_for_result` is retained for integrations where physical play and result collection are
+separate stations.
+
+### Coin Near the Wall
+
+The supervisor may record only the winner, or may additionally enter both closest distances for
+auditing. When both distances are present, the backend calculates the nearer side and rejects a
+conflicting declared winner. Exactly equal distances must be recorded as a tie and move the match
+to `tiebreak`; there is no random winner.
+
+### Marble Target
+
+Scoring zones are configured per match as `{code, label, score}` records. The backend requires four
+attempts per side in the main round, resolves zone codes or configured raw scores, and calculates
+both totals. Zero represents a miss. A higher total finishes the match; equal totals create a
+tiebreak. Tiebreak rounds accept equal, nonzero attempt counts for both sides, allowing the physical
+operator's chosen sudden-death format. Further ties remain in `tiebreak`.
+
+### Safety and authority
+
+Only a mentor/operator can create, start, or record a result. The service locks the match before
+checking state and assigning the next round. Finished matches reject new results. Retrying the same
+`request_id` returns the already-processed match without creating another result. Winners must be
+match participants, and server-calculated marble winners cannot be overridden.
+
+Gillympics never imports the Glorium balance mechanism and never writes team balances. Physical
+results remain separate from the main competition economy until an explicit reward specification
+is added.
+
+### Gillympics API
+
+- `GET /api/events/olympics/matches/` — mentors see all matches; teams see only their own.
+- `POST /api/events/olympics/matches/` — mentor-only creation with `mini_game`, `player_one`,
+  `player_two`, and configurable `scoring_zones` for Marble Target.
+- `GET /api/events/olympics/matches/<id>/` — current state and complete result history.
+- `POST /api/events/olympics/matches/<id>/start/` — mentor-only, single-use start.
+- `POST /api/events/olympics/matches/<id>/results/` — mentor-only immutable result submission. A
+  stable `request_id` UUID is required for retry safety.
+
+### Gillympics frontend behavior
+
+The responsive Persian operator console creates either mini-game, selects the two teams, configures
+marble zones, starts physical play, records coin winners/distances or each marble's zone, and shows
+live server-calculated totals. Ties change the primary action into tiebreak recording. The side log
+shows every round and the operator username. Team accounts receive the same read-only match view.
+
 ## Continuing development
 
 When changing an event:
@@ -329,6 +398,7 @@ Relevant focused tests are:
 uv run pytest tests/test_territory_event.py
 uv run pytest tests/test_charity_bag_event.py
 uv run pytest tests/test_centipede_event.py
+uv run pytest tests/test_olympics_event.py
 ```
 
 SQLite does not enforce `select_for_update()`. Concurrency confidence therefore depends on the row

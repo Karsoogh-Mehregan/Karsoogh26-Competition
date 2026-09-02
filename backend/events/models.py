@@ -477,3 +477,161 @@ class CentipedeDecision(models.Model):
 
     def __str__(self):
         return f"Centipede {self.game_id}, decision {self.sequence}"
+
+
+class OlympicsMiniGame(models.TextChoices):
+    COIN_NEAR_WALL = "coin_near_wall", "سکه نزدیک دیوار"
+    MARBLE_TARGET = "marble_target", "تیله هدف"
+
+
+class OlympicsStatus(models.TextChoices):
+    CREATED = "created", "ساخته شده"
+    ACTIVE = "active", "در حال اجرا"
+    WAITING_FOR_RESULT = "waiting_for_result", "در انتظار نتیجه"
+    TIEBREAK = "tiebreak", "تساوی‌شکن"
+    FINISHED = "finished", "تمام شده"
+
+
+class OlympicsOutcome(models.TextChoices):
+    PLAYER_ONE = "player_one", "بازیکن اول"
+    PLAYER_TWO = "player_two", "بازیکن دوم"
+    TIE = "tie", "تساوی"
+
+
+class OlympicsMatch(models.Model):
+    mini_game = models.CharField(max_length=16, choices=OlympicsMiniGame.choices)
+    player_one = models.ForeignKey(
+        "teams.Team",
+        on_delete=models.PROTECT,
+        related_name="olympics_matches_as_player_one",
+    )
+    player_two = models.ForeignKey(
+        "teams.Team",
+        on_delete=models.PROTECT,
+        related_name="olympics_matches_as_player_two",
+    )
+    scoring_zones = models.JSONField(default=list, blank=True)
+    status = models.CharField(
+        max_length=18,
+        choices=OlympicsStatus.choices,
+        default=OlympicsStatus.CREATED,
+    )
+    winner = models.ForeignKey(
+        "teams.Team",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="won_olympics_matches",
+    )
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            CheckConstraint(
+                condition=~Q(player_one=F("player_two")),
+                name="olympics_two_distinct_players",
+            ),
+            CheckConstraint(
+                condition=(
+                    Q(winner=F("player_one")) | Q(winner=F("player_two")) | Q(winner__isnull=True)
+                ),
+                name="olympics_winner_is_player",
+            ),
+            CheckConstraint(
+                condition=(
+                    Q(
+                        status=OlympicsStatus.CREATED,
+                        started_at__isnull=True,
+                        finished_at__isnull=True,
+                        winner__isnull=True,
+                    )
+                    | Q(
+                        status__in=[
+                            OlympicsStatus.ACTIVE,
+                            OlympicsStatus.WAITING_FOR_RESULT,
+                            OlympicsStatus.TIEBREAK,
+                        ],
+                        started_at__isnull=False,
+                        finished_at__isnull=True,
+                        winner__isnull=True,
+                    )
+                    | Q(
+                        status=OlympicsStatus.FINISHED,
+                        started_at__isnull=False,
+                        finished_at__isnull=False,
+                        winner__isnull=False,
+                    )
+                ),
+                name="olympics_status_consistent",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Olympics {self.player_one} vs {self.player_two} ({self.pk})"
+
+
+class OlympicsResult(models.Model):
+    match = models.ForeignKey(
+        OlympicsMatch,
+        on_delete=models.CASCADE,
+        related_name="results",
+    )
+    request_id = models.UUIDField(unique=True)
+    round_number = models.PositiveIntegerField()
+    player_one_attempts = models.JSONField(default=list, blank=True)
+    player_two_attempts = models.JSONField(default=list, blank=True)
+    player_one_total = models.PositiveIntegerField(null=True, blank=True)
+    player_two_total = models.PositiveIntegerField(null=True, blank=True)
+    player_one_best_distance = models.DecimalField(
+        max_digits=9, decimal_places=2, null=True, blank=True
+    )
+    player_two_best_distance = models.DecimalField(
+        max_digits=9, decimal_places=2, null=True, blank=True
+    )
+    outcome = models.CharField(max_length=10, choices=OlympicsOutcome.choices)
+    recorded_by = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.PROTECT,
+        related_name="recorded_olympics_results",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["round_number"]
+        constraints = [
+            UniqueConstraint(
+                fields=["match", "round_number"],
+                name="olympics_one_result_per_round",
+            ),
+            CheckConstraint(
+                condition=Q(round_number__gte=1),
+                name="olympics_result_round_positive",
+            ),
+            CheckConstraint(
+                condition=(
+                    Q(player_one_total__isnull=True, player_two_total__isnull=True)
+                    | Q(player_one_total__isnull=False, player_two_total__isnull=False)
+                ),
+                name="olympics_totals_pair",
+            ),
+            CheckConstraint(
+                condition=(
+                    Q(
+                        player_one_best_distance__isnull=True,
+                        player_two_best_distance__isnull=True,
+                    )
+                    | Q(
+                        player_one_best_distance__isnull=False,
+                        player_two_best_distance__isnull=False,
+                    )
+                ),
+                name="olympics_distances_pair",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Olympics {self.match_id}, round {self.round_number}"

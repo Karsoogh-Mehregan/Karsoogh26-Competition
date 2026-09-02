@@ -68,3 +68,27 @@ class CentipedeNotPlayersTurn(CentipedeError):
 
 class CentipedeInvalidAction(CentipedeError):
     pass
+
+
+class OlympicsError(Exception):
+    """Base class for supervisor-operated physical matches."""
+
+
+class OlympicsSamePlayer(OlympicsError):
+    pass
+
+
+class OlympicsInvalidConfiguration(OlympicsError):
+    pass
+
+
+class OlympicsInvalidState(OlympicsError):
+    pass
+
+
+class OlympicsInvalidResult(OlympicsError):
+    pass
+
+
+class OlympicsInvalidWinner(OlympicsError):
+    pass

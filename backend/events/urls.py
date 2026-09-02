@@ -8,6 +8,10 @@ from .views import (
     CharityBagListCreateView,
     CharityBagParticipationView,
     CharityBagResolveView,
+    OlympicsMatchDetailView,
+    OlympicsMatchListCreateView,
+    OlympicsMatchStartView,
+    OlympicsResultView,
     TerritoryGameDetailView,
     TerritoryGameListCreateView,
     TerritoryTurnView,
@@ -16,6 +20,22 @@ from .views import (
 app_name = "events"
 
 urlpatterns = [
+    path("olympics/matches/", OlympicsMatchListCreateView.as_view(), name="olympics-list"),
+    path(
+        "olympics/matches/<int:pk>/",
+        OlympicsMatchDetailView.as_view(),
+        name="olympics-detail",
+    ),
+    path(
+        "olympics/matches/<int:pk>/start/",
+        OlympicsMatchStartView.as_view(),
+        name="olympics-start",
+    ),
+    path(
+        "olympics/matches/<int:pk>/results/",
+        OlympicsResultView.as_view(),
+        name="olympics-result",
+    ),
     path("centipede/games/", CentipedeGameListCreateView.as_view(), name="centipede-list"),
     path(
         "centipede/games/<int:pk>/",

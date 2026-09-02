@@ -36,6 +36,7 @@ export function useLoginMutation() {
         queryClient.invalidateQueries({ queryKey: queryKeys.territoryGames() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.charityBags() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.centipedeGames() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.olympicsMatches() }),
       ])
     },
   })
@@ -52,6 +53,7 @@ export function useLogoutMutation() {
       queryClient.removeQueries({ queryKey: queryKeys.territoryGames() })
       queryClient.removeQueries({ queryKey: queryKeys.charityBags() })
       queryClient.removeQueries({ queryKey: queryKeys.centipedeGames() })
+      queryClient.removeQueries({ queryKey: queryKeys.olympicsMatches() })
       await ensureCsrf()
     },
   })

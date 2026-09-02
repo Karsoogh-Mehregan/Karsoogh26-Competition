@@ -22,6 +22,11 @@ from .exceptions import (
     InvalidTarget,
     NotParticipant,
     NotPlayersTurn,
+    OlympicsInvalidConfiguration,
+    OlympicsInvalidResult,
+    OlympicsInvalidState,
+    OlympicsInvalidWinner,
+    OlympicsSamePlayer,
     SamePlayer,
 )
 from .models import (
@@ -35,6 +40,11 @@ from .models import (
     CharityBagEvent,
     CharityBagParticipation,
     CharityBagStatus,
+    OlympicsMatch,
+    OlympicsMiniGame,
+    OlympicsOutcome,
+    OlympicsResult,
+    OlympicsStatus,
     TerritoryAction,
     TerritoryCell,
     TerritoryGame,
@@ -453,3 +463,198 @@ def play_centipede_action(
         displayed_reward=displayed_reward,
     )
     return game
+
+
+def _validate_scoring_zones(scoring_zones: list[dict]) -> list[dict]:
+    if not scoring_zones:
+        raise OlympicsInvalidConfiguration("برای تیله هدف حداقل یک منطقه امتیازی تعریف کنید.")
+    normalized = []
+    seen_codes = set()
+    for zone in scoring_zones:
+        if not isinstance(zone, dict):
+            raise OlympicsInvalidConfiguration("ساختار منطقه امتیازی معتبر نیست.")
+        code = str(zone.get("code", "")).strip()
+        label = str(zone.get("label", "")).strip()
+        score = zone.get("score")
+        if (
+            not code
+            or not label
+            or isinstance(score, bool)
+            or not isinstance(score, int)
+            or score < 0
+        ):
+            raise OlympicsInvalidConfiguration(
+                "هر منطقه باید کد، عنوان و امتیاز نامنفی داشته باشد."
+            )
+        if code in seen_codes:
+            raise OlympicsInvalidConfiguration("کد مناطق امتیازی باید یکتا باشد.")
+        seen_codes.add(code)
+        normalized.append({"code": code, "label": label, "score": score})
+    return normalized
+
+
+@transaction.atomic
+def create_olympics_match(
+    mini_game: str,
+    player_one: Team,
+    player_two: Team,
+    scoring_zones: list[dict] | None = None,
+) -> OlympicsMatch:
+    if player_one.pk == player_two.pk:
+        raise OlympicsSamePlayer("دو شرکت‌کننده مسابقه باید متفاوت باشند.")
+    if mini_game not in OlympicsMiniGame.values:
+        raise OlympicsInvalidConfiguration("نوع مینی‌گیم معتبر نیست.")
+    zones = scoring_zones or []
+    if mini_game == OlympicsMiniGame.MARBLE_TARGET:
+        zones = _validate_scoring_zones(zones)
+    elif zones:
+        raise OlympicsInvalidConfiguration("سکه نزدیک دیوار منطقه امتیازی ندارد.")
+    return OlympicsMatch.objects.create(
+        mini_game=mini_game,
+        player_one=player_one,
+        player_two=player_two,
+        scoring_zones=zones,
+    )
+
+
+@transaction.atomic
+def start_olympics_match(match_id: int) -> OlympicsMatch:
+    match = OlympicsMatch.objects.select_for_update(of=("self",)).get(pk=match_id)
+    if match.status != OlympicsStatus.CREATED:
+        raise OlympicsInvalidState("فقط مسابقه ساخته‌شده را می‌توان آغاز کرد.")
+    match.status = OlympicsStatus.ACTIVE
+    match.started_at = timezone.now()
+    match.save(update_fields=["status", "started_at", "updated_at"])
+    return match
+
+
+def _marble_attempts(attempts: list, scoring_zones: list[dict]) -> tuple[list[dict], int]:
+    zone_scores = {zone["code"]: zone["score"] for zone in scoring_zones}
+    valid_scores = set(zone_scores.values()) | {0}
+    normalized = []
+    for attempt in attempts:
+        if isinstance(attempt, str):
+            if attempt not in zone_scores:
+                raise OlympicsInvalidResult(f"منطقه امتیازی «{attempt}» تعریف نشده است.")
+            score = zone_scores[attempt]
+        elif isinstance(attempt, int) and not isinstance(attempt, bool):
+            if attempt not in valid_scores:
+                raise OlympicsInvalidResult("امتیاز ثبت‌شده با مناطق این مسابقه سازگار نیست.")
+            score = attempt
+        else:
+            raise OlympicsInvalidResult("هر تلاش باید کد منطقه یا امتیاز نامنفی معتبر باشد.")
+        normalized.append({"value": attempt, "score": score})
+    return normalized, sum(item["score"] for item in normalized)
+
+
+@transaction.atomic
+def record_olympics_result(
+    match_id: int,
+    *,
+    request_id,
+    recorded_by,
+    winner: Team | None = None,
+    is_tie: bool = False,
+    player_one_best_distance=None,
+    player_two_best_distance=None,
+    player_one_attempts: list | None = None,
+    player_two_attempts: list | None = None,
+) -> OlympicsMatch:
+    match = OlympicsMatch.objects.select_for_update(of=("self",)).get(pk=match_id)
+    existing_result = OlympicsResult.objects.filter(request_id=request_id).first()
+    if existing_result is not None:
+        if existing_result.match_id == match.pk:
+            return match
+        raise OlympicsInvalidResult("شناسه ثبت نتیجه قبلاً برای مسابقه دیگری استفاده شده است.")
+    if match.status not in (
+        OlympicsStatus.ACTIVE,
+        OlympicsStatus.WAITING_FOR_RESULT,
+        OlympicsStatus.TIEBREAK,
+    ):
+        raise OlympicsInvalidState("این مسابقه آماده ثبت نتیجه نیست.")
+    if winner is not None and winner.pk not in (match.player_one_id, match.player_two_id):
+        raise OlympicsInvalidWinner("برنده باید یکی از دو شرکت‌کننده مسابقه باشد.")
+
+    round_number = match.results.count() + 1
+    outcome = OlympicsOutcome.TIE
+    p1_attempts: list[dict] = []
+    p2_attempts: list[dict] = []
+    p1_total = p2_total = None
+    p1_distance = player_one_best_distance
+    p2_distance = player_two_best_distance
+
+    if match.mini_game == OlympicsMiniGame.COIN_NEAR_WALL:
+        if player_one_attempts or player_two_attempts:
+            raise OlympicsInvalidResult("برای بازی سکه فقط برنده یا فاصله بهترین سکه را ثبت کنید.")
+        if (p1_distance is None) != (p2_distance is None):
+            raise OlympicsInvalidResult("فاصله بهترین سکه را برای هر دو شرکت‌کننده وارد کنید.")
+        calculated_winner = None
+        if p1_distance is not None:
+            if p1_distance < 0 or p2_distance < 0:
+                raise OlympicsInvalidResult("فاصله سکه نمی‌تواند منفی باشد.")
+            if p1_distance < p2_distance:
+                calculated_winner = match.player_one
+            elif p2_distance < p1_distance:
+                calculated_winner = match.player_two
+            if (calculated_winner is None) != is_tie:
+                raise OlympicsInvalidResult("نتیجه اعلام‌شده با فاصله‌های ثبت‌شده سازگار نیست.")
+            if calculated_winner is not None and winner != calculated_winner:
+                raise OlympicsInvalidWinner("برنده اعلام‌شده با نزدیک‌ترین سکه سازگار نیست.")
+        elif is_tie:
+            if winner is not None:
+                raise OlympicsInvalidWinner("نتیجه مساوی نمی‌تواند برنده داشته باشد.")
+        elif winner is None:
+            raise OlympicsInvalidWinner("برنده یا تساوی مسابقه سکه را مشخص کنید.")
+    else:
+        if p1_distance is not None or p2_distance is not None:
+            raise OlympicsInvalidResult("فاصله سکه برای بازی تیله قابل ثبت نیست.")
+        raw_one = player_one_attempts or []
+        raw_two = player_two_attempts or []
+        required_count = 4 if round_number == 1 else None
+        if not raw_one or len(raw_one) != len(raw_two):
+            raise OlympicsInvalidResult(
+                "تعداد تلاش‌های دو شرکت‌کننده باید برابر و بیشتر از صفر باشد."
+            )
+        if required_count and len(raw_one) != required_count:
+            raise OlympicsInvalidResult("در دور اصلی هر شرکت‌کننده باید چهار تیله ثبت کند.")
+        p1_attempts, p1_total = _marble_attempts(raw_one, match.scoring_zones)
+        p2_attempts, p2_total = _marble_attempts(raw_two, match.scoring_zones)
+        calculated_winner = None
+        if p1_total > p2_total:
+            calculated_winner = match.player_one
+        elif p2_total > p1_total:
+            calculated_winner = match.player_two
+        if (calculated_winner is None) != is_tie:
+            raise OlympicsInvalidResult("نتیجه اعلام‌شده با مجموع امتیازها سازگار نیست.")
+        if calculated_winner is not None and winner is not None and winner != calculated_winner:
+            raise OlympicsInvalidWinner("برنده اعلام‌شده با مجموع امتیازها سازگار نیست.")
+        winner = calculated_winner
+
+    if is_tie:
+        winner = None
+        match.status = OlympicsStatus.TIEBREAK
+    else:
+        outcome = (
+            OlympicsOutcome.PLAYER_ONE
+            if winner.pk == match.player_one_id
+            else OlympicsOutcome.PLAYER_TWO
+        )
+        match.status = OlympicsStatus.FINISHED
+        match.winner = winner
+        match.finished_at = timezone.now()
+
+    OlympicsResult.objects.create(
+        match=match,
+        request_id=request_id,
+        round_number=round_number,
+        player_one_attempts=p1_attempts,
+        player_two_attempts=p2_attempts,
+        player_one_total=p1_total,
+        player_two_total=p2_total,
+        player_one_best_distance=p1_distance,
+        player_two_best_distance=p2_distance,
+        outcome=outcome,
+        recorded_by=recorded_by,
+    )
+    match.save(update_fields=["status", "winner", "finished_at", "updated_at"])
+    return match

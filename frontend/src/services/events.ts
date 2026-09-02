@@ -8,6 +8,9 @@ import type {
   EnterCharityBagInput,
   PlayCentipedeActionInput,
   PlayTerritoryTurnInput,
+  CreateOlympicsMatchInput,
+  OlympicsMatch,
+  RecordOlympicsResultInput,
   TerritoryGame,
 } from '@/types/api'
 
@@ -72,4 +75,29 @@ export function playCentipedeAction(
   input: PlayCentipedeActionInput,
 ): Promise<CentipedeGame> {
   return post<CentipedeGame>(`${CENTIPEDE_PATH}${gameId}/actions/`, input)
+}
+
+const OLYMPICS_PATH = '/events/olympics/matches/'
+
+export function listOlympicsMatches(signal?: AbortSignal): Promise<OlympicsMatch[]> {
+  return get<OlympicsMatch[]>(OLYMPICS_PATH, signal)
+}
+
+export function getOlympicsMatch(matchId: number, signal?: AbortSignal): Promise<OlympicsMatch> {
+  return get<OlympicsMatch>(`${OLYMPICS_PATH}${matchId}/`, signal)
+}
+
+export function createOlympicsMatch(input: CreateOlympicsMatchInput): Promise<OlympicsMatch> {
+  return post<OlympicsMatch>(OLYMPICS_PATH, input)
+}
+
+export function startOlympicsMatch(matchId: number): Promise<OlympicsMatch> {
+  return post<OlympicsMatch>(`${OLYMPICS_PATH}${matchId}/start/`, {})
+}
+
+export function recordOlympicsResult(
+  matchId: number,
+  input: RecordOlympicsResultInput,
+): Promise<OlympicsMatch> {
+  return post<OlympicsMatch>(`${OLYMPICS_PATH}${matchId}/results/`, input)
 }

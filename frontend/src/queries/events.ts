@@ -13,6 +13,11 @@ import {
   listTerritoryGames,
   playTerritoryTurn,
   playCentipedeAction,
+  createOlympicsMatch,
+  getOlympicsMatch,
+  listOlympicsMatches,
+  recordOlympicsResult,
+  startOlympicsMatch,
 } from '@/services/events'
 import type {
   CentipedeGame,
@@ -24,6 +29,8 @@ import type {
   PlayTerritoryTurnInput,
   PlayCentipedeActionInput,
   TerritoryGame,
+  CreateOlympicsMatchInput,
+  RecordOlympicsResultInput,
 } from '@/types/api'
 import { queryKeys } from './keys'
 
@@ -177,6 +184,66 @@ export function useCreateCentipedeGameMutation() {
     onSuccess: (game) => {
       queryClient.setQueryData(queryKeys.centipedeGame(game.id), game)
       return queryClient.invalidateQueries({ queryKey: queryKeys.centipedeGames() })
+    },
+  })
+}
+
+export function useOlympicsMatchesQuery(enabled: () => boolean) {
+  return useQuery({
+    queryKey: queryKeys.olympicsMatches(),
+    queryFn: ({ signal }) => listOlympicsMatches(signal),
+    enabled,
+    refetchInterval: (query) =>
+      query.state.data?.some((match) => match.status !== 'finished') ? 5000 : false,
+  })
+}
+
+export function useOlympicsMatchQuery(matchId: Ref<number | null>, enabled: () => boolean) {
+  return useQuery({
+    queryKey: computed(() => queryKeys.olympicsMatch(matchId.value ?? 'none')),
+    queryFn: ({ signal }) => {
+      if (matchId.value == null) throw new Error('No Olympics match selected.')
+      return getOlympicsMatch(matchId.value, signal)
+    },
+    enabled: computed(() => enabled() && matchId.value != null),
+    refetchInterval: (query) => (query.state.data?.status !== 'finished' ? 4000 : false),
+  })
+}
+
+export function useCreateOlympicsMatchMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: CreateOlympicsMatchInput) => createOlympicsMatch(input),
+    onSuccess: (match) => {
+      queryClient.setQueryData(queryKeys.olympicsMatch(match.id), match)
+      return queryClient.invalidateQueries({ queryKey: queryKeys.olympicsMatches() })
+    },
+  })
+}
+
+export function useStartOlympicsMatchMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (matchId: number) => startOlympicsMatch(matchId),
+    onSuccess: (match) => {
+      queryClient.setQueryData(queryKeys.olympicsMatch(match.id), match)
+      return queryClient.invalidateQueries({ queryKey: queryKeys.olympicsMatches() })
+    },
+  })
+}
+
+interface OlympicsResultVariables extends RecordOlympicsResultInput {
+  matchId: number
+}
+
+export function useRecordOlympicsResultMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ matchId, ...input }: OlympicsResultVariables) =>
+      recordOlympicsResult(matchId, input),
+    onSuccess: (match) => {
+      queryClient.setQueryData(queryKeys.olympicsMatch(match.id), match)
+      return queryClient.invalidateQueries({ queryKey: queryKeys.olympicsMatches() })
     },
   })
 }

@@ -243,3 +243,71 @@ export interface CreateCentipedeGameInput {
 export interface PlayCentipedeActionInput {
   action: CentipedeAction
 }
+
+export type OlympicsMiniGame = 'coin_near_wall' | 'marble_target'
+export type OlympicsStatus = 'created' | 'active' | 'waiting_for_result' | 'tiebreak' | 'finished'
+export type OlympicsOutcome = 'player_one' | 'player_two' | 'tie'
+
+export interface OlympicsScoringZone {
+  code: string
+  label: string
+  score: number
+}
+
+export interface OlympicsPlayer {
+  code: string
+  name: string
+  color: string | null
+  position: 1 | 2
+}
+
+export interface OlympicsAttempt {
+  value: string | number
+  score: number
+}
+
+export interface OlympicsResult {
+  request_id: string
+  round_number: number
+  player_one_attempts: OlympicsAttempt[]
+  player_two_attempts: OlympicsAttempt[]
+  player_one_total: number | null
+  player_two_total: number | null
+  player_one_best_distance: string | null
+  player_two_best_distance: string | null
+  outcome: OlympicsOutcome
+  recorded_by: string
+  created_at: string
+}
+
+export interface OlympicsMatch {
+  id: number
+  mini_game: OlympicsMiniGame
+  players: [OlympicsPlayer, OlympicsPlayer]
+  scoring_zones: OlympicsScoringZone[]
+  status: OlympicsStatus
+  tiebreak_occurred: boolean
+  winner: { code: string; name: string; color: string | null } | null
+  results: OlympicsResult[]
+  started_at: string | null
+  finished_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateOlympicsMatchInput {
+  mini_game: OlympicsMiniGame
+  player_one: string
+  player_two: string
+  scoring_zones?: OlympicsScoringZone[]
+}
+
+export interface RecordOlympicsResultInput {
+  request_id: string
+  winner?: string | null
+  is_tie?: boolean
+  player_one_best_distance?: string | null
+  player_two_best_distance?: string | null
+  player_one_attempts?: Array<string | number>
+  player_two_attempts?: Array<string | number>
+}

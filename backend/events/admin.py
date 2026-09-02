@@ -5,6 +5,8 @@ from .models import (
     CentipedeGame,
     CharityBagEvent,
     CharityBagParticipation,
+    OlympicsMatch,
+    OlympicsResult,
     TerritoryCell,
     TerritoryGame,
     TerritoryTurn,
@@ -106,3 +108,34 @@ class CentipedeGameAdmin(admin.ModelAdmin):
 class CentipedeDecisionAdmin(admin.ModelAdmin):
     list_display = ("game", "sequence", "round_number", "actor", "action", "displayed_reward")
     list_filter = ("action",)
+
+
+class OlympicsResultInline(admin.TabularInline):
+    model = OlympicsResult
+    extra = 0
+    readonly_fields = (
+        "request_id",
+        "round_number",
+        "player_one_attempts",
+        "player_two_attempts",
+        "player_one_total",
+        "player_two_total",
+        "player_one_best_distance",
+        "player_two_best_distance",
+        "outcome",
+        "recorded_by",
+        "created_at",
+    )
+
+
+@admin.register(OlympicsMatch)
+class OlympicsMatchAdmin(admin.ModelAdmin):
+    list_display = ("id", "mini_game", "player_one", "player_two", "status", "winner")
+    list_filter = ("mini_game", "status")
+    inlines = (OlympicsResultInline,)
+
+
+@admin.register(OlympicsResult)
+class OlympicsResultAdmin(admin.ModelAdmin):
+    list_display = ("match", "round_number", "outcome", "recorded_by", "created_at")
+    list_filter = ("outcome",)
