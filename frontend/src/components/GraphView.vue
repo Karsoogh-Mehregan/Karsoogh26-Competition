@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
@@ -10,11 +10,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import MapHud from './MapHud.vue'
 import { useActing } from '../composables/useActing'
 import { useAttemptStore } from '../stores/attempt'
 import { useGraph } from '../composables/useGraph.js'
+import { useMapViewport } from '../composables/useMapViewport'
 
-const HOUSE_FILL = '#E8D5B0'
+const HOUSE_FILL = '#E2CFA6'
 
 const { me, teams, actingTeam, isPlayer, claimStart, assignQuestion } = useActing()
 const attemptStore = useAttemptStore()
@@ -133,7 +135,9 @@ function isNodeAnswerable(id) {
 
 const hoveredId = ref(null)
 
-// ---- viewBox / bounds ----
+// ---- camera ----
+// The viewBox is the camera; useMapViewport owns it. `bounds` is only the
+// whole-map framing it starts from and returns to.
 const PAD = 90
 const bounds = computed(() => {
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
@@ -150,9 +154,61 @@ const bounds = computed(() => {
     height: maxY - minY + PAD * 2,
   }
 })
-const viewBox = computed(
-  () => `${bounds.value.minX} ${bounds.value.minY} ${bounds.value.width} ${bounds.value.height}`
-)
+
+const svgRef = ref(null)
+const viewport = useMapViewport()
+const { viewBox, box, labelsVisible, unitsPerPx, isPanning, consumedByDrag } = viewport
+const searchHit = ref(null)
+
+onMounted(() => {
+  viewport.attach(svgRef.value)
+  viewport.setHome({
+    x: bounds.value.minX,
+    y: bounds.value.minY,
+    w: bounds.value.width,
+    h: bounds.value.height,
+  })
+})
+
+onBeforeUnmount(() => viewport.detach())
+
+function onSearchHighlight(id) {
+  searchHit.value = id
+}
+
+// Only label what is actually on screen: 473 <text> nodes would cost more than
+// they are worth, and off-screen ones are unreadable anyway.
+const labelledNodes = computed(() => {
+  if (!labelsVisible.value) return []
+  const { x, y, w, h } = box.value
+  const margin = Math.max(w, h) * 0.08
+  return nodes.filter(
+    (n) =>
+      n.x >= x - margin &&
+      n.x <= x + w + margin &&
+      n.y >= y - margin &&
+      n.y <= y + h + margin,
+  )
+})
+
+// Text has no `vector-effect`, so labels are sized in map units converted from
+// the pixel size we actually want on screen.
+function px(value) {
+  return value * unitsPerPx.value
+}
+
+// One dot every GRID_UNITS map units. Translating the pattern by the camera
+// origin pins the dots to the map, so they slide under your finger as you pan
+// and spread apart as you zoom in.
+const GRID_UNITS = 120
+const gridStyle = computed(() => {
+  const perPx = unitsPerPx.value || 1
+  const cell = GRID_UNITS / perPx
+  return {
+    backgroundSize: `${cell}px ${cell}px`,
+    backgroundPosition: `${-box.value.x / perPx}px ${-box.value.y / perPx}px`,
+  }
+})
 
 // ---- edge helpers ----
 function edgePath(e) {
@@ -208,6 +264,8 @@ function nodeLabel(n) {
 }
 
 function onNodeClick(n) {
+  // A click that ended a pan is a camera move, not a move on the board.
+  if (consumedByDrag()) return
   const holding = answerableHolding(n.id)
   if (holding) {
     attemptStore.select(holding.id)
@@ -335,15 +393,37 @@ function shapePath(n) {
 
 <template>
   <div class="graph-wrap">
-    <svg class="graph-svg" :viewBox="viewBox" preserveAspectRatio="xMidYMid meet">
+    <!-- A near-neutral ground with a faint dot grid pinned to map coordinates:
+         it gives the glass something to refract and makes panning read as
+         motion, without colouring over the nodes. -->
+    <div class="map-ground" aria-hidden="true" />
+    <div class="map-grid" aria-hidden="true" :style="gridStyle" />
+
+    <svg
+      ref="svgRef"
+      class="graph-svg"
+      :class="{ panning: isPanning }"
+      :viewBox="viewBox"
+      preserveAspectRatio="xMidYMid meet"
+      tabindex="0"
+      role="application"
+      aria-label="نقشهٔ بازی — با کشیدن جابه‌جا و با چرخ ماوس بزرگ‌نمایی کنید"
+    >
     <defs>
+      <!-- Fake glass: a lit top edge fading to nothing, laid over the node fill. -->
+      <linearGradient id="glass-sheen" x1="0" y1="0" x2="0.35" y2="1">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.34" />
+        <stop offset="38%" stop-color="#ffffff" stop-opacity="0.03" />
+        <stop offset="100%" stop-color="#2c4661" stop-opacity="0.1" />
+      </linearGradient>
       <marker
         id="arrow"
         viewBox="0 0 10 10"
-        refX="8"
+        refX="9"
         refY="5"
-        markerWidth="6"
-        markerHeight="6"
+        markerUnits="userSpaceOnUse"
+        markerWidth="12"
+        markerHeight="12"
         orient="auto-start-reverse"
       >
         <path d="M 0 0 L 10 5 L 0 10 z" fill="#6fa8d0" />
@@ -351,10 +431,11 @@ function shapePath(n) {
       <marker
         id="arrow-active"
         viewBox="0 0 10 10"
-        refX="8"
+        refX="9"
         refY="5"
-        markerWidth="7"
-        markerHeight="7"
+        markerUnits="userSpaceOnUse"
+        markerWidth="13"
+        markerHeight="13"
         orient="auto-start-reverse"
       >
         <path d="M 0 0 L 10 5 L 0 10 z" fill="#2b6ca8" />
@@ -362,10 +443,11 @@ function shapePath(n) {
       <marker
         id="arrow-out"
         viewBox="0 0 10 10"
-        refX="8"
+        refX="9"
         refY="5"
-        markerWidth="6"
-        markerHeight="6"
+        markerUnits="userSpaceOnUse"
+        markerWidth="12"
+        markerHeight="12"
         orient="auto-start-reverse"
       >
         <path d="M 0 0 L 10 5 L 0 10 z" fill="#222" />
@@ -419,7 +501,12 @@ function shapePath(n) {
         v-for="n in nodes"
         :key="n.id"
         :transform="`translate(${n.x}, ${n.y})`"
-        :class="['node', 'state-' + nodeState(n), 'shape-' + n.shape]"
+        :class="[
+          'node',
+          'state-' + nodeState(n),
+          'shape-' + n.shape,
+          { 'search-hit': searchHit === n.id },
+        ]"
         :role="isNodeInteractive(n) ? 'button' : undefined"
         :tabindex="isNodeInteractive(n) ? 0 : undefined"
         :aria-label="isNodeInteractive(n) ? nodeLabel(n) : undefined"
@@ -479,6 +566,25 @@ function shapePath(n) {
           />
         </template>
 
+        <!-- Only on nodes big enough to show it; 473 sheens would be noise. -->
+        <circle
+          v-if="slotCount(n) > 1"
+          :r="visualRadius(n)"
+          class="node-sheen"
+          fill="url(#glass-sheen)"
+        />
+        <path
+          v-else-if="n.shape !== 'circle'"
+          :d="shapePath(n)"
+          class="node-sheen"
+          fill="url(#glass-sheen)"
+        />
+
+        <circle
+          v-if="searchHit === n.id"
+          :r="visualRadius(n) + 14"
+          class="ring-search"
+        />
         <circle
           v-if="isNodeSelected(n.id)"
           :r="visualRadius(n) + 5"
@@ -491,21 +597,36 @@ function shapePath(n) {
         />
 
         <text
-          v-if="hoveredId === n.id"
-          :y="-(visualRadius(n) + 12)"
+          v-if="hoveredId === n.id && !labelsVisible"
+          :y="-(visualRadius(n) + px(10))"
+          :style="{ fontSize: `${px(14)}px`, strokeWidth: `${px(4)}px` }"
           class="node-label"
           text-anchor="middle"
         >
           {{ n.id }}
         </text>
       </g>
+
+      <!-- Zoomed-in labels, drawn once over the nodes so they never sit under one. -->
+      <text
+        v-for="n in labelledNodes"
+        :key="'label-' + n.id"
+        :x="n.x"
+        :y="n.y + visualRadius(n) + px(13)"
+        :style="{ fontSize: `${px(11)}px`, strokeWidth: `${px(3)}px` }"
+        class="node-label zoom-label"
+        text-anchor="middle"
+      >
+        {{ n.id }}
+      </text>
     </g>
 
     <!-- center label -->
     <text
-      v-if="nodeById.get('CENTER')"
+      v-if="nodeById.get('CENTER') && !labelsVisible"
       :x="nodeById.get('CENTER').x"
-      :y="nodeById.get('CENTER').y + visualRadius(nodeById.get('CENTER')) + 22"
+      :y="nodeById.get('CENTER').y + visualRadius(nodeById.get('CENTER')) + px(18)"
+      :style="{ fontSize: `${px(14)}px` }"
       text-anchor="middle"
       class="center-label"
     >
@@ -530,7 +651,9 @@ function shapePath(n) {
       </DialogContent>
     </Dialog>
 
-    <ul v-if="canAct" class="legend" aria-label="راهنمای رنگ خانه‌ها">
+    <MapHud :nodes="nodes" @highlight="onSearchHighlight" />
+
+    <ul v-if="canAct" class="legend glass-panel" aria-label="راهنمای رنگ خانه‌ها">
       <li><span class="legend-dot legend-answerable" />پاسخ به سؤال</li>
       <li><span class="legend-dot legend-selectable" />قابل رزرو</li>
       <li><span class="legend-dot legend-visited" />در اختیار شما</li>
@@ -543,10 +666,37 @@ function shapePath(n) {
   position: relative;
   width: 100%;
   height: 100%;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--background);
+}
+
+/* ---- backdrop ----
+   Deliberately almost colourless. The map has 473 nodes to read; anything
+   saturated back here competes with them and tires the eye at high zoom. */
+.map-ground {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 90% at 50% 0%, #ffffff 0%, #f7f9fc 55%, #eff3f8 100%);
+}
+.map-grid {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: radial-gradient(
+    circle,
+    color-mix(in oklab, #2c4661 22%, transparent) 1px,
+    transparent 1px
+  );
 }
 
 .legend {
   position: absolute;
+  z-index: 2;
   inset-block-end: 1rem;
   inset-inline-start: 1rem;
   display: flex;
@@ -555,12 +705,8 @@ function shapePath(n) {
   margin: 0;
   padding: 0.5rem 0.75rem;
   list-style: none;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: color-mix(in oklab, var(--card) 92%, transparent);
   font-size: 0.75rem;
   color: var(--muted-foreground);
-  backdrop-filter: blur(4px);
 }
 .legend li {
   display: flex;
@@ -584,24 +730,39 @@ function shapePath(n) {
 }
 
 .graph-svg {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 100%;
   display: block;
-  background: radial-gradient(circle at center, #ffffff 0%, #fafbfd 60%, #f4f6f9 100%);
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+  outline: none;
+}
+.graph-svg.panning {
+  cursor: grabbing;
+}
+.graph-svg.panning .node {
+  cursor: grabbing;
+}
+.graph-svg:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--ring);
 }
 
 .edge {
-  stroke: #bcdcf0;
-  stroke-width: 1.35;
+  stroke: #8fb9d6;
+  stroke-width: 0.8px;
+  vector-effect: non-scaling-stroke;
   transition: stroke 0.2s ease, stroke-width 0.2s ease, opacity 0.2s ease;
 }
 .edge.traversed {
   stroke: #4a90c4;
-  stroke-width: 3.2;
+  stroke-width: 2.2px;
 }
 .edge.active {
   stroke: #2b6ca8;
-  stroke-width: 3.2;
+  stroke-width: 2.2px;
 }
 
 .node {
@@ -609,8 +770,9 @@ function shapePath(n) {
   transition: opacity 0.25s ease;
 }
 .node-shape {
-  stroke: #1a1a1a;
-  stroke-width: 1.4;
+  stroke: #33506b;
+  stroke-width: 1.1px;
+  vector-effect: non-scaling-stroke;
   transition: filter 0.2s ease, stroke-width 0.15s ease;
 }
 .node-hatch {
@@ -621,6 +783,36 @@ function shapePath(n) {
 .state-occupied {
   opacity: 1;
   cursor: default;
+}
+
+.node:hover .node-shape {
+  stroke: #10243a;
+  stroke-width: 1.8px;
+}
+
+/* The lit edge that reads as glass. Never a hit target. */
+.node-sheen {
+  pointer-events: none;
+}
+
+.zoom-label {
+  pointer-events: none;
+  fill: #1d3145;
+  opacity: 0.85;
+}
+
+.ring-search {
+  fill: none;
+  stroke: #e0761f;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+  animation: search-ping 1.4s ease-out infinite;
+}
+
+@keyframes search-ping {
+  0% { opacity: 0.95; transform: scale(0.82); }
+  70% { opacity: 0; transform: scale(1.35); }
+  100% { opacity: 0; transform: scale(1.35); }
 }
 
 .node-label {
@@ -746,6 +938,7 @@ function shapePath(n) {
 @media (prefers-reduced-motion: reduce) {
   .ring-current,
   .ring-selectable,
+  .ring-search,
   .state-answerable .node-shape {
     animation: none;
   }

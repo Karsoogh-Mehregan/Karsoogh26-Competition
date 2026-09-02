@@ -26,7 +26,13 @@ class TeamSerializer(serializers.ModelSerializer):
         fields = ("code", "name", "balance", "color", "holdings")
 
     def get_balance(self, team: Team) -> int | None:
-        """Only mentors and the team itself see the number; other teams see null."""
+        """Only mentors and the team itself see the number; other teams see null.
+
+        `unmasked` renders the shared snapshot in teams.board_cache, which then
+        masks per viewer; it must never be set on a response serializer.
+        """
+        if self.context.get("unmasked"):
+            return team.balance
         user = self.context["request"].user
         if user.has_perm(MENTOR_PERM) or user.team_id == team.pk:
             return team.balance

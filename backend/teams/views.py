@@ -1,18 +1,18 @@
 from django.db import IntegrityError, transaction
 from rest_framework import status
 from rest_framework.exceptions import NotFound
-from rest_framework.generics import ListAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.permissions import CanViewLeaderboard, GameIsRunning
+from accounts.permissions import MENTOR_PERM, CanViewLeaderboard, GameIsRunning
 from core.openapi import OpenApiExample, extend_schema
 from game.api_exceptions import Conflict
 from game.models import Node
 from game.permissions import IsOwnTeam
 from game.services import claim_spawn, release_expired_attempts
 
+from . import board_cache
 from .models import Team
 from .serializers import ClaimStartSerializer, LeaderboardRowSerializer, TeamSerializer
 from .start_colors import color_for_start
@@ -45,14 +45,22 @@ from .start_colors import color_for_start
             response_only=True,
         ),
     ],
+    responses=TeamSerializer(many=True),
 )
-class TeamListView(ListAPIView):
-    serializer_class = TeamSerializer
+class TeamListView(APIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = TeamSerializer
 
-    def get_queryset(self):
+    def get(self, request):
         release_expired_attempts()
-        return Team.objects.with_holdings()
+        user = request.user
+        return Response(
+            board_cache.mask(
+                board_cache.snapshot(request),
+                is_mentor=user.has_perm(MENTOR_PERM),
+                viewer_team_code=user.team.code if user.team_id else None,
+            )
+        )
 
 
 @extend_schema(
