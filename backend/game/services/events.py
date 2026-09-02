@@ -14,6 +14,7 @@ BOARD_GRADED = "board.graded"
 BOARD_RELEASED = "board.released"
 QUESTION_ASSIGNED = "question.assigned"
 SUBMISSION_CREATED = "mentor.submission.created"
+GAME_STATE = "game.state"
 RESYNC = "resync"
 
 MENTOR_ONLY = frozenset({SUBMISSION_CREATED})

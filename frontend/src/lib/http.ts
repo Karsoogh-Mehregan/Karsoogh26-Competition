@@ -154,6 +154,10 @@ export function postForm<T>(path: string, form: FormData, signal?: AbortSignal):
   return request<T>(path, { method: 'POST', form, signal })
 }
 
+export function patch<T>(path: string, json?: unknown, signal?: AbortSignal): Promise<T> {
+  return request<T>(path, { method: 'PATCH', json, signal })
+}
+
 export function del<T>(path: string, signal?: AbortSignal): Promise<T> {
   return request<T>(path, { method: 'DELETE', signal })
 }

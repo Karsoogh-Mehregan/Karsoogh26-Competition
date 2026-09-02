@@ -22,6 +22,7 @@ export interface Me {
   username: string
   is_staff: boolean
   is_mentor: boolean
+  is_game_god: boolean
   team: { code: string; name: string } | null
 }
 
@@ -111,6 +112,36 @@ export interface GradeResult {
   points: number
   released_at: string | null
   release_reason: string
+}
+
+export type GameStatus = 'not_started' | 'running' | 'paused' | 'finished'
+
+export interface GameState {
+  status: GameStatus
+  status_display: string
+  is_running: boolean
+  server_time: string
+  started_at: string | null
+  accumulated_seconds: number
+  running_since: string | null
+  duration_seconds: number
+  elapsed_seconds: number | null
+  remaining_seconds: number | null
+  leaderboard_public: boolean
+}
+
+export interface GameSettings {
+  status: GameStatus
+  leaderboard_public: boolean
+  duration_minutes: number
+  initial_balance: number
+}
+
+export interface GameRestartResult {
+  occupancies: number
+  submissions: number
+  entry_attempts: number
+  teams: number
 }
 
 export interface EntryAttempt {

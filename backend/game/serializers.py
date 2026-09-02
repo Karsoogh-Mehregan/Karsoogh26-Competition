@@ -2,7 +2,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from core.openapi import extend_schema_field
-from game.models import EntryAttempt, Occupancy, Question, Submission
+from game.models import EntryAttempt, GameSettings, Occupancy, Question, Submission
 from game.services import MENTOR_RELEASE_REASONS
 
 
@@ -314,6 +314,64 @@ class ReleaseSerializer(serializers.Serializer):
     reason = serializers.ChoiceField(
         choices=[(reason.value, reason.label) for reason in MENTOR_RELEASE_REASONS]
     )
+
+
+class GameStateSerializer(serializers.Serializer):
+    """What every logged-in client needs to draw the clock and the stage bar.
+
+    `server_time` is the point of the whole thing: contest clients disagree
+    about the wall clock, so the SPA derives one offset from this and shows the
+    same countdown to everyone.
+    """
+
+    status = serializers.CharField(read_only=True)
+    status_display = serializers.CharField(read_only=True)
+    is_running = serializers.BooleanField(read_only=True)
+    server_time = serializers.DateTimeField(read_only=True)
+    started_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    # The raw ledger, so the client can tick locally and freeze on its own when
+    # the game is not running instead of waiting for the next poll.
+    accumulated_seconds = serializers.IntegerField(read_only=True)
+    running_since = serializers.DateTimeField(read_only=True, allow_null=True)
+    duration_seconds = serializers.IntegerField(read_only=True)
+    elapsed_seconds = serializers.IntegerField(read_only=True, allow_null=True)
+    remaining_seconds = serializers.IntegerField(read_only=True, allow_null=True)
+    leaderboard_public = serializers.BooleanField(read_only=True)
+
+
+class GameSettingsSerializer(serializers.ModelSerializer):
+    """The mentor-editable knobs. `started_at` is stamped by the model, not set."""
+
+    class Meta:
+        model = GameSettings
+        fields = (
+            "status",
+            "leaderboard_public",
+            "duration_minutes",
+            "initial_balance",
+        )
+
+
+class GameRestartSerializer(serializers.Serializer):
+    """Confirmation is required in the body, not just in the UI.
+
+    A restart deletes every move of the contest, so it must not be reachable by
+    a stray POST to a URL somebody had open.
+    """
+
+    confirm = serializers.BooleanField()
+
+    def validate_confirm(self, value):
+        if not value:
+            raise serializers.ValidationError("برای بازنشانی بازی باید تأیید کنید.")
+        return value
+
+
+class GameRestartResultSerializer(serializers.Serializer):
+    occupancies = serializers.IntegerField(read_only=True)
+    submissions = serializers.IntegerField(read_only=True)
+    entry_attempts = serializers.IntegerField(read_only=True)
+    teams = serializers.IntegerField(read_only=True)
 
 
 class EntryAttemptSerializer(serializers.ModelSerializer):

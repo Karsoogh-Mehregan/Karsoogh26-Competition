@@ -139,6 +139,8 @@ class GameSettingsAdmin(admin.ModelAdmin):
         "__str__",
         "status",
         "started_at",
+        "duration_minutes",
+        "accumulated_seconds",
         "initial_balance",
         "entry_question_count",
         "entry_required_correct",
@@ -146,7 +148,7 @@ class GameSettingsAdmin(admin.ModelAdmin):
         "entry_max_retries",
         "leaderboard_public",
     )
-    readonly_fields = ("started_at",)
+    readonly_fields = ("started_at", "accumulated_seconds", "running_since")
 
     def has_add_permission(self, request):
         return not GameSettings.objects.exists()

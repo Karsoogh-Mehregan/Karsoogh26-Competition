@@ -48,10 +48,10 @@ def entry_gate_open(running_game):
     Winding the clock past the grace window clears every team at once; the
     sheet itself is covered by tests/test_entry_questions.py.
     """
-    running_game.started_at = timezone.now() - timedelta(
-        minutes=running_game.entry_grace_minutes + 1
-    )
-    running_game.save(update_fields=["started_at"])
+    past = timezone.now() - timedelta(minutes=running_game.entry_grace_minutes + 1)
+    running_game.started_at = past
+    running_game.running_since = past
+    running_game.save(update_fields=["started_at", "running_since"])
     return running_game
 
 
