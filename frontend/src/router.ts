@@ -4,6 +4,7 @@ import { meQueryOptions } from '@/queries/auth'
 import GradingPage from '@/pages/GradingPage.vue'
 import LeaderboardPage from '@/pages/LeaderboardPage.vue'
 import MapPage from '@/pages/MapPage.vue'
+import MinesweeperPage from '@/pages/MinesweeperPage.vue'
 import SolvePage from '@/pages/SolvePage.vue'
 
 export const router = createRouter({
@@ -12,6 +13,12 @@ export const router = createRouter({
     { path: '/', name: 'map', component: MapPage },
     { path: '/grading', name: 'grading', component: GradingPage, meta: { requiresMentor: true } },
     { path: '/solve', name: 'solve', component: SolvePage, meta: { requiresPlayer: true } },
+    {
+      path: '/minesweeper',
+      name: 'minesweeper',
+      component: MinesweeperPage,
+      meta: { requiresPlayer: true },
+    },
     { path: '/leaderboard', name: 'leaderboard', component: LeaderboardPage, meta: { requiresAuth: true } },
   ],
 })

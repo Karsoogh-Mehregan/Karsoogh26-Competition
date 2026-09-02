@@ -133,6 +133,19 @@ const showTeamPicker = computed(() => isMentor.value || isPlayer.value)
             حل سؤال
           </RouterLink>
         </Button>
+        <Button
+          v-if="isPlayer"
+          as-child
+          size="sm"
+          :variant="route.path === '/minesweeper' ? 'default' : 'outline'"
+        >
+          <RouterLink
+            to="/minesweeper"
+            :aria-current="route.path === '/minesweeper' ? 'page' : undefined"
+          >
+            مین‌روب
+          </RouterLink>
+        </Button>
         <Button as-child size="sm" :variant="route.path === '/leaderboard' ? 'default' : 'outline'">
           <RouterLink
             to="/leaderboard"
