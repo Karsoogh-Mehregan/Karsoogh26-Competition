@@ -4,7 +4,7 @@ import { useMeQuery } from '@/queries/auth'
 import {
   useAnswerEntryMutation,
   useEntrySheetQuery,
-  useRefreshEntryMutation,
+  useRetryEntryMutation,
 } from '@/queries/entry'
 import type { EntryAttempt, EntrySheet } from '@/types/api'
 
@@ -35,7 +35,7 @@ export function useEntry() {
   const isPlayer = computed(() => meQuery.data.value?.team != null)
   const sheetQuery = useEntrySheetQuery(() => isPlayer.value)
   const answerMutation = useAnswerEntryMutation()
-  const refreshMutation = useRefreshEntryMutation()
+  const retryMutation = useRetryEntryMutation()
 
   const actionError = ref('')
 
@@ -43,8 +43,8 @@ export function useEntry() {
   const questions = computed<EntryAttempt[]>(() => sheet.value?.questions ?? [])
   const loading = computed(() => isPlayer.value && sheetQuery.isPending.value)
   const answering = computed(() => answerMutation.isPending.value)
-  const refreshing = computed(() => refreshMutation.isPending.value)
-  const refreshesLeft = computed(() => sheet.value?.refreshes_left ?? 0)
+  const retrying = computed(() => retryMutation.isPending.value)
+  const retriesLeft = computed(() => sheet.value?.retries_left ?? 0)
 
   // No sheet yet (still loading, or the game has not started) must not lock a
   // player out of a map they were already allowed to use.
@@ -69,10 +69,10 @@ export function useEntry() {
     }
   }
 
-  async function refresh(code: string): Promise<boolean> {
+  async function retry(code: string): Promise<boolean> {
     actionError.value = ''
     try {
-      await refreshMutation.mutateAsync(code)
+      await retryMutation.mutateAsync(code)
       return true
     } catch (err) {
       actionError.value = messageOf(err)
@@ -88,13 +88,13 @@ export function useEntry() {
     questions,
     loading,
     answering,
-    refreshing,
-    refreshesLeft,
+    retrying,
+    retriesLeft,
     error,
     isPlayer,
     canClaimStart,
     needsEntrySheet,
     answer,
-    refresh,
+    retry,
   }
 }

@@ -266,8 +266,8 @@ class EntrySheetSerializer(serializers.Serializer):
     grace_ends_at = serializers.DateTimeField(read_only=True, allow_null=True)
     can_claim_start = serializers.BooleanField(read_only=True)
     draft_order = serializers.IntegerField(read_only=True, allow_null=True)
-    refreshes_used = serializers.IntegerField(read_only=True)
-    refreshes_left = serializers.IntegerField(read_only=True)
+    retries_used = serializers.IntegerField(read_only=True)
+    retries_left = serializers.IntegerField(read_only=True)
     questions = EntryAttemptSerializer(many=True, read_only=True, source="attempts")
 
 

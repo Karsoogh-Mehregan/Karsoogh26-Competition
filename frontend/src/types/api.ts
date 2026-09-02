@@ -116,8 +116,8 @@ export interface EntrySheet {
   grace_ends_at: string | null
   can_claim_start: boolean
   draft_order: number | null
-  refreshes_used: number
-  refreshes_left: number
+  retries_used: number
+  retries_left: number
   questions: EntryAttempt[]
 }
 

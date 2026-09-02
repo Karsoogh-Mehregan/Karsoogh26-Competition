@@ -4,10 +4,10 @@ Answers are integers, so the sheet grades itself the moment a team submits —
 no mentor, no `Submission`, no `Occupancy`. Clearing it (or waiting out the
 grace window) is what unlocks `teams/<code>/claim-start/`.
 
-Each question is one shot, but a team that got one wrong may swap it for a
-fresh question up to `GameSettings.entry_max_refreshes` times. Swapping retires
-the old row rather than editing it, so a discarded question can never be drawn
-for that team again.
+A wrong answer is not final: the team may take another run at *the same*
+question while its retry budget lasts (`GameSettings.entry_max_retries`). A
+retry supersedes the failed try and opens a fresh one for the same question, so
+every guess stays on the record.
 """
 
 from django.db import IntegrityError, transaction
@@ -20,7 +20,7 @@ from game.exceptions import (
     EntryNotAnswered,
     GameNotRunning,
     NoEntryQuestions,
-    NoEntryRefreshesLeft,
+    NoEntryRetriesLeft,
     NotOnEntrySheet,
 )
 from game.models import EntryAttempt, EntryQuestion, GameSettings
@@ -43,10 +43,11 @@ def _sheet(team: Team) -> list[EntryAttempt]:
 
 
 def _draw(team: Team, count: int) -> list[EntryQuestion]:
-    """Least-served questions the team has never been shown, retired ones included.
+    """Least-served questions the team has never been shown, superseded tries included.
 
     The random tiebreak spreads a pool larger than the sheet evenly instead of
-    favouring whatever a pure random draw lands on.
+    favouring whatever a pure random draw lands on. Only the initial sheet draws;
+    retrying reuses the question the team already has.
     """
     seen_ids = EntryAttempt.objects.filter(team=team).values_list("question_id", flat=True)
     drawn = list(
@@ -93,7 +94,7 @@ def assign_entry_sheet(team: Team) -> list[EntryAttempt]:
 
 @transaction.atomic
 def answer_entry_question(team: Team, code: str, answer: int) -> EntryAttempt:
-    """Record and instantly mark one entry answer. One shot per question."""
+    """Record and instantly mark one entry answer. One answer per try."""
     settings = GameSettings.load()
     if not settings.is_running:
         raise GameNotRunning("Game is not running.")
@@ -114,20 +115,20 @@ def answer_entry_question(team: Team, code: str, answer: int) -> EntryAttempt:
 
 
 @transaction.atomic
-def refresh_entry_question(team: Team, code: str) -> EntryAttempt:
-    """Swap a wrongly-answered question for a fresh one at the same position.
+def retry_entry_question(team: Team, code: str) -> EntryAttempt:
+    """Open a fresh try at a question the team answered wrong.
 
-    Retires the old row instead of clearing it, so the team's history stays
-    readable and `entryattempt_no_repeat` keeps the discarded question from
-    being drawn for them again.
+    The question itself does not change — only the answer is cleared, by
+    superseding the failed try and seating a new one beside it. Costs one of
+    the team's `entry_max_retries`.
     """
     settings = GameSettings.load()
     if not settings.is_running:
         raise GameNotRunning("Game is not running.")
 
-    if refreshes_used(team) >= settings.entry_max_refreshes:
-        raise NoEntryRefreshesLeft(
-            f"Team has used all {settings.entry_max_refreshes} entry-question swap(s)."
+    if retries_used(team) >= settings.entry_max_retries:
+        raise NoEntryRetriesLeft(
+            f"Team has used all {settings.entry_max_retries} entry-question retries."
         )
 
     attempt = _lock_attempt(team, code)
@@ -136,14 +137,12 @@ def refresh_entry_question(team: Team, code: str) -> EntryAttempt:
     if attempt.is_correct:
         raise EntryAnswerWasCorrect(f"Question '{code}' was answered correctly.")
 
-    replacement = _draw(team, 1)[0]
-
-    attempt.replaced_at = timezone.now()
-    attempt.save(update_fields=["replaced_at"])
+    attempt.superseded_at = timezone.now()
+    attempt.save(update_fields=["superseded_at"])
 
     return EntryAttempt.objects.create(
         team=team,
-        question=replacement,
+        question=attempt.question,
         position=attempt.position,
     )
 
@@ -165,8 +164,8 @@ def correct_count(team: Team) -> int:
     return EntryAttempt.objects.current().filter(team=team, is_correct=True).count()
 
 
-def refreshes_used(team: Team) -> int:
-    return EntryAttempt.objects.filter(team=team, replaced_at__isnull=False).count()
+def retries_used(team: Team) -> int:
+    return EntryAttempt.objects.filter(team=team, superseded_at__isnull=False).count()
 
 
 def _record_draft_order(team: Team, settings: GameSettings) -> None:
@@ -197,7 +196,7 @@ def entry_status(team: Team) -> dict:
     correct = sum(1 for attempt in attempts if attempt.is_correct)
     qualified = correct >= settings.entry_required_correct
     grace_over = settings.entry_grace_over
-    used = refreshes_used(team)
+    used = retries_used(team)
 
     return {
         "required_correct": settings.entry_required_correct,
@@ -209,8 +208,8 @@ def entry_status(team: Team) -> dict:
         "grace_ends_at": settings.entry_grace_ends_at,
         "can_claim_start": qualified or grace_over,
         "draft_order": team.draft_order,
-        "refreshes_used": used,
-        "refreshes_left": max(0, settings.entry_max_refreshes - used),
+        "retries_used": used,
+        "retries_left": max(0, settings.entry_max_retries - used),
         "attempts": attempts,
     }
 

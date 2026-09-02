@@ -51,12 +51,12 @@ class EntryAlreadyAnswered(GameServiceError):
 
 
 class EntryNotAnswered(GameServiceError):
-    """Only a question the team has already answered can be swapped."""
+    """Only a question the team has already answered can be retried."""
 
 
 class EntryAnswerWasCorrect(GameServiceError):
-    """A correct answer is not swappable; there is nothing to retry."""
+    """A correct answer needs no second try."""
 
 
-class NoEntryRefreshesLeft(GameServiceError):
-    """The team has spent its entry-question swaps."""
+class NoEntryRetriesLeft(GameServiceError):
+    """The team has spent its entry-question retries."""

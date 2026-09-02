@@ -32,11 +32,11 @@ const {
   questions,
   loading,
   answering,
-  refreshing,
-  refreshesLeft,
+  retrying,
+  retriesLeft,
   error,
   answer,
-  refresh,
+  retry,
 } = useEntry()
 
 const open = computed({
@@ -83,25 +83,29 @@ async function onSubmit(question: EntryAttempt) {
   }
   if (result) {
     toast.success('پاسخ درست بود.')
-  } else if (refreshesLeft.value > 0) {
-    toast.error('پاسخ نادرست بود. می‌توانید این سؤال را با سؤالی دیگر تعویض کنید.')
+  } else if (retriesLeft.value > 0) {
+    toast.error('پاسخ نادرست بود. می‌توانید دوباره تلاش کنید.')
   } else {
-    toast.error('پاسخ نادرست بود. این سؤال فرصت دیگری ندارد.')
+    toast.error('پاسخ نادرست بود. فرصت دیگری باقی نمانده است.')
   }
 }
 
-function canRefresh(question: EntryAttempt): boolean {
-  return question.is_correct === false && refreshesLeft.value > 0
+function canRetry(question: EntryAttempt): boolean {
+  return question.is_correct === false && retriesLeft.value > 0
 }
 
-async function onRefresh(question: EntryAttempt) {
+async function onRetry(question: EntryAttempt) {
   pendingCode.value = question.code
-  const ok = await refresh(question.code)
+  const ok = await retry(question.code)
   pendingCode.value = null
   if (ok) {
-    toast.success('سؤال تازه‌ای جای این سؤال نشست.')
+    // Drop the failed guess so the reopened box does not invite resubmitting it.
+    const next = { ...drafts.value }
+    delete next[question.code]
+    drafts.value = next
+    toast.success('می‌توانید دوباره به این سؤال پاسخ دهید.')
   } else {
-    toast.error(error.value || 'تعویض سؤال ناموفق بود.')
+    toast.error(error.value || 'باز کردن تلاش دوباره ناموفق بود.')
   }
 }
 
@@ -120,16 +124,15 @@ const progressLabel = computed(() => {
           <div class="flex flex-wrap items-center gap-2">
             <span>
               برای گرفتن خانهٔ شروع باید به اندازهٔ کافی پاسخ درست بدهید. پاسخ‌ها عدد صحیح
-              هستند و هر سؤال یک فرصت پاسخ دارد؛ اگر پاسخ نادرست بود می‌توانید آن سؤال را
-              با سؤالی تازه تعویض کنید.
+              هستند؛ اگر پاسخی نادرست بود می‌توانید دوباره به همان سؤال پاسخ دهید.
             </span>
             <Badge v-if="sheet" variant="secondary" class="tabular-nums">
               {{ progressLabel }}
             </Badge>
-            <Badge v-if="sheet && sheet.refreshes_left > 0" variant="outline" class="gap-1">
+            <Badge v-if="sheet && sheet.retries_left > 0" variant="outline" class="gap-1">
               <RefreshCwIcon class="size-3" />
-              <span class="tabular-nums">{{ sheet.refreshes_left }}</span>
-              تعویض باقی‌مانده
+              <span class="tabular-nums">{{ sheet.retries_left }}</span>
+              تلاش دوبارهٔ باقی‌مانده
             </Badge>
           </div>
         </DialogDescription>
@@ -196,26 +199,26 @@ const progressLabel = computed(() => {
               پاسخ شما: {{ question.answer }}
             </p>
             <Button
-              v-if="canRefresh(question)"
+              v-if="canRetry(question)"
               class="ms-auto"
               variant="outline"
               size="sm"
-              :disabled="refreshing"
-              :aria-busy="refreshing && pendingCode === question.code"
-              @click="onRefresh(question)"
+              :disabled="retrying"
+              :aria-busy="retrying && pendingCode === question.code"
+              @click="onRetry(question)"
             >
               <Loader2Icon
-                v-if="refreshing && pendingCode === question.code"
+                v-if="retrying && pendingCode === question.code"
                 class="size-4 animate-spin"
               />
               <RefreshCwIcon v-else class="size-4" />
-              سؤال دیگر
+              تلاش دوباره
             </Button>
             <span
               v-else-if="question.is_correct === false"
               class="text-muted-foreground ms-auto text-xs"
             >
-              فرصت تعویض باقی نمانده
+              فرصت تلاش دوباره باقی نمانده
             </span>
           </div>
           <div v-else class="flex items-end gap-2">

@@ -91,7 +91,9 @@ class Command(BaseCommand):
             team, _ = Team.objects.get_or_create(
                 code=code, defaults={"name": name, "balance": settings_row.initial_balance}
             )
-            if team.balance == 0:
+            # A demo reseed puts every team back on the same footing, spent
+            # balance included. The real event funds once, via create_team_users.
+            if team.balance != settings_row.initial_balance:
                 team.balance = settings_row.initial_balance
                 team.save(update_fields=["balance"])
             rows.append(self._account(code, team, options["password"], role="team"))
@@ -167,7 +169,9 @@ class Command(BaseCommand):
                 f"Game status: {settings_row.status}. "
                 f"{active} active entry questions, sheet of {settings_row.entry_question_count}, "
                 f"{settings_row.entry_required_correct} correct needed "
-                f"(grace {settings_row.entry_grace_minutes} min)."
+                f"(grace {settings_row.entry_grace_minutes} min, "
+                f"{settings_row.entry_max_retries} retries). "
+                f"Every team funded to {settings_row.initial_balance}."
             )
         )
         if not Node.objects.filter(level_id="spawn").exists():

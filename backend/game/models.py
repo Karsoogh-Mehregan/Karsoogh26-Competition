@@ -263,7 +263,10 @@ class GameSettings(models.Model):
     attempt_ttl_minutes = models.PositiveSmallIntegerField(default=15)
     duel_cooldown_minutes = models.PositiveSmallIntegerField(default=10)
     duel_deadline_minutes = models.PositiveSmallIntegerField(default=15)
-    initial_balance = models.PositiveIntegerField(default=500)
+    initial_balance = models.PositiveIntegerField(
+        default=400,
+        help_text="Every team starts here, entry sheet cleared or not.",
+    )
     status = models.CharField(
         max_length=12, choices=GameStatus.choices, default=GameStatus.NOT_STARTED
     )
@@ -280,11 +283,11 @@ class GameSettings(models.Model):
         default=20,
         help_text="Minutes after kick-off when every team may take a spawn regardless.",
     )
-    entry_max_refreshes = models.PositiveSmallIntegerField(
+    entry_max_retries = models.PositiveSmallIntegerField(
         default=3,
         help_text=(
-            "How many wrongly-answered entry questions a team may swap for a fresh one, "
-            "over the whole sheet. Raise it to be more forgiving; 0 disables swapping."
+            "Extra attempts a team may take on wrongly-answered entry questions, across "
+            "the whole sheet. Raise it to be more forgiving; 0 makes every answer final."
         ),
     )
     started_at = models.DateTimeField(
@@ -448,19 +451,19 @@ class EntryQuestion(models.Model):
 
 class EntryAttemptQuerySet(models.QuerySet):
     def current(self):
-        """The sheet as it stands now — swapped-out rows are history."""
-        return self.filter(replaced_at__isnull=True)
+        """The sheet as it stands now — superseded tries are history."""
+        return self.filter(superseded_at__isnull=True)
 
 
 class EntryAttempt(models.Model):
-    """One question on one team's sheet, plus the single answer they gave.
+    """One try at one question on one team's entry sheet.
 
-    One shot per question: the answer is an integer, so retries would be a
-    brute-force search rather than a second attempt at the maths. A team may
-    instead *swap* a question it got wrong for a fresh one, which retires this
-    row and seats a new one at the same position — append-and-soft-retire, the
-    same shape as `Occupancy`, so `entryattempt_no_repeat` keeps a discarded
-    question from ever coming back around.
+    A wrong answer is not the end of that question: the team may take another
+    run at *the same question* while its retry budget lasts
+    (`GameSettings.entry_max_retries`). Retrying supersedes this row and opens a
+    fresh one for the same question at the same position, rather than clearing
+    the columns — append-and-soft-retire, the same shape as `Occupancy`, so
+    every guess a team made stays on the record.
     """
 
     team = models.ForeignKey("teams.Team", on_delete=models.CASCADE, related_name="entry_attempts")
@@ -471,10 +474,10 @@ class EntryAttempt(models.Model):
     is_correct = models.BooleanField(null=True, blank=True)
     assigned_at = models.DateTimeField(auto_now_add=True)
     answered_at = models.DateTimeField(null=True, blank=True)
-    replaced_at = models.DateTimeField(
+    superseded_at = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="Set when the team swapped this question for another one.",
+        help_text="Set when the team spent a retry and started a fresh try at this question.",
     )
 
     objects = EntryAttemptQuerySet.as_manager()
@@ -482,12 +485,16 @@ class EntryAttempt(models.Model):
     class Meta:
         ordering = ["team", "position"]
         constraints = [
-            # Not scoped to current rows: a question the team has already seen
-            # must never be drawn again, retired or not.
-            UniqueConstraint(fields=["team", "question"], name="entryattempt_no_repeat"),
+            # Scoped to current rows: retrying stacks tries at the same question,
+            # but only one of them is ever live.
+            UniqueConstraint(
+                fields=["team", "question"],
+                condition=Q(superseded_at__isnull=True),
+                name="entryattempt_no_repeat",
+            ),
             UniqueConstraint(
                 fields=["team", "position"],
-                condition=Q(replaced_at__isnull=True),
+                condition=Q(superseded_at__isnull=True),
                 name="entryattempt_one_per_position",
             ),
             CheckConstraint(condition=Q(position__gte=1), name="entryattempt_position_positive"),
@@ -503,10 +510,10 @@ class EntryAttempt(models.Model):
                 ),
                 name="entryattempt_answer_recorded_together",
             ),
-            # Only a wrong answer is swappable, so a retired row is always one.
+            # Only a wrong answer is retryable, so a superseded row is always one.
             CheckConstraint(
-                condition=Q(replaced_at__isnull=True) | Q(is_correct=False),
-                name="entryattempt_only_wrong_is_replaced",
+                condition=Q(superseded_at__isnull=True) | Q(is_correct=False),
+                name="entryattempt_only_wrong_is_superseded",
             ),
         ]
         indexes = [
@@ -521,5 +528,5 @@ class EntryAttempt(models.Model):
         return self.answered_at is not None
 
     @property
-    def is_replaced(self) -> bool:
-        return self.replaced_at is not None
+    def is_superseded(self) -> bool:
+        return self.superseded_at is not None

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
-import { answerEntryQuestion, getEntrySheet, refreshEntryQuestion } from '@/services/entry'
+import { answerEntryQuestion, getEntrySheet, retryEntryQuestion } from '@/services/entry'
 import type { EntryAnswerResult, EntrySheet } from '@/types/api'
 import { queryKeys } from './keys'
 
@@ -32,10 +32,10 @@ export function useAnswerEntryMutation() {
   })
 }
 
-export function useRefreshEntryMutation() {
+export function useRetryEntryMutation() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (code: string) => refreshEntryQuestion(code),
+    mutationFn: (code: string) => retryEntryQuestion(code),
     onSuccess: (sheet: EntrySheet) => {
       queryClient.setQueryData(queryKeys.entrySheet(), sheet)
     },

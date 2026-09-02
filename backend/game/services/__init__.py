@@ -4,9 +4,9 @@ from .entry import (
     can_claim_start,
     correct_count,
     entry_status,
-    refresh_entry_question,
-    refreshes_used,
     require_entry_clearance,
+    retries_used,
+    retry_entry_question,
 )
 from .mentor import (
     MENTOR_RELEASE_REASONS,
@@ -33,9 +33,9 @@ __all__ = [
     "grade_attempt",
     "grade_submission",
     "is_reachable",
-    "refresh_entry_question",
-    "refreshes_used",
     "release_attempt",
     "require_entry_clearance",
+    "retries_used",
+    "retry_entry_question",
     "submit_answer",
 ]
