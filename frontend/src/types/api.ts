@@ -311,3 +311,25 @@ export interface RecordOlympicsResultInput {
   player_one_attempts?: Array<string | number>
   player_two_attempts?: Array<string | number>
 }
+
+export interface AuctionBid { sequence: number; team: TerritoryTeam; amount: number; created_at: string }
+export interface AuctionPair {
+  id: number; team_one: TerritoryTeam; team_two: TerritoryTeam | null; rank_one: number; rank_two: number | null
+  team_one_bid: number; team_two_bid: number; highest_bid: number; highest_bidder: TerritoryTeam | null
+  winner: TerritoryTeam | null; status: 'active' | 'finished'; automatic_award: boolean; settled_at: string | null; bids: AuctionBid[]
+}
+export interface AuctionEvent {
+  id: number; status: 'scheduled' | 'active' | 'finished' | 'cancelled'; reward: number; opening_bid: number
+  duration_seconds: number; ranking_snapshot: Array<{ rank: number; code: string; name: string; balance: number }>
+  starts_at: string; ends_at: string; remaining_seconds: number; settled_at: string | null; pairs: AuctionPair[]
+}
+
+export type WheelPrizeType = 'glorium' | 'merchandise' | 'grand_prize'
+export interface WheelPrizeView { code: string; prize_type: WheelPrizeType; display_name: string; glorium_amount: number; available: boolean; stock: number | null; weight?: number }
+export interface WheelSpin { id: number; request_id: string; team: TerritoryTeam; spin_cost: number; prize_type: WheelPrizeType; prize_name: string; glorium_payout: number; delivery_status: 'not_applicable' | 'pending' | 'delivered'; created_at: string; delivered_at: string | null }
+export interface WheelEvent { id: number; status: 'scheduled' | 'active' | 'grand_prize_claimed' | 'finished' | 'cancelled'; spin_cost: number; total_collected: number; grand_prize_winner: TerritoryTeam | null; spins_available: boolean; prizes: WheelPrizeView[]; spins: WheelSpin[]; started_at: string | null; finished_at: string | null }
+export interface WheelPrizeInput { code: string; prize_type: WheelPrizeType; display_name: string; glorium_amount?: number; weight: number; stock?: number | null; reward_data?: Record<string, unknown> }
+
+export interface PigRoll { number: number; dice_result: number; amount_added: number; pot_after: number; created_at: string }
+export interface PigGame { id: number; event_id: number; team: TerritoryTeam; entry_fee: number; max_pot: number; pot: number; rolls_count: number; status: 'active' | 'finished_cashed_out' | 'finished_rolled_one' | 'finished_max_pot'; final_payout: number; started_at: string; finished_at: string | null; rolls: PigRoll[] }
+export interface PigEvent { id: number; status: 'active' | 'finished'; entry_fee: number; max_pot: number; created_at: string; finished_at: string | null; games: PigGame[] }

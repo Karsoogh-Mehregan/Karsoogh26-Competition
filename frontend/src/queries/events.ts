@@ -18,6 +18,21 @@ import {
   listOlympicsMatches,
   recordOlympicsResult,
   startOlympicsMatch,
+  createAuctionEvent,
+  createPigEvent,
+  createWheelEvent,
+  deliverWheelSpin,
+  finishPigEvent,
+  listAuctionEvents,
+  listPigEvents,
+  listWheelEvents,
+  placeAuctionBid,
+  playPigAction,
+  resolveAuctionEvent,
+  spinWheel,
+  startPigGame,
+  startWheelEvent,
+  stopWheelEvent,
 } from '@/services/events'
 import type {
   CentipedeGame,
@@ -31,6 +46,7 @@ import type {
   TerritoryGame,
   CreateOlympicsMatchInput,
   RecordOlympicsResultInput,
+  WheelPrizeInput,
 } from '@/types/api'
 import { queryKeys } from './keys'
 
@@ -245,5 +261,148 @@ export function useRecordOlympicsResultMutation() {
       queryClient.setQueryData(queryKeys.olympicsMatch(match.id), match)
       return queryClient.invalidateQueries({ queryKey: queryKeys.olympicsMatches() })
     },
+  })
+}
+
+const refresh = (queryClient: ReturnType<typeof useQueryClient>, key: readonly unknown[]) =>
+  queryClient.invalidateQueries({ queryKey: key })
+
+export function useAuctionEventsQuery(enabled: () => boolean) {
+  return useQuery({
+    queryKey: queryKeys.auctionEvents(),
+    queryFn: ({ signal }) => listAuctionEvents(signal),
+    enabled,
+    refetchInterval: (query) =>
+      query.state.data?.some((event) => event.status === 'active') ? 2000 : false,
+  })
+}
+
+export function useCreateAuctionMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (duration: number) => createAuctionEvent(duration),
+    onSuccess: () => refresh(queryClient, queryKeys.auctionEvents()),
+  })
+}
+
+export function useAuctionBidMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ pairId, amount, requestId }: { pairId: number; amount: number; requestId: string }) =>
+      placeAuctionBid(pairId, amount, requestId),
+    onSuccess: () => Promise.all([
+      refresh(queryClient, queryKeys.auctionEvents()),
+      refresh(queryClient, queryKeys.teams()),
+    ]),
+  })
+}
+
+export function useResolveAuctionMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (eventId: number) => resolveAuctionEvent(eventId),
+    onSuccess: () => Promise.all([
+      refresh(queryClient, queryKeys.auctionEvents()),
+      refresh(queryClient, queryKeys.teams()),
+    ]),
+  })
+}
+
+export function useWheelEventsQuery(enabled: () => boolean) {
+  return useQuery({
+    queryKey: queryKeys.wheelEvents(),
+    queryFn: ({ signal }) => listWheelEvents(signal),
+    enabled,
+    refetchInterval: (query) =>
+      query.state.data?.some((event) => event.status === 'active') ? 2500 : false,
+  })
+}
+
+export function useCreateWheelMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ spinCost, prizes }: { spinCost: number; prizes: WheelPrizeInput[] }) =>
+      createWheelEvent(spinCost, prizes),
+    onSuccess: () => refresh(queryClient, queryKeys.wheelEvents()),
+  })
+}
+
+export function useWheelStateMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ eventId, action }: { eventId: number; action: 'start' | 'stop' }) =>
+      action === 'start' ? startWheelEvent(eventId) : stopWheelEvent(eventId),
+    onSuccess: () => refresh(queryClient, queryKeys.wheelEvents()),
+  })
+}
+
+export function useWheelSpinMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ eventId, requestId }: { eventId: number; requestId: string }) =>
+      spinWheel(eventId, requestId),
+    onSuccess: () => Promise.all([
+      refresh(queryClient, queryKeys.wheelEvents()),
+      refresh(queryClient, queryKeys.teams()),
+    ]),
+  })
+}
+
+export function useWheelDeliveryMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (spinId: number) => deliverWheelSpin(spinId),
+    onSuccess: () => refresh(queryClient, queryKeys.wheelEvents()),
+  })
+}
+
+export function usePigEventsQuery(enabled: () => boolean) {
+  return useQuery({
+    queryKey: queryKeys.pigEvents(),
+    queryFn: ({ signal }) => listPigEvents(signal),
+    enabled,
+    refetchInterval: (query) =>
+      query.state.data?.some((event) => event.games.some((game) => game.status === 'active'))
+        ? 2500
+        : false,
+  })
+}
+
+export function useCreatePigMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (maxPot: number) => createPigEvent(maxPot),
+    onSuccess: () => refresh(queryClient, queryKeys.pigEvents()),
+  })
+}
+
+export function useFinishPigMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (eventId: number) => finishPigEvent(eventId),
+    onSuccess: () => refresh(queryClient, queryKeys.pigEvents()),
+  })
+}
+
+export function useStartPigGameMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (eventId: number) => startPigGame(eventId),
+    onSuccess: () => Promise.all([
+      refresh(queryClient, queryKeys.pigEvents()),
+      refresh(queryClient, queryKeys.teams()),
+    ]),
+  })
+}
+
+export function usePigActionMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ gameId, action, requestId }: { gameId: number; action: 'roll' | 'cash_out'; requestId: string }) =>
+      playPigAction(gameId, action, requestId),
+    onSuccess: () => Promise.all([
+      refresh(queryClient, queryKeys.pigEvents()),
+      refresh(queryClient, queryKeys.teams()),
+    ]),
   })
 }

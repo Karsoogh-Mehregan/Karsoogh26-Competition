@@ -1,3 +1,4 @@
+from django.utils import timezone
 from rest_framework import serializers
 
 from core.openapi import extend_schema_field
@@ -5,6 +6,9 @@ from teams.models import Team
 
 from .models import (
     BOARD_SIZE,
+    AuctionBid,
+    AuctionEvent,
+    AuctionPair,
     CentipedeDecision,
     CentipedeGame,
     CharityBagEvent,
@@ -13,10 +17,16 @@ from .models import (
     OlympicsMatch,
     OlympicsMiniGame,
     OlympicsResult,
+    PigEvent,
+    PigGame,
+    PigRoll,
     TerritoryCell,
     TerritoryGame,
     TerritoryGameStatus,
     TerritoryTurn,
+    WheelEvent,
+    WheelPrizeType,
+    WheelSpin,
 )
 
 
@@ -451,3 +461,221 @@ class RecordOlympicsResultSerializer(serializers.Serializer):
                 {field: "This physical result field is not accepted." for field in unexpected}
             )
         return super().to_internal_value(data)
+
+
+class AuctionBidSerializer(serializers.ModelSerializer):
+    team = TeamIdentitySerializer(read_only=True)
+
+    class Meta:
+        model = AuctionBid
+        fields = ("sequence", "team", "amount", "created_at")
+
+
+class AuctionPairSerializer(serializers.ModelSerializer):
+    team_one = TeamIdentitySerializer(read_only=True)
+    team_two = TeamIdentitySerializer(read_only=True, allow_null=True)
+    highest_bidder = TeamIdentitySerializer(read_only=True, allow_null=True)
+    winner = TeamIdentitySerializer(read_only=True, allow_null=True)
+    bids = AuctionBidSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = AuctionPair
+        fields = (
+            "id",
+            "team_one",
+            "team_two",
+            "rank_one",
+            "rank_two",
+            "team_one_bid",
+            "team_two_bid",
+            "highest_bid",
+            "highest_bidder",
+            "winner",
+            "status",
+            "automatic_award",
+            "settled_at",
+            "bids",
+        )
+
+
+class AuctionEventSerializer(serializers.ModelSerializer):
+    pairs = serializers.SerializerMethodField()
+    remaining_seconds = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AuctionEvent
+        fields = (
+            "id",
+            "status",
+            "reward",
+            "opening_bid",
+            "duration_seconds",
+            "ranking_snapshot",
+            "starts_at",
+            "ends_at",
+            "remaining_seconds",
+            "settled_at",
+            "pairs",
+        )
+
+    def get_pairs(self, event):
+        request = self.context.get("request")
+        pairs = event.pairs.all()
+        if request and not request.user.has_perm("game.act_as_mentor"):
+            pairs = [
+                pair
+                for pair in pairs
+                if request.user.team_id in (pair.team_one_id, pair.team_two_id)
+            ]
+        return AuctionPairSerializer(pairs, many=True).data
+
+    def get_remaining_seconds(self, event):
+        return max(0, int((event.ends_at - timezone.now()).total_seconds()))
+
+
+class CreateAuctionEventSerializer(serializers.Serializer):
+    duration_seconds = serializers.IntegerField(min_value=1, default=600)
+
+
+class PlaceAuctionBidSerializer(serializers.Serializer):
+    request_id = serializers.UUIDField()
+    amount = serializers.IntegerField(min_value=1)
+
+
+class WheelPrizeConfigSerializer(serializers.Serializer):
+    code = serializers.SlugField(max_length=32)
+    prize_type = serializers.ChoiceField(choices=WheelPrizeType.values)
+    display_name = serializers.CharField(max_length=100)
+    glorium_amount = serializers.IntegerField(min_value=0, default=0)
+    reward_data = serializers.JSONField(default=dict)
+    weight = serializers.IntegerField(min_value=1)
+    available = serializers.BooleanField(default=True)
+    stock = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+
+
+class WheelSpinSerializer(serializers.ModelSerializer):
+    team = TeamIdentitySerializer(read_only=True)
+
+    class Meta:
+        model = WheelSpin
+        fields = (
+            "id",
+            "request_id",
+            "team",
+            "spin_cost",
+            "prize_type",
+            "prize_name",
+            "glorium_payout",
+            "delivery_status",
+            "created_at",
+            "delivered_at",
+        )
+
+
+class WheelEventSerializer(serializers.ModelSerializer):
+    prizes = serializers.SerializerMethodField()
+    spins = serializers.SerializerMethodField()
+    grand_prize_winner = TeamIdentitySerializer(read_only=True, allow_null=True)
+    spins_available = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WheelEvent
+        fields = (
+            "id",
+            "status",
+            "spin_cost",
+            "total_collected",
+            "grand_prize_winner",
+            "spins_available",
+            "prizes",
+            "spins",
+            "started_at",
+            "finished_at",
+        )
+
+    def get_spins_available(self, event):
+        return event.status == "active"
+
+    def get_prizes(self, event):
+        request = self.context.get("request")
+        mentor = request and request.user.has_perm("game.act_as_mentor")
+        return [
+            {
+                "code": prize.code,
+                "prize_type": prize.prize_type,
+                "display_name": prize.display_name,
+                "glorium_amount": prize.glorium_amount,
+                "available": prize.available,
+                "stock": prize.stock if mentor else None,
+                **({"weight": prize.weight} if mentor else {}),
+            }
+            for prize in event.prizes.all()
+        ]
+
+    def get_spins(self, event):
+        request = self.context.get("request")
+        spins = event.spins.all()
+        if request and not request.user.has_perm("game.act_as_mentor"):
+            spins = [spin for spin in spins if spin.team_id == request.user.team_id]
+        return WheelSpinSerializer(spins, many=True).data
+
+
+class CreateWheelEventSerializer(serializers.Serializer):
+    spin_cost = serializers.IntegerField(min_value=1, default=10)
+    prizes = WheelPrizeConfigSerializer(many=True)
+
+
+class SpinWheelSerializer(serializers.Serializer):
+    request_id = serializers.UUIDField()
+
+
+class PigRollSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PigRoll
+        fields = ("number", "dice_result", "amount_added", "pot_after", "created_at")
+
+
+class PigGameSerializer(serializers.ModelSerializer):
+    team = TeamIdentitySerializer(read_only=True)
+    rolls = PigRollSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = PigGame
+        fields = (
+            "id",
+            "event_id",
+            "team",
+            "entry_fee",
+            "max_pot",
+            "pot",
+            "rolls_count",
+            "status",
+            "final_payout",
+            "started_at",
+            "finished_at",
+            "rolls",
+        )
+
+
+class PigEventSerializer(serializers.ModelSerializer):
+    games = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PigEvent
+        fields = ("id", "status", "entry_fee", "max_pot", "created_at", "finished_at", "games")
+
+    def get_games(self, event):
+        request = self.context.get("request")
+        games = event.games.all()
+        if request and not request.user.has_perm("game.act_as_mentor"):
+            games = [game for game in games if game.team_id == request.user.team_id]
+        return PigGameSerializer(games, many=True).data
+
+
+class CreatePigEventSerializer(serializers.Serializer):
+    max_pot = serializers.IntegerField(min_value=1)
+
+
+class PigActionSerializer(serializers.Serializer):
+    request_id = serializers.UUIDField()
+    action = serializers.ChoiceField(choices=("roll", "cash_out"))

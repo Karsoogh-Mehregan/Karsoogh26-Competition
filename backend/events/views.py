@@ -16,49 +16,84 @@ from game.api_exceptions import Conflict
 from teams.models import Team
 
 from .exceptions import (
+    AuctionError,
     CentipedeError,
     CentipedeNotParticipant,
     CharityBagError,
     NotParticipant,
     OlympicsError,
+    PigError,
     TerritoryEventError,
+    WheelError,
 )
 from .models import (
+    AuctionBid,
+    AuctionEvent,
+    AuctionPair,
     CentipedeDecision,
     CentipedeGame,
     CharityBagEvent,
     CharityBagParticipation,
     OlympicsMatch,
     OlympicsResult,
+    PigEvent,
+    PigGame,
+    PigRoll,
     TerritoryCell,
     TerritoryGame,
     TerritoryTurn,
+    WheelEvent,
+    WheelPrize,
+    WheelSpin,
 )
 from .permissions import IsCentipedeParticipant, IsOlympicsParticipant, IsTerritoryParticipant
 from .serializers import (
+    AuctionEventSerializer,
     CentipedeGameSerializer,
     CharityBagEventSerializer,
+    CreateAuctionEventSerializer,
     CreateCentipedeGameSerializer,
     CreateCharityBagSerializer,
     CreateOlympicsMatchSerializer,
+    CreatePigEventSerializer,
     CreateTerritoryGameSerializer,
+    CreateWheelEventSerializer,
     EnterCharityBagSerializer,
     OlympicsMatchSerializer,
+    PigActionSerializer,
+    PigEventSerializer,
+    PigGameSerializer,
+    PlaceAuctionBidSerializer,
     PlayCentipedeActionSerializer,
     PlayTerritoryTurnSerializer,
     RecordOlympicsResultSerializer,
+    SpinWheelSerializer,
     TerritoryGameStateSerializer,
+    WheelEventSerializer,
+    WheelSpinSerializer,
 )
 from .services import (
+    create_auction_event,
     create_centipede_game,
     create_charity_bag,
     create_olympics_match,
+    create_pig_event,
     create_territory_game,
+    create_wheel_event,
+    deliver_wheel_prize,
     enter_charity_bag,
+    finish_pig_event,
+    place_auction_bid,
     play_centipede_action,
+    play_pig_action,
     play_territory_turn,
     record_olympics_result,
+    settle_auction_event,
+    spin_wheel,
     start_olympics_match,
+    start_pig_game,
+    start_wheel_event,
+    stop_wheel_event,
     sync_charity_bag,
     sync_due_charity_bags,
 )
@@ -446,3 +481,269 @@ class OlympicsResultView(APIView):
         except OlympicsError as exc:
             raise Conflict(str(exc)) from exc
         return _olympics_response(match)
+
+
+def auction_events():
+    return AuctionEvent.objects.prefetch_related(
+        Prefetch(
+            "pairs",
+            queryset=AuctionPair.objects.select_related(
+                "team_one", "team_two", "highest_bidder", "winner"
+            ).prefetch_related(
+                Prefetch("bids", queryset=AuctionBid.objects.select_related("team"))
+            ),
+        )
+    )
+
+
+def _auction_response(event, request, *, response_status=status.HTTP_200_OK):
+    event = auction_events().get(pk=event.pk)
+    return Response(
+        AuctionEventSerializer(event, context={"request": request}).data,
+        status=response_status,
+    )
+
+
+def _sync_expired_auctions():
+    ids = AuctionEvent.objects.filter(status="active", ends_at__lte=timezone.now()).values_list(
+        "pk", flat=True
+    )
+    for event_id in ids:
+        settle_auction_event(event_id)
+
+
+class AuctionEventListCreateView(APIView):
+    def get_permissions(self):
+        return [IsMentor()] if self.request.method == "POST" else [IsAuthenticated()]
+
+    def get(self, request):
+        _sync_expired_auctions()
+        return Response(
+            AuctionEventSerializer(auction_events(), many=True, context={"request": request}).data
+        )
+
+    def post(self, request):
+        payload = CreateAuctionEventSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            event = create_auction_event(
+                duration_seconds=payload.validated_data["duration_seconds"]
+            )
+        except AuctionError as exc:
+            raise Conflict(str(exc)) from exc
+        return _auction_response(event, request, response_status=status.HTTP_201_CREATED)
+
+
+class AuctionEventDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk: int):
+        event = get_object_or_404(AuctionEvent, pk=pk)
+        if event.status == "active" and event.ends_at <= timezone.now():
+            event = settle_auction_event(event.pk)
+        return _auction_response(event, request)
+
+
+class AuctionBidView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk: int):
+        if request.user.team_id is None:
+            raise PermissionDenied("فقط حساب یک تیم می‌تواند پیشنهاد ثبت کند.")
+        get_object_or_404(AuctionPair, pk=pk)
+        payload = PlaceAuctionBidSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            pair = place_auction_bid(
+                pk,
+                request.user.team,
+                payload.validated_data["amount"],
+                payload.validated_data["request_id"],
+            )
+        except AuctionError as exc:
+            raise Conflict(str(exc)) from exc
+        return _auction_response(pair.event, request)
+
+
+class AuctionResolveView(APIView):
+    permission_classes = [IsMentor]
+
+    def post(self, request, pk: int):
+        get_object_or_404(AuctionEvent, pk=pk)
+        try:
+            event = settle_auction_event(pk)
+        except AuctionError as exc:
+            raise Conflict(str(exc)) from exc
+        return _auction_response(event, request)
+
+
+def wheel_events():
+    return WheelEvent.objects.select_related("grand_prize_winner").prefetch_related(
+        Prefetch("prizes", queryset=WheelPrize.objects.all()),
+        Prefetch("spins", queryset=WheelSpin.objects.select_related("team", "prize")),
+    )
+
+
+def _wheel_response(event, request, *, response_status=status.HTTP_200_OK):
+    event = wheel_events().get(pk=event.pk)
+    return Response(
+        WheelEventSerializer(event, context={"request": request}).data,
+        status=response_status,
+    )
+
+
+class WheelEventListCreateView(APIView):
+    def get_permissions(self):
+        return [IsMentor()] if self.request.method == "POST" else [IsAuthenticated()]
+
+    def get(self, request):
+        return Response(
+            WheelEventSerializer(wheel_events(), many=True, context={"request": request}).data
+        )
+
+    def post(self, request):
+        payload = CreateWheelEventSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            event = create_wheel_event(**payload.validated_data)
+        except WheelError as exc:
+            raise Conflict(str(exc)) from exc
+        return _wheel_response(event, request, response_status=status.HTTP_201_CREATED)
+
+
+class WheelEventDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk: int):
+        return _wheel_response(get_object_or_404(WheelEvent, pk=pk), request)
+
+
+class WheelStartView(APIView):
+    permission_classes = [IsMentor]
+
+    def post(self, request, pk: int):
+        try:
+            event = start_wheel_event(pk)
+        except (WheelEvent.DoesNotExist, WheelError) as exc:
+            raise Conflict(str(exc)) from exc
+        return _wheel_response(event, request)
+
+
+class WheelStopView(APIView):
+    permission_classes = [IsMentor]
+
+    def post(self, request, pk: int):
+        try:
+            event = stop_wheel_event(pk, cancelled=bool(request.data.get("cancelled", False)))
+        except (WheelEvent.DoesNotExist, WheelError) as exc:
+            raise Conflict(str(exc)) from exc
+        return _wheel_response(event, request)
+
+
+class WheelSpinView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk: int):
+        if request.user.team_id is None:
+            raise PermissionDenied("فقط حساب یک تیم می‌تواند گردونه را بچرخاند.")
+        payload = SpinWheelSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            spin = spin_wheel(pk, request.user.team, payload.validated_data["request_id"])
+        except (WheelEvent.DoesNotExist, WheelError) as exc:
+            raise Conflict(str(exc)) from exc
+        return Response(WheelSpinSerializer(spin).data, status=status.HTTP_201_CREATED)
+
+
+class WheelDeliveryView(APIView):
+    permission_classes = [IsMentor]
+
+    def post(self, request, pk: int):
+        try:
+            spin = deliver_wheel_prize(pk)
+        except (WheelSpin.DoesNotExist, WheelError) as exc:
+            raise Conflict(str(exc)) from exc
+        return Response(WheelSpinSerializer(spin).data)
+
+
+def pig_events():
+    return PigEvent.objects.prefetch_related(
+        Prefetch(
+            "games",
+            queryset=PigGame.objects.select_related("team").prefetch_related(
+                Prefetch("rolls", queryset=PigRoll.objects.all())
+            ),
+        )
+    )
+
+
+def _pig_response(event, request, *, response_status=status.HTTP_200_OK):
+    event = pig_events().get(pk=event.pk)
+    return Response(
+        PigEventSerializer(event, context={"request": request}).data,
+        status=response_status,
+    )
+
+
+class PigEventListCreateView(APIView):
+    def get_permissions(self):
+        return [IsMentor()] if self.request.method == "POST" else [IsAuthenticated()]
+
+    def get(self, request):
+        return Response(
+            PigEventSerializer(pig_events(), many=True, context={"request": request}).data
+        )
+
+    def post(self, request):
+        payload = CreatePigEventSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            event = create_pig_event(max_pot=payload.validated_data["max_pot"])
+        except PigError as exc:
+            raise Conflict(str(exc)) from exc
+        return _pig_response(event, request, response_status=status.HTTP_201_CREATED)
+
+
+class PigEventFinishView(APIView):
+    permission_classes = [IsMentor]
+
+    def post(self, request, pk: int):
+        try:
+            event = finish_pig_event(pk)
+        except PigEvent.DoesNotExist as exc:
+            raise Conflict(str(exc)) from exc
+        return _pig_response(event, request)
+
+
+class PigGameStartView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk: int):
+        if request.user.team_id is None:
+            raise PermissionDenied("فقط حساب یک تیم می‌تواند بازی خوک را شروع کند.")
+        try:
+            game = start_pig_game(pk, request.user.team)
+        except (PigEvent.DoesNotExist, PigError) as exc:
+            raise Conflict(str(exc)) from exc
+        return Response(PigGameSerializer(game).data, status=status.HTTP_201_CREATED)
+
+
+class PigActionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk: int):
+        if request.user.team_id is None:
+            raise PermissionDenied("فقط صاحب بازی می‌تواند اقدام ثبت کند.")
+        payload = PigActionSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            game = play_pig_action(
+                pk,
+                request.user.team,
+                payload.validated_data["action"],
+                payload.validated_data["request_id"],
+            )
+        except (PigGame.DoesNotExist, PigError) as exc:
+            raise Conflict(str(exc)) from exc
+        game = PigGame.objects.select_related("team").prefetch_related("rolls").get(pk=game.pk)
+        return Response(PigGameSerializer(game).data)

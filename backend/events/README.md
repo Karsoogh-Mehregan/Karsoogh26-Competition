@@ -3,15 +3,18 @@
 This document describes only the competition event subsystem. The Django app lives in
 `backend/events/`; its Vue pages and client data layer live under `frontend/src/`.
 
-The app currently contains four independent events:
+The app currently contains seven independent events:
 
 - **Territory Control** — a two-team, 20-turn board game.
 - **Charity Bag** — a timed, shared risk/reward event using team Glorium balances.
 - **Centipede Game** — a two-player, alternating risk/reward game with an unbounded number of
   rounds.
 - **Gillympics / Olympics** — supervisor-operated physical matches with pluggable mini-games.
+- **Limited Auction** — rank-seeded simultaneous two-team auctions with committed bids.
+- **Prize Wheel** — a configurable, server-selected weighted prize event.
+- **Pig** — a single-team dice risk game with an entry fee and cash-out decision.
 
-Both events reuse the existing `teams.Team` model and session authentication. Domain mutations
+All events reuse the existing `teams.Team` model and session authentication. Domain mutations
 belong in `events/services.py`; API views validate input and translate domain errors, but do not
 implement game rules themselves.
 
@@ -38,6 +41,7 @@ implement game rules themselves.
 - `frontend/src/pages/CharityBagPage.vue`
 - `frontend/src/pages/CentipedeGamePage.vue`
 - `frontend/src/pages/OlympicsPage.vue`
+- `frontend/src/pages/SpecialGamesPage.vue` — shared responsive console for Auction, Wheel, and Pig.
 - `frontend/src/services/events.ts` — all event API paths.
 - `frontend/src/queries/events.ts` — TanStack Query polling, mutations, and cache updates.
 - `frontend/src/queries/keys.ts` — event query keys.
@@ -51,6 +55,7 @@ The SPA routes are:
 - `/events/charity-bag`
 - `/events/centipede-game`
 - `/events/olympics`
+- `/events/special-games`
 
 Both routes require an authenticated session. Navigation is exposed through `InfoPanel.vue`.
 
@@ -374,6 +379,37 @@ marble zones, starts physical play, records coin winners/distances or each marbl
 live server-calculated totals. Ties change the primary action into tiebreak recording. The side log
 shows every round and the operator username. Team accounts receive the same read-only match view.
 
+## Limited Auction
+
+Creating an `AuctionEvent` snapshots the current Glorium ranking and pairs ranks 1–2, 3–4, and so
+on. An unpaired final team receives the configured reward automatically. A bid must be an affordable
+integer above both the opening and current highest bid. Raising your own bid deducts only the
+difference; every commitment remains spent. Locked, idempotent settlement pays the leading team
+once, while a pair with no bids has no winner.
+
+The `/api/events/limited-auction/` endpoints let mentors create and resolve events and let teams bid
+on their own pair using a stable `request_id`.
+
+## Prize Wheel
+
+`WheelPrize` records configurable type, label, weight, stock, availability, and metadata. A spin
+locks the event, team, and eligible prizes, charges once, and uses `secrets.randbelow()` for weighted
+selection. Glorium is credited immediately, merchandise waits for operator delivery, and claiming
+the one grand prize closes the event. Prize weights are hidden from ordinary team responses.
+
+The `/api/events/prize-wheel/` endpoints provide mentor create/start/stop/delivery operations and
+team spins. Request UUIDs make a retried spin return the original outcome without another charge.
+
+## Pig
+
+A mentor creates a `PigEvent` with a configurable maximum pot. Starting a game atomically charges
+the 200 Glorium entry. Each server-generated d6 roll is audited: 1 ends with no payout; 2–6 add ten
+times the face value. Cash-out requires a positive pot, while reaching the cap pays the cap and ends
+automatically. Action UUIDs, row locks, and terminal states prevent duplicate rolls or payouts.
+
+The `/api/events/pig/` endpoints cover event creation/finish, team game start, and `roll` or
+`cash_out`. Frontend dice animation is presentational and reveals only the server result.
+
 ## Continuing development
 
 When changing an event:
@@ -399,6 +435,7 @@ uv run pytest tests/test_territory_event.py
 uv run pytest tests/test_charity_bag_event.py
 uv run pytest tests/test_centipede_event.py
 uv run pytest tests/test_olympics_event.py
+uv run pytest tests/test_arcade_events.py
 ```
 
 SQLite does not enforce `select_for_update()`. Concurrency confidence therefore depends on the row

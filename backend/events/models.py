@@ -635,3 +635,266 @@ class OlympicsResult(models.Model):
 
     def __str__(self):
         return f"Olympics {self.match_id}, round {self.round_number}"
+
+
+class AuctionStatus(models.TextChoices):
+    SCHEDULED = "scheduled", "زمان‌بندی‌شده"
+    ACTIVE = "active", "فعال"
+    FINISHED = "finished", "تمام‌شده"
+    CANCELLED = "cancelled", "لغوشده"
+
+
+class AuctionEvent(models.Model):
+    status = models.CharField(
+        max_length=10, choices=AuctionStatus.choices, default=AuctionStatus.SCHEDULED
+    )
+    reward = models.PositiveIntegerField(default=1000)
+    opening_bid = models.PositiveIntegerField(default=10)
+    duration_seconds = models.PositiveIntegerField(default=600)
+    ranking_snapshot = models.JSONField(default=list)
+    starts_at = models.DateTimeField()
+    ends_at = models.DateTimeField()
+    settled_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            CheckConstraint(condition=Q(reward__gt=0), name="auction_reward_positive"),
+            CheckConstraint(condition=Q(opening_bid__gt=0), name="auction_opening_positive"),
+            CheckConstraint(condition=Q(duration_seconds__gt=0), name="auction_duration_positive"),
+            CheckConstraint(
+                condition=Q(ends_at__gt=F("starts_at")), name="auction_window_positive"
+            ),
+        ]
+
+
+class AuctionPair(models.Model):
+    event = models.ForeignKey(AuctionEvent, on_delete=models.CASCADE, related_name="pairs")
+    team_one = models.ForeignKey(
+        "teams.Team", on_delete=models.PROTECT, related_name="auctions_as_team_one"
+    )
+    team_two = models.ForeignKey(
+        "teams.Team",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="auctions_as_team_two",
+    )
+    rank_one = models.PositiveIntegerField()
+    rank_two = models.PositiveIntegerField(null=True, blank=True)
+    team_one_bid = models.PositiveIntegerField(default=0)
+    team_two_bid = models.PositiveIntegerField(default=0)
+    highest_bid = models.PositiveIntegerField(default=0)
+    highest_bidder = models.ForeignKey(
+        "teams.Team",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="leading_auctions",
+    )
+    winner = models.ForeignKey(
+        "teams.Team",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="won_auctions",
+    )
+    status = models.CharField(max_length=10, choices=AuctionStatus.choices)
+    automatic_award = models.BooleanField(default=False)
+    settled_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["rank_one"]
+        constraints = [
+            CheckConstraint(
+                condition=Q(team_two__isnull=True) | ~Q(team_one=F("team_two")),
+                name="auction_pair_distinct_teams",
+            ),
+            UniqueConstraint(fields=["event", "team_one"], name="auction_unique_team_one"),
+            UniqueConstraint(fields=["event", "team_two"], name="auction_unique_team_two"),
+        ]
+
+
+class AuctionBid(models.Model):
+    pair = models.ForeignKey(AuctionPair, on_delete=models.CASCADE, related_name="bids")
+    request_id = models.UUIDField(unique=True)
+    sequence = models.PositiveIntegerField()
+    team = models.ForeignKey("teams.Team", on_delete=models.PROTECT, related_name="auction_bids")
+    amount = models.PositiveIntegerField()
+    committed_delta = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["sequence"]
+        constraints = [
+            UniqueConstraint(fields=["pair", "sequence"], name="auction_bid_sequence"),
+            CheckConstraint(condition=Q(amount__gt=0), name="auction_bid_amount_positive"),
+            CheckConstraint(condition=Q(committed_delta__gt=0), name="auction_bid_delta_positive"),
+        ]
+
+
+class WheelStatus(models.TextChoices):
+    SCHEDULED = "scheduled", "زمان‌بندی‌شده"
+    ACTIVE = "active", "فعال"
+    GRAND_PRIZE_CLAIMED = "grand_prize_claimed", "جایزه بزرگ برنده شد"
+    FINISHED = "finished", "تمام‌شده"
+    CANCELLED = "cancelled", "لغوشده"
+
+
+class WheelPrizeType(models.TextChoices):
+    GLORIUM = "glorium", "گلوریوم"
+    MERCHANDISE = "merchandise", "کالا"
+    GRAND_PRIZE = "grand_prize", "جایزه بزرگ"
+
+
+class WheelDeliveryStatus(models.TextChoices):
+    NOT_APPLICABLE = "not_applicable", "نامرتبط"
+    PENDING = "pending", "در انتظار تحویل"
+    DELIVERED = "delivered", "تحویل‌شده"
+
+
+class WheelEvent(models.Model):
+    status = models.CharField(
+        max_length=19, choices=WheelStatus.choices, default=WheelStatus.SCHEDULED
+    )
+    spin_cost = models.PositiveIntegerField(default=10)
+    total_collected = models.PositiveIntegerField(default=0)
+    grand_prize_winner = models.ForeignKey(
+        "teams.Team",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="wheel_grand_prizes",
+    )
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [CheckConstraint(condition=Q(spin_cost__gt=0), name="wheel_cost_positive")]
+
+
+class WheelPrize(models.Model):
+    event = models.ForeignKey(WheelEvent, on_delete=models.CASCADE, related_name="prizes")
+    code = models.SlugField(max_length=32)
+    prize_type = models.CharField(max_length=11, choices=WheelPrizeType.choices)
+    display_name = models.CharField(max_length=100)
+    glorium_amount = models.PositiveIntegerField(default=0)
+    reward_data = models.JSONField(default=dict, blank=True)
+    weight = models.PositiveIntegerField()
+    available = models.BooleanField(default=True)
+    stock = models.PositiveIntegerField(null=True, blank=True)
+    claimed = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["id"]
+        constraints = [
+            UniqueConstraint(fields=["event", "code"], name="wheel_prize_code"),
+            CheckConstraint(condition=Q(weight__gt=0), name="wheel_prize_weight_positive"),
+        ]
+
+
+class WheelSpin(models.Model):
+    event = models.ForeignKey(WheelEvent, on_delete=models.CASCADE, related_name="spins")
+    request_id = models.UUIDField(unique=True)
+    team = models.ForeignKey("teams.Team", on_delete=models.PROTECT, related_name="wheel_spins")
+    spin_cost = models.PositiveIntegerField()
+    prize = models.ForeignKey(WheelPrize, on_delete=models.PROTECT, related_name="spins")
+    prize_type = models.CharField(max_length=11, choices=WheelPrizeType.choices)
+    prize_name = models.CharField(max_length=100)
+    glorium_payout = models.PositiveIntegerField(default=0)
+    delivery_status = models.CharField(
+        max_length=14,
+        choices=WheelDeliveryStatus.choices,
+        default=WheelDeliveryStatus.NOT_APPLICABLE,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class PigEventStatus(models.TextChoices):
+    ACTIVE = "active", "فعال"
+    FINISHED = "finished", "تمام‌شده"
+
+
+class PigGameStatus(models.TextChoices):
+    ACTIVE = "active", "فعال"
+    FINISHED_CASHED_OUT = "finished_cashed_out", "برداشت‌شده"
+    FINISHED_ROLLED_ONE = "finished_rolled_one", "باخت با تاس یک"
+    FINISHED_MAX_POT = "finished_max_pot", "رسیدن به سقف"
+
+
+class PigEvent(models.Model):
+    status = models.CharField(
+        max_length=8, choices=PigEventStatus.choices, default=PigEventStatus.ACTIVE
+    )
+    entry_fee = models.PositiveIntegerField(default=200)
+    max_pot = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            CheckConstraint(condition=Q(entry_fee__gt=0), name="pig_entry_fee_positive"),
+            CheckConstraint(condition=Q(max_pot__gt=0), name="pig_max_pot_positive"),
+        ]
+
+
+class PigGame(models.Model):
+    event = models.ForeignKey(PigEvent, on_delete=models.PROTECT, related_name="games")
+    team = models.ForeignKey("teams.Team", on_delete=models.PROTECT, related_name="pig_games")
+    entry_fee = models.PositiveIntegerField()
+    max_pot = models.PositiveIntegerField()
+    pot = models.PositiveIntegerField(default=0)
+    rolls_count = models.PositiveIntegerField(default=0)
+    status = models.CharField(
+        max_length=20, choices=PigGameStatus.choices, default=PigGameStatus.ACTIVE
+    )
+    final_payout = models.PositiveIntegerField(default=0)
+    started_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-started_at"]
+        constraints = [
+            UniqueConstraint(
+                fields=["event", "team"],
+                condition=Q(status=PigGameStatus.ACTIVE),
+                name="pig_one_active_game_per_team",
+            ),
+            CheckConstraint(condition=Q(pot__lte=F("max_pot")), name="pig_pot_below_max"),
+        ]
+
+
+class PigRoll(models.Model):
+    game = models.ForeignKey(PigGame, on_delete=models.CASCADE, related_name="rolls")
+    request_id = models.UUIDField(unique=True)
+    number = models.PositiveIntegerField()
+    dice_result = models.PositiveSmallIntegerField()
+    amount_added = models.PositiveIntegerField(default=0)
+    pot_after = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["number"]
+        constraints = [
+            UniqueConstraint(fields=["game", "number"], name="pig_roll_number"),
+            CheckConstraint(
+                condition=Q(dice_result__gte=1, dice_result__lte=6), name="pig_die_range"
+            ),
+        ]
+
+
+class PigActionReceipt(models.Model):
+    game = models.ForeignKey(PigGame, on_delete=models.CASCADE, related_name="action_receipts")
+    request_id = models.UUIDField(unique=True)
+    action = models.CharField(max_length=8)
+    created_at = models.DateTimeField(auto_now_add=True)

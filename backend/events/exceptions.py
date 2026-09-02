@@ -92,3 +92,15 @@ class OlympicsInvalidResult(OlympicsError):
 
 class OlympicsInvalidWinner(OlympicsError):
     pass
+
+
+class AuctionError(Exception):
+    pass
+
+
+class WheelError(Exception):
+    pass
+
+
+class PigError(Exception):
+    pass

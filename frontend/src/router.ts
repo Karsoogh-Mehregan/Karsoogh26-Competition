@@ -8,6 +8,7 @@ import TerritoryEventPage from '@/pages/TerritoryEventPage.vue'
 import CharityBagPage from '@/pages/CharityBagPage.vue'
 import CentipedeGamePage from '@/pages/CentipedeGamePage.vue'
 import OlympicsPage from '@/pages/OlympicsPage.vue'
+import SpecialGamesPage from '@/pages/SpecialGamesPage.vue'
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -35,6 +36,12 @@ export const router = createRouter({
       path: '/events/olympics',
       name: 'olympics',
       component: OlympicsPage,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/events/special-games',
+      name: 'special-games',
+      component: SpecialGamesPage,
       meta: { requiresAuth: true },
     },
     { path: '/grading', name: 'grading', component: GradingPage, meta: { requiresMentor: true } },

@@ -37,6 +37,9 @@ export function useLoginMutation() {
         queryClient.invalidateQueries({ queryKey: queryKeys.charityBags() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.centipedeGames() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.olympicsMatches() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.auctionEvents() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.wheelEvents() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.pigEvents() }),
       ])
     },
   })
@@ -54,6 +57,9 @@ export function useLogoutMutation() {
       queryClient.removeQueries({ queryKey: queryKeys.charityBags() })
       queryClient.removeQueries({ queryKey: queryKeys.centipedeGames() })
       queryClient.removeQueries({ queryKey: queryKeys.olympicsMatches() })
+      queryClient.removeQueries({ queryKey: queryKeys.auctionEvents() })
+      queryClient.removeQueries({ queryKey: queryKeys.wheelEvents() })
+      queryClient.removeQueries({ queryKey: queryKeys.pigEvents() })
       await ensureCsrf()
     },
   })

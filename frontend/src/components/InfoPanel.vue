@@ -9,6 +9,7 @@ import {
   MedalIcon,
   SearchIcon,
   SwordsIcon,
+  Gamepad2Icon,
 } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
@@ -97,6 +98,19 @@ function isNoneSelected() {
         <Button as-child size="sm" :variant="route.path === '/' ? 'default' : 'outline'">
           <RouterLink to="/" :aria-current="route.path === '/' ? 'page' : undefined">
             نقشه
+          </RouterLink>
+        </Button>
+        <Button
+          as-child
+          size="sm"
+          :variant="route.path.startsWith('/events/special-games') ? 'default' : 'outline'"
+        >
+          <RouterLink
+            to="/events/special-games"
+            :aria-current="route.path.startsWith('/events/special-games') ? 'page' : undefined"
+          >
+            <Gamepad2Icon class="size-3.5" />
+            بازی‌های ویژه
           </RouterLink>
         </Button>
         <Button

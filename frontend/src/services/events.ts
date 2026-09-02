@@ -12,6 +12,12 @@ import type {
   OlympicsMatch,
   RecordOlympicsResultInput,
   TerritoryGame,
+  AuctionEvent,
+  PigEvent,
+  PigGame,
+  WheelEvent,
+  WheelPrizeInput,
+  WheelSpin,
 } from '@/types/api'
 
 const GAMES_PATH = '/events/territory-control/games/'
@@ -101,3 +107,24 @@ export function recordOlympicsResult(
 ): Promise<OlympicsMatch> {
   return post<OlympicsMatch>(`${OLYMPICS_PATH}${matchId}/results/`, input)
 }
+
+const AUCTION_PATH = '/events/limited-auction/events/'
+export const listAuctionEvents = (signal?: AbortSignal) => get<AuctionEvent[]>(AUCTION_PATH, signal)
+export const createAuctionEvent = (duration_seconds: number) => post<AuctionEvent>(AUCTION_PATH, { duration_seconds })
+export const placeAuctionBid = (pairId: number, amount: number, request_id: string) => post<AuctionEvent>(`/events/limited-auction/pairs/${pairId}/bids/`, { amount, request_id })
+export const resolveAuctionEvent = (eventId: number) => post<AuctionEvent>(`${AUCTION_PATH}${eventId}/resolve/`, {})
+
+const WHEEL_PATH = '/events/prize-wheel/events/'
+export const listWheelEvents = (signal?: AbortSignal) => get<WheelEvent[]>(WHEEL_PATH, signal)
+export const createWheelEvent = (spin_cost: number, prizes: WheelPrizeInput[]) => post<WheelEvent>(WHEEL_PATH, { spin_cost, prizes })
+export const startWheelEvent = (eventId: number) => post<WheelEvent>(`${WHEEL_PATH}${eventId}/start/`, {})
+export const stopWheelEvent = (eventId: number, cancelled = false) => post<WheelEvent>(`${WHEEL_PATH}${eventId}/stop/`, { cancelled })
+export const spinWheel = (eventId: number, request_id: string) => post<WheelSpin>(`${WHEEL_PATH}${eventId}/spins/`, { request_id })
+export const deliverWheelSpin = (spinId: number) => post<WheelSpin>(`/events/prize-wheel/spins/${spinId}/deliver/`, {})
+
+const PIG_PATH = '/events/pig/events/'
+export const listPigEvents = (signal?: AbortSignal) => get<PigEvent[]>(PIG_PATH, signal)
+export const createPigEvent = (max_pot: number) => post<PigEvent>(PIG_PATH, { max_pot })
+export const finishPigEvent = (eventId: number) => post<PigEvent>(`${PIG_PATH}${eventId}/finish/`, {})
+export const startPigGame = (eventId: number) => post<PigGame>(`${PIG_PATH}${eventId}/games/`, {})
+export const playPigAction = (gameId: number, action: 'roll' | 'cash_out', request_id: string) => post<PigGame>(`/events/pig/games/${gameId}/actions/`, { action, request_id })

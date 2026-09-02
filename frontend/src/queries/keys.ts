@@ -14,4 +14,7 @@ export const queryKeys = {
   centipedeGame: (gameId: number | 'none') => ['events', 'centipede', 'games', gameId] as const,
   olympicsMatches: () => ['events', 'olympics', 'matches'] as const,
   olympicsMatch: (matchId: number | 'none') => ['events', 'olympics', 'matches', matchId] as const,
+  auctionEvents: () => ['events', 'limited-auction'] as const,
+  wheelEvents: () => ['events', 'prize-wheel'] as const,
+  pigEvents: () => ['events', 'pig'] as const,
 }

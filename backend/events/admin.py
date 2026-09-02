@@ -1,15 +1,24 @@
 from django.contrib import admin
 
 from .models import (
+    AuctionBid,
+    AuctionEvent,
+    AuctionPair,
     CentipedeDecision,
     CentipedeGame,
     CharityBagEvent,
     CharityBagParticipation,
     OlympicsMatch,
     OlympicsResult,
+    PigEvent,
+    PigGame,
+    PigRoll,
     TerritoryCell,
     TerritoryGame,
     TerritoryTurn,
+    WheelEvent,
+    WheelPrize,
+    WheelSpin,
 )
 
 
@@ -139,3 +148,14 @@ class OlympicsMatchAdmin(admin.ModelAdmin):
 class OlympicsResultAdmin(admin.ModelAdmin):
     list_display = ("match", "round_number", "outcome", "recorded_by", "created_at")
     list_filter = ("outcome",)
+
+
+admin.site.register(AuctionEvent)
+admin.site.register(AuctionPair)
+admin.site.register(AuctionBid)
+admin.site.register(WheelEvent)
+admin.site.register(WheelPrize)
+admin.site.register(WheelSpin)
+admin.site.register(PigEvent)
+admin.site.register(PigGame)
+admin.site.register(PigRoll)
