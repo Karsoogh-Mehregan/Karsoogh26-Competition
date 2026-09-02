@@ -53,6 +53,10 @@ class LevelConfig(models.Model):
     networth_factor = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0"))
     duel_factor = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("2"))
     buyout_factor = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("4"))
+    attempt_ttl_minutes = models.PositiveSmallIntegerField(
+        default=15,
+        help_text="Minutes the team has to answer after a question is assigned on this level.",
+    )
 
     class Meta:
         verbose_name = "level config"
@@ -61,6 +65,10 @@ class LevelConfig(models.Model):
             CheckConstraint(
                 condition=Q(capacity__gte=1, capacity__lte=MAX_CAPACITY),
                 name="levelconfig_capacity_range",
+            ),
+            CheckConstraint(
+                condition=Q(attempt_ttl_minutes__gte=1),
+                name="levelconfig_attempt_ttl_positive",
             ),
         ]
 
@@ -260,7 +268,6 @@ class Occupancy(models.Model):
 class GameSettings(models.Model):
     id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
 
-    attempt_ttl_minutes = models.PositiveSmallIntegerField(default=15)
     duel_cooldown_minutes = models.PositiveSmallIntegerField(default=10)
     duel_deadline_minutes = models.PositiveSmallIntegerField(default=15)
     initial_balance = models.PositiveIntegerField(

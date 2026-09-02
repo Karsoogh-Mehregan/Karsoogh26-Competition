@@ -120,6 +120,19 @@ REDIS_URL = env("REDIS_URL", default="")  # Streams / SSE fan-out
 REDIS_CACHE_URL = env("REDIS_CACHE_URL", default="")
 
 
+# Server-sent events. The stream carries hints, not board state: a client that
+# receives one refetches through the normal API.
+
+SSE_STREAM_KEY = env("SSE_STREAM_KEY", default="karsoogh:board")
+SSE_STREAM_MAXLEN = env.int("SSE_STREAM_MAXLEN", default=1000)
+SSE_HEARTBEAT_SECONDS = env.int("SSE_HEARTBEAT_SECONDS", default=15)
+SSE_RETRY_MS = env.int("SSE_RETRY_MS", default=2500)
+SSE_RETRY_JITTER_MS = env.int("SSE_RETRY_JITTER_MS", default=2000)
+SSE_QUEUE_MAXSIZE = env.int("SSE_QUEUE_MAXSIZE", default=32)
+SSE_BLOCK_MS = env.int("SSE_BLOCK_MS", default=5000)
+SSE_REPLAY_LIMIT = env.int("SSE_REPLAY_LIMIT", default=100)
+
+
 # Cache. Falls back to Django's local-memory cache in development.
 
 CACHES = {

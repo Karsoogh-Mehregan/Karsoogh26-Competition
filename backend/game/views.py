@@ -1,3 +1,4 @@
+from django.db.models import Q
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
@@ -31,6 +32,7 @@ from game.exceptions import (
 from game.models import Node, Occupancy, Question, Submission, TeamQuestion
 from game.permissions import IsOwnTeam, IsTeamMember
 from game.serializers import (
+    ActiveAttemptSerializer,
     AssignQuestionSerializer,
     EntryAnswerResultSerializer,
     EntryAnswerSerializer,
@@ -48,7 +50,7 @@ from game.serializers import (
     SubmitCreatedSerializer,
     occupancy_for_user,
 )
-from game.services import grade_submission, submit_answer
+from game.services import grade_submission, release_expired_attempts, submit_answer
 from teams.models import Team
 
 _OCCUPANCY_PK = OpenApiParameter("pk", int, OpenApiParameter.PATH, description="Occupancy id")
@@ -159,9 +161,11 @@ def _map_service_error(exc: GameServiceError):
         raise Conflict("پاسخ این سؤال درست بوده و نیازی به تلاش دوباره ندارد.") from exc
     if isinstance(exc, NoEntryRetriesLeft):
         raise Conflict("فرصت تلاش دوبارهٔ شما تمام شده است.") from exc
+    if isinstance(exc, SubmissionWindowClosed):
+        raise Conflict("تایم شما تموم شد.") from exc
     if isinstance(
         exc,
-        (OccupancyNotActive, SubmissionWindowClosed, AlreadySubmitted),
+        (OccupancyNotActive, AlreadySubmitted),
     ):
         raise Conflict(str(exc)) from exc
     if isinstance(exc, InvalidAnswerPayload):
@@ -343,6 +347,37 @@ class OccupancyQuestionView(APIView):
                 "question": serializer.data,
             }
         )
+
+
+@extend_schema(
+    tags=["game"],
+    summary="List active attempts for a team",
+    description=(
+        "Every active occupancy for the team, with question text, timer, and submission "
+        "status. Only the team itself may call this."
+    ),
+    parameters=[
+        OpenApiParameter("team_code", str, OpenApiParameter.PATH, description="e.g. alpha"),
+    ],
+    responses=ActiveAttemptSerializer(many=True),
+)
+class TeamAttemptsView(APIView):
+    permission_classes = [IsAuthenticated, IsOwnTeam]
+
+    def get(self, request, team_code: str):
+        release_expired_attempts()
+        occupancies = (
+            Occupancy.objects.filter(team__code=team_code)
+            .filter(Q(released_at__isnull=True) | Q(question_id__isnull=False))
+            .select_related("node__level", "question", "submission")
+            .order_by("node__code", "-entered_at")
+        )
+        serializer = ActiveAttemptSerializer(
+            occupancies,
+            many=True,
+            context={"request": request},
+        )
+        return Response(serializer.data)
 
 
 @extend_schema(

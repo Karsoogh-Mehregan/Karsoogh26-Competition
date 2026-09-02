@@ -1,6 +1,6 @@
 from django.urls import path
 
-from game import views
+from game import sse, views
 
 app_name = "game"
 
@@ -22,6 +22,11 @@ urlpatterns = [
         "entry/questions/<slug:code>/retry/",
         views.EntryRetryView.as_view(),
         name="entry-retry",
+    ),
+    path(
+        "teams/<slug:team_code>/attempts/",
+        views.TeamAttemptsView.as_view(),
+        name="team-attempts",
     ),
     # Team-facing question + submission flow, addressed by occupancy id.
     path(
@@ -51,4 +56,6 @@ urlpatterns = [
         views.QuestionMediaView.as_view(),
         name="question-media",
     ),
+    # Plain async view, not DRF: APIView.dispatch is sync-only in DRF 3.18.
+    path("realtime/stream/", sse.board_stream, name="board-stream"),
 ]

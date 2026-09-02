@@ -16,6 +16,7 @@ export function useAssignQuestionMutation() {
     onSuccess: (_result: AssignQuestionResult) => {
       return Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.teams() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.attemptsRoot() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.submissions() }),
       ])
     },
@@ -44,6 +45,7 @@ export function useGradeSubmissionMutation() {
       return Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.submissions() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.teams() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.attemptsRoot() }),
       ])
     },
   })

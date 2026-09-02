@@ -54,11 +54,28 @@ export interface QuestionForTeam {
   remaining_seconds: number
 }
 
-export interface OccupancyQuestion {
-  occupancy_id: number
+export type AttemptStatus = 'no_question' | 'open' | 'answered' | 'expired' | 'graded'
+
+export interface AttemptSubmission {
+  id: number
+  submitted_at: string
+}
+
+export interface ActiveAttempt {
+  id: number
+  node_code: string
+  node_name: string
+  level: string
+  slot: number
+  floor: number | null
+  is_spawn: boolean
+  grade: number | null
   expires_at: string | null
   remaining_seconds: number
-  question: QuestionForTeam
+  is_expired: boolean
+  question: QuestionForTeam | null
+  submission: AttemptSubmission | null
+  status: AttemptStatus
 }
 
 export interface SubmitCreated {

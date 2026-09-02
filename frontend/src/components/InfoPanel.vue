@@ -11,11 +11,9 @@ import { computed, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatBalance } from '@/lib/format'
 import { useActing } from '../composables/useActing'
 import { useEntry } from '../composables/useEntry'
 
@@ -52,7 +50,20 @@ function normalize(value) {
     .replace(/\u200c/g, '')
 }
 
-const filteredTeams = computed(() => {
+const listedTeams = computed(() => {
+  if (isPlayer.value && me.value?.team) {
+    const own = teams.value.filter((team) => team.code === me.value.team.code)
+    if (own.length) return own
+    return [
+      {
+        code: me.value.team.code,
+        name: me.value.team.name,
+        balance: null,
+        color: null,
+        holdings: [],
+      },
+    ]
+  }
   const q = normalize(query.value)
   if (!q) {
     return teams.value
@@ -66,15 +77,13 @@ function isSelected(team) {
   return actingTeam.value?.code === team.code
 }
 
-function isNoneSelected() {
-  return !actingTeam.value
-}
+const showTeamPicker = computed(() => isMentor.value || isPlayer.value)
 </script>
 
 <template>
-  <aside class="flex h-full w-80 shrink-0 flex-col overflow-hidden border-e bg-card">
+  <aside class="flex h-full w-96 shrink-0 flex-col overflow-hidden border-e bg-card">
     <header class="border-b px-5 py-4">
-      <h1 class="text-lg font-bold">تیم‌ها</h1>
+      <h1 class="text-lg font-bold">{{ isPlayer && !isMentor ? 'تیم شما' : 'تیم‌ها' }}</h1>
       <p v-if="actingTeam" class="text-muted-foreground mt-1 text-sm">
         در حال بازی به‌عنوان
         <span class="text-foreground inline-flex items-center gap-1.5 font-semibold">
@@ -86,8 +95,8 @@ function isNoneSelected() {
           {{ actingTeam.name }}
         </span>
       </p>
-      <p v-else-if="isMentor" class="text-muted-foreground mt-1 text-sm">
-        یک تیم را انتخاب کنید
+      <p v-else-if="me" class="text-muted-foreground mt-1 text-sm">
+        {{ isMentor ? 'یک تیم را انتخاب کنید' : 'تیم شما روی نقشه مشخص است' }}
       </p>
       <p v-else class="text-muted-foreground mt-1 text-sm">
         برای دیدن تیم‌ها وارد شوید
@@ -109,6 +118,19 @@ function isNoneSelected() {
             :aria-current="route.path === '/grading' ? 'page' : undefined"
           >
             نمره‌دهی
+          </RouterLink>
+        </Button>
+        <Button
+          v-if="isPlayer"
+          as-child
+          size="sm"
+          :variant="route.path === '/solve' ? 'default' : 'outline'"
+        >
+          <RouterLink
+            to="/solve"
+            :aria-current="route.path === '/solve' ? 'page' : undefined"
+          >
+            حل سؤال
           </RouterLink>
         </Button>
         <Button as-child size="sm" :variant="route.path === '/leaderboard' ? 'default' : 'outline'">
@@ -156,8 +178,8 @@ function isNoneSelected() {
         </Button>
       </form>
 
-      <template v-else-if="isMentor">
-        <div class="relative mb-3 shrink-0">
+      <template v-else-if="showTeamPicker">
+        <div v-if="isMentor" class="relative mb-3 shrink-0">
           <Label for="team-search" class="sr-only">جستجوی تیم</Label>
           <SearchIcon
             class="text-muted-foreground pointer-events-none absolute top-1/2 start-3 size-4 -translate-y-1/2"
@@ -172,23 +194,17 @@ function isNoneSelected() {
           />
         </div>
         <ul class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
-          <li>
-            <Button
-              class="h-auto w-full items-start justify-between py-3 whitespace-normal"
-              :variant="isNoneSelected() ? 'default' : 'outline'"
-              @click="actAs(null)"
-            >
-              <span class="flex min-w-0 flex-col items-start gap-0.5 text-start">
-                <span class="font-semibold">بدون تیم</span>
-                <span class="text-xs opacity-80">هیچ تیمی انتخاب نشده</span>
-              </span>
-              <Badge v-if="isNoneSelected()" variant="secondary" class="gap-1">
-                <CheckIcon class="size-3" />
-                انتخاب‌شده
-              </Badge>
-            </Button>
+          <li v-if="isPlayer && listedTeams[0]" class="px-1 py-3">
+            <span class="flex min-w-0 items-center gap-2 font-semibold">
+              <span
+                v-if="listedTeams[0].color || actingTeam?.color"
+                class="size-3 shrink-0 rounded-full border"
+                :style="{ backgroundColor: listedTeams[0].color || actingTeam?.color }"
+              />
+              {{ listedTeams[0].name }}
+            </span>
           </li>
-          <li v-for="team in filteredTeams" :key="team.code">
+          <li v-for="team in isMentor ? listedTeams : []" :key="team.code">
             <Button
               class="h-auto w-full items-start justify-between py-3 whitespace-normal"
               :variant="isSelected(team) ? 'default' : 'outline'"
@@ -213,13 +229,13 @@ function isNoneSelected() {
           </li>
         </ul>
         <p
-          v-if="teams.length === 0"
+          v-if="isMentor && teams.length === 0"
           class="text-muted-foreground mt-3 shrink-0 text-sm"
         >
           تیمی ثبت نشده است.
         </p>
         <p
-          v-else-if="filteredTeams.length === 0"
+          v-else-if="isMentor && listedTeams.length === 0"
           class="text-muted-foreground mt-3 shrink-0 text-sm"
         >
           تیمی پیدا نشد.
