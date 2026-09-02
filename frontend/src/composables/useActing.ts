@@ -5,6 +5,7 @@ import { useLoginMutation, useLogoutMutation, useMeQuery } from '@/queries/auth'
 import { useAssignQuestionMutation } from '@/queries/game'
 import { useClaimStartMutation, useTeamsQuery } from '@/queries/teams'
 import { useActingStore } from '@/stores/acting'
+import { useAttemptStore } from '@/stores/attempt'
 import type { AssignQuestionResult, Team } from '@/types/api'
 import { useGraph } from './useGraph.js'
 
@@ -79,6 +80,7 @@ export function useActing() {
     try {
       await logoutMutation.mutateAsync()
       store.setActingCode(null)
+      useAttemptStore().select(null)
       useGraph().reset()
     } catch (err) {
       actionError.value = messageOf(err)

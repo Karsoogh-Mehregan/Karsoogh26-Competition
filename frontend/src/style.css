@@ -259,3 +259,29 @@
     font-family: var(--font-primary);
   }
 }
+
+/* ---- Glass surfaces -------------------------------------------------------
+   One frosted-panel recipe shared by the map HUD and the map legend. The blur
+   only reads as glass when there is something behind it, which is what the
+   map's aurora backdrop is for. Backdrop-filter does not work on SVG content,
+   so every glass surface is an HTML overlay sitting above the map. */
+
+.glass-panel {
+  --glass-tint: color-mix(in oklab, var(--card) 62%, transparent);
+  --glass-edge: color-mix(in oklab, var(--foreground) 12%, transparent);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--glass-edge);
+  background: var(--glass-tint);
+  box-shadow:
+    0 1px 0 0 color-mix(in oklab, #fff 55%, transparent) inset,
+    0 8px 32px -12px color-mix(in oklab, #0b1a2b 40%, transparent);
+  backdrop-filter: blur(18px) saturate(165%);
+  -webkit-backdrop-filter: blur(18px) saturate(165%);
+}
+
+/* Without backdrop-filter the tint alone would be too see-through to read. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-panel {
+    --glass-tint: color-mix(in oklab, var(--card) 94%, transparent);
+  }
+}

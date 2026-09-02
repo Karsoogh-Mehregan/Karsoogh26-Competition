@@ -25,6 +25,7 @@ from game.exceptions import (
 from game.models import Node, Occupancy, Question, Submission, TeamQuestion
 from game.permissions import IsOwnTeam, IsTeamMember
 from game.serializers import (
+    ActiveAttemptSerializer,
     AssignQuestionSerializer,
     GradeResultSerializer,
     GradeSerializer,
@@ -183,6 +184,36 @@ class OccupancyQuestionView(APIView):
                 "question": serializer.data,
             }
         )
+
+
+@extend_schema(
+    tags=["game"],
+    summary="List active attempts for a team",
+    description=(
+        "Every active occupancy for the team, with question text, timer, and submission "
+        "status. Only the team itself may call this."
+    ),
+    parameters=[
+        OpenApiParameter("team_code", str, OpenApiParameter.PATH, description="e.g. alpha"),
+    ],
+    responses=ActiveAttemptSerializer(many=True),
+)
+class TeamAttemptsView(APIView):
+    permission_classes = [IsAuthenticated, IsOwnTeam]
+
+    def get(self, request, team_code: str):
+        occupancies = (
+            Occupancy.objects.active()
+            .filter(team__code=team_code)
+            .select_related("node__level", "question", "submission")
+            .order_by("node__code")
+        )
+        serializer = ActiveAttemptSerializer(
+            occupancies,
+            many=True,
+            context={"request": request},
+        )
+        return Response(serializer.data)
 
 
 @extend_schema(

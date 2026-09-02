@@ -16,6 +16,7 @@ export function useAssignQuestionMutation() {
     onSuccess: (_result: AssignQuestionResult) => {
       return Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.teams() }),
+        queryClient.invalidateQueries({ queryKey: ['attempts'] }),
         queryClient.invalidateQueries({ queryKey: queryKeys.submissions() }),
       ])
     },
