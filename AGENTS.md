@@ -128,10 +128,11 @@ guess stays on the record; `entryattempt_no_repeat` is therefore scoped to curre
 Read the sheet through `EntryAttempt.objects.current()` or you will see superseded tries.
 Clearing the sheet stamps `Team.draft_order` (finishing order). After
 `entry_grace_minutes` past `GameSettings.started_at` — stamped once, the first time status
-becomes running — the gate opens for everyone regardless, per the design doc. Seed the pool
-with `seed_entry_questions`; `seed_demo` stands up teams, logins, a mentor and the pool in
-one go, funding every team to `GameSettings.initial_balance` (400 — the design doc's
-200+200, paid to every team whether it cleared the sheet or only waited out the grace).
+becomes running — the gate opens for everyone regardless, per the design doc. There are no
+seed commands: fill the pool through the admin, and create logins with
+`create_team_users --fund`, which tops every team up to `GameSettings.initial_balance`
+(400 — the design doc's 200+200, paid to every team whether it cleared the sheet or only
+waited out the grace).
 
 **Occupancy is append-and-soft-release.** Rows are never deleted; a release sets
 `released_at`. Every uniqueness rule is therefore a *partial* constraint scoped to
