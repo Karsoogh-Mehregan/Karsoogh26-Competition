@@ -2,7 +2,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from core.openapi import extend_schema_field
-from game.models import GameSettings, Occupancy, Question, Submission
+from game.models import EntryAttempt, GameSettings, Occupancy, Question, Submission
 from game.services import MENTOR_RELEASE_REASONS
 
 
@@ -348,14 +348,8 @@ class GameSettingsSerializer(serializers.ModelSerializer):
             "status",
             "leaderboard_public",
             "duration_minutes",
-            "attempt_ttl_minutes",
             "initial_balance",
         )
-
-    def validate_attempt_ttl_minutes(self, value):
-        if value < 1:
-            raise serializers.ValidationError("مهلت پاسخ باید دست‌کم ۱ دقیقه باشد.")
-        return value
 
 
 class GameRestartSerializer(serializers.Serializer):
@@ -376,4 +370,45 @@ class GameRestartSerializer(serializers.Serializer):
 class GameRestartResultSerializer(serializers.Serializer):
     occupancies = serializers.IntegerField(read_only=True)
     submissions = serializers.IntegerField(read_only=True)
+    entry_attempts = serializers.IntegerField(read_only=True)
     teams = serializers.IntegerField(read_only=True)
+
+
+class EntryAttemptSerializer(serializers.ModelSerializer):
+    """One row of a team's entry sheet.
+
+    `answer` is the team's own submission, echoed back; the correct answer
+    lives on EntryQuestion and is never listed here.
+    """
+
+    code = serializers.CharField(source="question.code", read_only=True)
+    title = serializers.CharField(source="question.title", read_only=True)
+    body = serializers.CharField(source="question.body", read_only=True)
+
+    class Meta:
+        model = EntryAttempt
+        fields = ("position", "code", "title", "body", "answer", "is_correct", "answered_at")
+        read_only_fields = fields
+
+
+class EntrySheetSerializer(serializers.Serializer):
+    required_correct = serializers.IntegerField(read_only=True)
+    correct_count = serializers.IntegerField(read_only=True)
+    answered_count = serializers.IntegerField(read_only=True)
+    total_count = serializers.IntegerField(read_only=True)
+    qualified = serializers.BooleanField(read_only=True)
+    grace_over = serializers.BooleanField(read_only=True)
+    grace_ends_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    can_claim_start = serializers.BooleanField(read_only=True)
+    draft_order = serializers.IntegerField(read_only=True, allow_null=True)
+    retries_used = serializers.IntegerField(read_only=True)
+    retries_left = serializers.IntegerField(read_only=True)
+    questions = EntryAttemptSerializer(many=True, read_only=True, source="attempts")
+
+
+class EntryAnswerSerializer(serializers.Serializer):
+    answer = serializers.IntegerField()
+
+
+class EntryAnswerResultSerializer(EntrySheetSerializer):
+    is_correct = serializers.BooleanField(read_only=True)

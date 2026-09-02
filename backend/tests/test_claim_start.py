@@ -1,8 +1,11 @@
 """Claiming a start node's colour onto the team named in the URL."""
 
+from datetime import timedelta
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.utils import timezone
 
 from game.models import GameSettings, GameStatus, LevelConfig, Node, Occupancy
 from teams.models import Team
@@ -36,6 +39,20 @@ def running_game():
     settings.status = GameStatus.RUNNING
     settings.save(update_fields=["status"])
     return settings
+
+
+@pytest.fixture(autouse=True)
+def entry_gate_open(running_game):
+    """These tests are about colours and slots, not the entry sheet.
+
+    Winding the clock past the grace window clears every team at once; the
+    sheet itself is covered by tests/test_entry_questions.py.
+    """
+    past = timezone.now() - timedelta(minutes=running_game.entry_grace_minutes + 1)
+    running_game.started_at = past
+    running_game.running_since = past
+    running_game.save(update_fields=["started_at", "running_since"])
+    return running_game
 
 
 @pytest.fixture(autouse=True)

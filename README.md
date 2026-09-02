@@ -60,6 +60,7 @@ reachable from other devices on your network.
 ### Other commands
 
 ```bash
+uv run manage.py shell -c "from django.utils import timezone; from game.models import GameSettings; s=GameSettings.load(); s.started_at=timezone.now(); s.save(update_fields=['started_at']); print('grace ends', s.entry_grace_ends_at)" # sets the contest start time to now, and prints the grace period end time (in backend/)
 uv run pytest        # backend tests        (in backend/)
 uv run ruff check .  # backend lint         (in backend/)
 npm run build        # type-check + bundle  (in frontend/)

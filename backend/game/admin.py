@@ -2,6 +2,8 @@ from django.contrib import admin
 
 from .models import (
     Edge,
+    EntryAttempt,
+    EntryQuestion,
     FloorReward,
     GameSettings,
     GradeMultiplier,
@@ -40,6 +42,7 @@ class LevelConfigAdmin(admin.ModelAdmin):
         "level",
         "capacity",
         "entry_cost",
+        "attempt_ttl_minutes",
         "networth_base",
         "networth_factor",
         "duel_factor",
@@ -139,7 +142,10 @@ class GameSettingsAdmin(admin.ModelAdmin):
         "duration_minutes",
         "accumulated_seconds",
         "initial_balance",
-        "attempt_ttl_minutes",
+        "entry_question_count",
+        "entry_required_correct",
+        "entry_grace_minutes",
+        "entry_max_retries",
         "leaderboard_public",
     )
     readonly_fields = ("started_at", "accumulated_seconds", "running_since")
@@ -216,4 +222,46 @@ class SubmissionAdmin(admin.ModelAdmin):
         return bool(obj.file)
 
     def has_add_permission(self, request):
+        return False
+
+
+@admin.register(EntryQuestion)
+class EntryQuestionAdmin(admin.ModelAdmin):
+    list_display = ("code", "title", "answer", "is_active", "served", "created_at")
+    list_filter = ("is_active",)
+    search_fields = ("code", "title")
+
+    @admin.display(description="served")
+    def served(self, obj):
+        return obj.attempts.count()
+
+
+@admin.register(EntryAttempt)
+class EntryAttemptAdmin(admin.ModelAdmin):
+    list_display = (
+        "team",
+        "position",
+        "question",
+        "answer",
+        "is_correct",
+        "answered_at",
+        "superseded_at",
+    )
+    list_filter = ("is_correct", "question")
+    search_fields = ("team__code", "question__code")
+    list_select_related = ("team", "question")
+    readonly_fields = (
+        "team",
+        "question",
+        "position",
+        "answer",
+        "is_correct",
+        "answered_at",
+        "superseded_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
         return False

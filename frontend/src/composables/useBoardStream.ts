@@ -13,10 +13,10 @@ const BOARD = [queryKeys.teams()]
 const ROUTES: Record<string, () => QueryKey[]> = {
   'board.spawn.claimed': () => BOARD,
   'board.node.claimed': () => BOARD,
-  'board.released': () => BOARD,
+  'board.released': () => [queryKeys.teams(), queryKeys.attemptsRoot()],
   // A grade moves balances, so the leaderboard is stale too.
   'board.graded': () => [queryKeys.teams(), queryKeys.leaderboard()],
-  'question.assigned': () => [queryKeys.allAttempts()],
+  'question.assigned': () => [queryKeys.attemptsRoot()],
   'mentor.submission.created': () => [queryKeys.submissions()],
   // An admin flipped the game state; everyone's clock and stage bar are stale.
   'game.state': () => [queryKeys.gameState(), queryKeys.gameSettings()],
@@ -27,7 +27,7 @@ const RESYNC_KEYS: QueryKey[] = [
   queryKeys.leaderboard(),
   queryKeys.submissions(),
   queryKeys.gameState(),
-  queryKeys.allAttempts(),
+  queryKeys.attemptsRoot(),
 ]
 
 function createBoardStream() {

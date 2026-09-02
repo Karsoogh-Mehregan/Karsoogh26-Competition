@@ -7,7 +7,16 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from game.models import AnswerType, GameSettings, GameStatus, LevelConfig, Node, Occupancy, Question
+from game.models import (
+    AnswerType,
+    GameSettings,
+    GameStatus,
+    LevelConfig,
+    Node,
+    Occupancy,
+    Question,
+    TeamQuestion,
+)
 from game.services import assign_question, submit_answer
 from teams.models import Team
 
@@ -152,3 +161,72 @@ class TestTeamAttemptsAPI:
         assert row["status"] == "expired"
         assert row["is_expired"] is True
         assert row["remaining_seconds"] == 0
+
+        occ.refresh_from_db()
+        assert occ.released_at is not None
+        assert occ.release_reason == "expired"
+
+    def test_expired_question_stays_on_the_list(self, node, teams, question, running_game):
+        user = make_user(teams[0], "alpha-user")
+        occ = occupy(node, teams[0])
+        assign_question(occ)
+        occ.expires_at = timezone.now() - timedelta(minutes=1)
+        occ.save(update_fields=["expires_at"])
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+        response = client.get("/api/teams/alpha/attempts/")
+
+        assert response.status_code == 200
+        assert len(response.data) == 1
+        assert response.data[0]["id"] == occ.pk
+        assert response.data[0]["question"]["code"] == "q1"
+        assert response.data[0]["status"] == "expired"
+        assert TeamQuestion.objects.filter(team=teams[0], question=question).exists()
+
+    def test_expired_slot_is_free_for_another_team(self, node, teams, question, running_game):
+        user = make_user(teams[0], "alpha-user")
+        occ = occupy(node, teams[0])
+        assign_question(occ)
+        occ.expires_at = timezone.now() - timedelta(minutes=1)
+        occ.save(update_fields=["expires_at"])
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+        client.get("/api/teams/alpha/attempts/")
+
+        occupy(node, teams[1])
+        assert Occupancy.objects.active().filter(node=node, team=teams[1]).exists()
+        assert not Occupancy.objects.active().filter(pk=occ.pk).exists()
+
+    def test_answered_attempt_is_not_released_when_the_clock_runs_out(
+        self, node, teams, question, running_game
+    ):
+        user = make_user(teams[0], "alpha-user")
+        occ = occupy(node, teams[0])
+        assign_question(occ)
+        submit_answer(occ, user, body="42")
+        occ.expires_at = timezone.now() - timedelta(minutes=1)
+        occ.save(update_fields=["expires_at"])
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+        response = client.get("/api/teams/alpha/attempts/")
+
+        occ.refresh_from_db()
+        assert occ.released_at is None
+        assert response.data[0]["status"] == "answered"
+
+    def test_teams_list_drops_expired_reservation(self, node, teams, question, running_game):
+        user = make_user(teams[0], "alpha-user")
+        occ = occupy(node, teams[0])
+        assign_question(occ)
+        occ.expires_at = timezone.now() - timedelta(minutes=1)
+        occ.save(update_fields=["expires_at"])
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+        response = client.get("/api/teams/")
+
+        alpha = next(row for row in response.json() if row["code"] == "alpha")
+        assert all(h["id"] != occ.pk for h in alpha["holdings"])

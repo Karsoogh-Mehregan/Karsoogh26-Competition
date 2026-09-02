@@ -5,8 +5,10 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
 
+    # Ordered after the entry sheet, which adds `started_at` for the same reason
+    # this branch does: merged, the column must be added exactly once.
     dependencies = [
-        ('game', '0008_leaderboard_public'),
+        ('game', '0009_entry_questions'),
     ]
 
     operations = [
@@ -14,10 +16,5 @@ class Migration(migrations.Migration):
             model_name='gamesettings',
             name='ends_at',
             field=models.DateTimeField(blank=True, help_text='Planned finish. Drives the countdown every team sees; purely informational.', null=True),
-        ),
-        migrations.AddField(
-            model_name='gamesettings',
-            name='started_at',
-            field=models.DateTimeField(blank=True, help_text='Stamped the first time status becomes running; anchors the elapsed clock.', null=True),
         ),
     ]

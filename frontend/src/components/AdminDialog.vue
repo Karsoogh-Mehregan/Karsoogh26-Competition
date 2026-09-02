@@ -42,7 +42,6 @@ const STATUSES: { value: GameStatus; label: string; hint: string }[] = [
   { value: 'finished', label: 'تمام شده', hint: 'بازی بسته شد.' },
 ]
 
-const ttl = ref('')
 const balance = ref('')
 const duration = ref('')
 
@@ -50,7 +49,6 @@ watch(
   settings,
   (value) => {
     if (!value) return
-    ttl.value = String(value.attempt_ttl_minutes)
     balance.value = String(value.initial_balance)
     duration.value = String(value.duration_minutes)
   },
@@ -94,20 +92,12 @@ function toggleLeaderboard() {
 }
 
 function saveNumbers() {
-  const ttlValue = parseCount(ttl.value)
   const balanceValue = parseCount(balance.value)
-  if (ttlValue === null || ttlValue < 1) {
-    toast.error('مهلت پاسخ باید عددی صحیح و دست‌کم ۱ دقیقه باشد.')
-    return
-  }
   if (balanceValue === null) {
     toast.error('موجودی اولیه باید عددی صحیح باشد.')
     return
   }
-  apply(
-    { attempt_ttl_minutes: ttlValue, initial_balance: balanceValue },
-    'تنظیمات ذخیره شد',
-  )
+  apply({ initial_balance: balanceValue }, 'تنظیمات ذخیره شد')
 }
 
 // Two deliberate steps: a restart deletes every move of the contest, and this
@@ -212,16 +202,6 @@ function saveDuration() {
         </section>
 
         <section class="flex flex-col gap-3">
-          <div class="flex flex-col gap-1.5">
-            <Label for="admin-ttl">مهلت پاسخ هر سؤال (دقیقه)</Label>
-            <Input
-              id="admin-ttl"
-              v-model="ttl"
-              inputmode="numeric"
-              class="tabular-nums"
-              :disabled="saving"
-            />
-          </div>
           <div class="flex flex-col gap-1.5">
             <Label for="admin-balance">موجودی اولیهٔ تیم‌ها</Label>
             <Input

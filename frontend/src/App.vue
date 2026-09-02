@@ -1,5 +1,6 @@
 <script setup>
 import 'vue-sonner/style.css'
+import EntrySheetDialog from './components/EntrySheetDialog.vue'
 import { onUnmounted, watch } from 'vue'
 import InfoPanel from './components/InfoPanel.vue'
 import TopBar from './components/TopBar.vue'
@@ -28,5 +29,6 @@ onUnmounted(board.stop)
       </main>
     </div>
   </div>
+  <EntrySheetDialog />
   <Toaster class="pointer-events-auto" close-button dir="rtl" position="top-center" rich-colors />
 </template>

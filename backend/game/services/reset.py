@@ -10,7 +10,7 @@ import logging
 
 from django.db import transaction
 
-from game.models import GameSettings, GameStatus, Occupancy
+from game.models import EntryAttempt, GameSettings, GameStatus, Occupancy
 from teams.models import Team
 
 logger = logging.getLogger("karsoogh")
@@ -30,6 +30,11 @@ def restart_game(*, by=None) -> dict:
     # delete() returns (total_across_all_models, per_model_counts) — report the
     # per-model numbers, or "occupancies" silently includes the cascade.
     _total, deleted = Occupancy.objects.all().delete()
+
+    # The sheet hangs off Team, not Occupancy, so the cascade above misses it.
+    # Left behind, last run's correct answers would clear the gate again and no
+    # team would ever see a sheet. The EntryQuestion bank is content and stays.
+    entry_attempts, _ = EntryAttempt.objects.all().delete()
 
     teams = Team.objects.update(
         balance=settings_row.initial_balance,
@@ -52,6 +57,7 @@ def restart_game(*, by=None) -> dict:
     summary = {
         "occupancies": deleted.get("game.Occupancy", 0),
         "submissions": deleted.get("game.Submission", 0),
+        "entry_attempts": entry_attempts,
         "teams": teams,
     }
     logger.warning("Game restarted by %s: %s", getattr(by, "username", "unknown"), summary)

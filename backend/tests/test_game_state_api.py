@@ -260,12 +260,6 @@ def test_duration_is_settable(game_god, player):
     assert player.get(STATE_URL).json()["duration_seconds"] == 10800
 
 
-def test_a_zero_answer_window_is_rejected(game_god):
-    response = _patch(game_god, {"attempt_ttl_minutes": 0})
-    assert response.status_code == 400
-    assert GameSettings.load().attempt_ttl_minutes == 15
-
-
 def test_an_unknown_status_is_rejected(game_god):
     assert _patch(game_god, {"status": "elevenses"}).status_code == 400
     assert GameSettings.load().status == GameStatus.NOT_STARTED
@@ -335,9 +329,36 @@ def test_restart_clears_the_board(game_god, played_board):
 
     response = _restart(game_god)
     assert response.status_code == 200
-    assert response.json() == {"occupancies": 2, "submissions": 1, "teams": 1}
+    assert response.json() == {
+        "occupancies": 2,
+        "submissions": 1,
+        "entry_attempts": 0,
+        "teams": 1,
+    }
     assert Occupancy.objects.count() == 0
     assert Submission.objects.count() == 0
+
+
+def test_restart_clears_the_entry_sheets(game_god, team):
+    """Left behind, last run's correct answers would open the gate for free."""
+    from game.models import EntryAttempt, EntryQuestion
+
+    question = EntryQuestion.objects.create(
+        code="entry-1", title="یک", body="۱+۱ چند است؟", answer=2
+    )
+    EntryAttempt.objects.create(
+        team=team,
+        question=question,
+        position=1,
+        answer=2,
+        is_correct=True,
+        answered_at=timezone.now(),
+    )
+
+    assert _restart(game_god).json()["entry_attempts"] == 1
+    assert EntryAttempt.objects.count() == 0
+    # The bank is content, not run state.
+    assert EntryQuestion.objects.count() == 1
 
 
 def test_restart_refunds_and_unclaims_every_team(game_god, played_board):
