@@ -18,6 +18,11 @@ urlpatterns = [
         views.EntryAnswerView.as_view(),
         name="entry-answer",
     ),
+    path(
+        "entry/questions/<slug:code>/refresh/",
+        views.EntryRefreshView.as_view(),
+        name="entry-refresh",
+    ),
     # Team-facing question + submission flow, addressed by occupancy id.
     path(
         "occupancies/<int:pk>/question/",

@@ -3,6 +3,11 @@
 Answers are integers, so the sheet grades itself the moment a team submits —
 no mentor, no `Submission`, no `Occupancy`. Clearing it (or waiting out the
 grace window) is what unlocks `teams/<code>/claim-start/`.
+
+Each question is one shot, but a team that got one wrong may swap it for a
+fresh question up to `GameSettings.entry_max_refreshes` times. Swapping retires
+the old row rather than editing it, so a discarded question can never be drawn
+for that team again.
 """
 
 from django.db import IntegrityError, transaction
@@ -11,8 +16,11 @@ from django.utils import timezone
 
 from game.exceptions import (
     EntryAlreadyAnswered,
+    EntryAnswerWasCorrect,
+    EntryNotAnswered,
     GameNotRunning,
     NoEntryQuestions,
+    NoEntryRefreshesLeft,
     NotOnEntrySheet,
 )
 from game.models import EntryAttempt, EntryQuestion, GameSettings
@@ -27,18 +35,39 @@ _DRAFT_ORDER_ATTEMPTS = 5
 
 def _sheet(team: Team) -> list[EntryAttempt]:
     return list(
-        EntryAttempt.objects.filter(team=team).select_related("question").order_by("position")
+        EntryAttempt.objects.current()
+        .filter(team=team)
+        .select_related("question")
+        .order_by("position")
     )
+
+
+def _draw(team: Team, count: int) -> list[EntryQuestion]:
+    """Least-served questions the team has never been shown, retired ones included.
+
+    The random tiebreak spreads a pool larger than the sheet evenly instead of
+    favouring whatever a pure random draw lands on.
+    """
+    seen_ids = EntryAttempt.objects.filter(team=team).values_list("question_id", flat=True)
+    drawn = list(
+        EntryQuestion.objects.filter(is_active=True)
+        .exclude(pk__in=seen_ids)
+        .annotate(serve_count=Count("attempts"))
+        .order_by("serve_count", "?")[:count]
+    )
+    if len(drawn) < count:
+        raise NoEntryQuestions(
+            f"Need {count} more active entry question(s); {len(drawn)} available."
+        )
+    return drawn
 
 
 @transaction.atomic
 def assign_entry_sheet(team: Team) -> list[EntryAttempt]:
     """Draw the team's sheet once; every later call returns the same rows.
 
-    Questions are drawn least-served first with a random tiebreak, so a pool
-    larger than the sheet spreads evenly instead of favouring whatever a pure
-    random draw lands on. Seed exactly `entry_question_count` active questions
-    and every team gets that same sheet.
+    Seed exactly `entry_question_count` active questions and every team gets
+    that same sheet; seed more and the draw spreads across the pool.
     """
     # Serialise concurrent first-reads for this team; the unique constraints
     # are the real backstop on SQLite, where the row lock is a no-op.
@@ -49,24 +78,11 @@ def assign_entry_sheet(team: Team) -> list[EntryAttempt]:
     if missing <= 0:
         return existing
 
-    served_ids = [attempt.question_id for attempt in existing]
-    drawn = list(
-        EntryQuestion.objects.filter(is_active=True)
-        .exclude(pk__in=served_ids)
-        .annotate(serve_count=Count("attempts"))
-        .order_by("serve_count", "?")[:missing]
-    )
-    if len(drawn) < missing:
-        raise NoEntryQuestions(
-            f"Need {missing} more active entry question(s) to fill the sheet; "
-            f"{len(drawn)} available."
-        )
-
     next_position = len(existing) + 1
     try:
         EntryAttempt.objects.bulk_create(
             EntryAttempt(team=team, question=question, position=next_position + offset)
-            for offset, question in enumerate(drawn)
+            for offset, question in enumerate(_draw(team, missing))
         )
     except IntegrityError:
         # Another request filled the sheet first — its rows are the sheet.
@@ -82,14 +98,7 @@ def answer_entry_question(team: Team, code: str, answer: int) -> EntryAttempt:
     if not settings.is_running:
         raise GameNotRunning("Game is not running.")
 
-    attempt = (
-        EntryAttempt.objects.select_for_update()
-        .select_related("question")
-        .filter(team=team, question__code=code)
-        .first()
-    )
-    if attempt is None:
-        raise NotOnEntrySheet(f"Question '{code}' is not on this team's entry sheet.")
+    attempt = _lock_attempt(team, code)
     if attempt.answered_at is not None:
         raise EntryAlreadyAnswered(f"Question '{code}' has already been answered.")
 
@@ -104,8 +113,60 @@ def answer_entry_question(team: Team, code: str, answer: int) -> EntryAttempt:
     return attempt
 
 
+@transaction.atomic
+def refresh_entry_question(team: Team, code: str) -> EntryAttempt:
+    """Swap a wrongly-answered question for a fresh one at the same position.
+
+    Retires the old row instead of clearing it, so the team's history stays
+    readable and `entryattempt_no_repeat` keeps the discarded question from
+    being drawn for them again.
+    """
+    settings = GameSettings.load()
+    if not settings.is_running:
+        raise GameNotRunning("Game is not running.")
+
+    if refreshes_used(team) >= settings.entry_max_refreshes:
+        raise NoEntryRefreshesLeft(
+            f"Team has used all {settings.entry_max_refreshes} entry-question swap(s)."
+        )
+
+    attempt = _lock_attempt(team, code)
+    if attempt.answered_at is None:
+        raise EntryNotAnswered(f"Question '{code}' has not been answered yet.")
+    if attempt.is_correct:
+        raise EntryAnswerWasCorrect(f"Question '{code}' was answered correctly.")
+
+    replacement = _draw(team, 1)[0]
+
+    attempt.replaced_at = timezone.now()
+    attempt.save(update_fields=["replaced_at"])
+
+    return EntryAttempt.objects.create(
+        team=team,
+        question=replacement,
+        position=attempt.position,
+    )
+
+
+def _lock_attempt(team: Team, code: str) -> EntryAttempt:
+    attempt = (
+        EntryAttempt.objects.current()
+        .select_for_update()
+        .select_related("question")
+        .filter(team=team, question__code=code)
+        .first()
+    )
+    if attempt is None:
+        raise NotOnEntrySheet(f"Question '{code}' is not on this team's entry sheet.")
+    return attempt
+
+
 def correct_count(team: Team) -> int:
-    return EntryAttempt.objects.filter(team=team, is_correct=True).count()
+    return EntryAttempt.objects.current().filter(team=team, is_correct=True).count()
+
+
+def refreshes_used(team: Team) -> int:
+    return EntryAttempt.objects.filter(team=team, replaced_at__isnull=False).count()
 
 
 def _record_draft_order(team: Team, settings: GameSettings) -> None:
@@ -136,6 +197,7 @@ def entry_status(team: Team) -> dict:
     correct = sum(1 for attempt in attempts if attempt.is_correct)
     qualified = correct >= settings.entry_required_correct
     grace_over = settings.entry_grace_over
+    used = refreshes_used(team)
 
     return {
         "required_correct": settings.entry_required_correct,
@@ -147,6 +209,8 @@ def entry_status(team: Team) -> dict:
         "grace_ends_at": settings.entry_grace_ends_at,
         "can_claim_start": qualified or grace_over,
         "draft_order": team.draft_order,
+        "refreshes_used": used,
+        "refreshes_left": max(0, settings.entry_max_refreshes - used),
         "attempts": attempts,
     }
 

@@ -280,6 +280,13 @@ class GameSettings(models.Model):
         default=20,
         help_text="Minutes after kick-off when every team may take a spawn regardless.",
     )
+    entry_max_refreshes = models.PositiveSmallIntegerField(
+        default=3,
+        help_text=(
+            "How many wrongly-answered entry questions a team may swap for a fresh one, "
+            "over the whole sheet. Raise it to be more forgiving; 0 disables swapping."
+        ),
+    )
     started_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -439,11 +446,21 @@ class EntryQuestion(models.Model):
         return self.title or self.code
 
 
+class EntryAttemptQuerySet(models.QuerySet):
+    def current(self):
+        """The sheet as it stands now — swapped-out rows are history."""
+        return self.filter(replaced_at__isnull=True)
+
+
 class EntryAttempt(models.Model):
     """One question on one team's sheet, plus the single answer they gave.
 
     One shot per question: the answer is an integer, so retries would be a
-    brute-force search rather than a second attempt at the maths.
+    brute-force search rather than a second attempt at the maths. A team may
+    instead *swap* a question it got wrong for a fresh one, which retires this
+    row and seats a new one at the same position — append-and-soft-retire, the
+    same shape as `Occupancy`, so `entryattempt_no_repeat` keeps a discarded
+    question from ever coming back around.
     """
 
     team = models.ForeignKey("teams.Team", on_delete=models.CASCADE, related_name="entry_attempts")
@@ -454,12 +471,25 @@ class EntryAttempt(models.Model):
     is_correct = models.BooleanField(null=True, blank=True)
     assigned_at = models.DateTimeField(auto_now_add=True)
     answered_at = models.DateTimeField(null=True, blank=True)
+    replaced_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Set when the team swapped this question for another one.",
+    )
+
+    objects = EntryAttemptQuerySet.as_manager()
 
     class Meta:
         ordering = ["team", "position"]
         constraints = [
+            # Not scoped to current rows: a question the team has already seen
+            # must never be drawn again, retired or not.
             UniqueConstraint(fields=["team", "question"], name="entryattempt_no_repeat"),
-            UniqueConstraint(fields=["team", "position"], name="entryattempt_one_per_position"),
+            UniqueConstraint(
+                fields=["team", "position"],
+                condition=Q(replaced_at__isnull=True),
+                name="entryattempt_one_per_position",
+            ),
             CheckConstraint(condition=Q(position__gte=1), name="entryattempt_position_positive"),
             # Answering writes all three columns at once; nothing half-recorded.
             CheckConstraint(
@@ -473,6 +503,11 @@ class EntryAttempt(models.Model):
                 ),
                 name="entryattempt_answer_recorded_together",
             ),
+            # Only a wrong answer is swappable, so a retired row is always one.
+            CheckConstraint(
+                condition=Q(replaced_at__isnull=True) | Q(is_correct=False),
+                name="entryattempt_only_wrong_is_replaced",
+            ),
         ]
         indexes = [
             models.Index(fields=["team", "is_correct"], name="entryattempt_team_correct_idx"),
@@ -484,3 +519,7 @@ class EntryAttempt(models.Model):
     @property
     def is_answered(self) -> bool:
         return self.answered_at is not None
+
+    @property
+    def is_replaced(self) -> bool:
+        return self.replaced_at is not None

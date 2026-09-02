@@ -14,11 +14,14 @@ from game.exceptions import (
     AlreadyGraded,
     AlreadySubmitted,
     EntryAlreadyAnswered,
+    EntryAnswerWasCorrect,
+    EntryNotAnswered,
     GameNotRunning,
     GameServiceError,
     InvalidAnswerPayload,
     MissingFloor,
     NoEntryQuestions,
+    NoEntryRefreshesLeft,
     NoQuestionAvailable,
     NotOnEntrySheet,
     NotTeamMember,
@@ -150,6 +153,12 @@ def _map_service_error(exc: GameServiceError):
         raise NotFound("این سؤال روی برگهٔ ورودی این تیم نیست.") from exc
     if isinstance(exc, EntryAlreadyAnswered):
         raise Conflict("به این سؤال قبلاً پاسخ داده‌اید؛ هر سؤال یک فرصت دارد.") from exc
+    if isinstance(exc, EntryNotAnswered):
+        raise Conflict("ابتدا باید به این سؤال پاسخ دهید.") from exc
+    if isinstance(exc, EntryAnswerWasCorrect):
+        raise Conflict("پاسخ این سؤال درست بوده و نیازی به تعویض ندارد.") from exc
+    if isinstance(exc, NoEntryRefreshesLeft):
+        raise Conflict("فرصت تعویض سؤال تمام شده است.") from exc
     if isinstance(
         exc,
         (OccupancyNotActive, SubmissionWindowClosed, AlreadySubmitted),
@@ -181,6 +190,8 @@ _ENTRY_SHEET = {
     "grace_ends_at": "2026-08-30T10:20:00Z",
     "can_claim_start": False,
     "draft_order": None,
+    "refreshes_used": 0,
+    "refreshes_left": 3,
     "questions": [_ENTRY_ATTEMPT],
 }
 
@@ -263,6 +274,40 @@ class EntryAnswerView(EntryViewBase):
             extra={"is_correct": attempt.is_correct},
             serializer=EntryAnswerResultSerializer,
         )
+
+
+@extend_schema(
+    tags=["entry"],
+    summary="Swap a wrongly-answered entry question",
+    description=(
+        "Retires a question the team got wrong and seats a fresh one at the same position, "
+        "so the team gets another go at qualifying. Capped by "
+        "`GameSettings.entry_max_refreshes`; a discarded question is never drawn for that "
+        "team again. Only a question that was answered *and* wrong can be swapped."
+    ),
+    parameters=[
+        OpenApiParameter("code", str, OpenApiParameter.PATH, description="e.g. entry-sum-1-10"),
+    ],
+    request=None,
+    responses=EntrySheetSerializer,
+    examples=[
+        OpenApiExample(
+            "swapped",
+            value={**_ENTRY_SHEET, "refreshes_used": 1, "refreshes_left": 2},
+            response_only=True,
+        ),
+    ],
+)
+class EntryRefreshView(EntryViewBase):
+    serializer_class = None
+
+    def post(self, request, code: str):
+        team = request.user.team
+        try:
+            services.refresh_entry_question(team, code)
+        except GameServiceError as exc:
+            _map_service_error(exc)
+        return self.sheet_response(team)
 
 
 @extend_schema(

@@ -143,6 +143,7 @@ class GameSettingsAdmin(admin.ModelAdmin):
         "entry_question_count",
         "entry_required_correct",
         "entry_grace_minutes",
+        "entry_max_refreshes",
         "leaderboard_public",
     )
     readonly_fields = ("started_at",)
@@ -235,11 +236,27 @@ class EntryQuestionAdmin(admin.ModelAdmin):
 
 @admin.register(EntryAttempt)
 class EntryAttemptAdmin(admin.ModelAdmin):
-    list_display = ("team", "position", "question", "answer", "is_correct", "answered_at")
+    list_display = (
+        "team",
+        "position",
+        "question",
+        "answer",
+        "is_correct",
+        "answered_at",
+        "replaced_at",
+    )
     list_filter = ("is_correct", "question")
     search_fields = ("team__code", "question__code")
     list_select_related = ("team", "question")
-    readonly_fields = ("team", "question", "position", "answer", "is_correct", "answered_at")
+    readonly_fields = (
+        "team",
+        "question",
+        "position",
+        "answer",
+        "is_correct",
+        "answered_at",
+        "replaced_at",
+    )
 
     def has_add_permission(self, request):
         return False

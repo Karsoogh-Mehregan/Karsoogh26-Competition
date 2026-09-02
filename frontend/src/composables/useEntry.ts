@@ -1,7 +1,11 @@
 import { computed, ref } from 'vue'
 import { ApiError } from '@/lib/http'
 import { useMeQuery } from '@/queries/auth'
-import { useAnswerEntryMutation, useEntrySheetQuery } from '@/queries/entry'
+import {
+  useAnswerEntryMutation,
+  useEntrySheetQuery,
+  useRefreshEntryMutation,
+} from '@/queries/entry'
 import type { EntryAttempt, EntrySheet } from '@/types/api'
 
 // Module-level so the map and the side panel drive the same dialog, the same
@@ -31,6 +35,7 @@ export function useEntry() {
   const isPlayer = computed(() => meQuery.data.value?.team != null)
   const sheetQuery = useEntrySheetQuery(() => isPlayer.value)
   const answerMutation = useAnswerEntryMutation()
+  const refreshMutation = useRefreshEntryMutation()
 
   const actionError = ref('')
 
@@ -38,6 +43,8 @@ export function useEntry() {
   const questions = computed<EntryAttempt[]>(() => sheet.value?.questions ?? [])
   const loading = computed(() => isPlayer.value && sheetQuery.isPending.value)
   const answering = computed(() => answerMutation.isPending.value)
+  const refreshing = computed(() => refreshMutation.isPending.value)
+  const refreshesLeft = computed(() => sheet.value?.refreshes_left ?? 0)
 
   // No sheet yet (still loading, or the game has not started) must not lock a
   // player out of a map they were already allowed to use.
@@ -62,6 +69,17 @@ export function useEntry() {
     }
   }
 
+  async function refresh(code: string): Promise<boolean> {
+    actionError.value = ''
+    try {
+      await refreshMutation.mutateAsync(code)
+      return true
+    } catch (err) {
+      actionError.value = messageOf(err)
+      return false
+    }
+  }
+
   return {
     isOpen,
     open: openEntrySheet,
@@ -70,10 +88,13 @@ export function useEntry() {
     questions,
     loading,
     answering,
+    refreshing,
+    refreshesLeft,
     error,
     isPlayer,
     canClaimStart,
     needsEntrySheet,
     answer,
+    refresh,
   }
 }

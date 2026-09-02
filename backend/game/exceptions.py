@@ -48,3 +48,15 @@ class NotOnEntrySheet(GameServiceError):
 
 class EntryAlreadyAnswered(GameServiceError):
     """Entry questions are one shot; this one is already spent."""
+
+
+class EntryNotAnswered(GameServiceError):
+    """Only a question the team has already answered can be swapped."""
+
+
+class EntryAnswerWasCorrect(GameServiceError):
+    """A correct answer is not swappable; there is nothing to retry."""
+
+
+class NoEntryRefreshesLeft(GameServiceError):
+    """The team has spent its entry-question swaps."""

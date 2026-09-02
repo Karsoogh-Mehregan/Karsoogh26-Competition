@@ -10,3 +10,7 @@ export function answerEntryQuestion(code: string, answer: number): Promise<Entry
     answer,
   })
 }
+
+export function refreshEntryQuestion(code: string): Promise<EntrySheet> {
+  return post<EntrySheet>(`/entry/questions/${encodeURIComponent(code)}/refresh/`)
+}

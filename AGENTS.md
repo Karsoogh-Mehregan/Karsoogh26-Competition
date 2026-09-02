@@ -119,7 +119,14 @@ model from `Question` precisely because the sheet is answered before a team hold
 `GET /api/entry/sheet/` draws the sheet on first read (least-served + random tiebreak, same
 as `assign_question`) and is stable after that; `POST /api/entry/questions/<code>/answer/`
 is **one shot** per question — a second POST is a 409, because retrying an integer is a
-brute-force search. Clearing the sheet stamps `Team.draft_order` (finishing order). After
+brute-force search. A team that got one *wrong* may instead swap it via
+`POST /api/entry/questions/<code>/refresh/`, up to `entry_max_refreshes` times (default 3,
+0 turns swapping off). Swapping soft-retires the old `EntryAttempt` — `replaced_at`, the
+same append-and-retire shape as `Occupancy` — and seats a new row at the same `position`;
+`entryattempt_no_repeat` is deliberately *not* scoped to current rows, so a discarded
+question never comes back around for that team. Read the sheet through
+`EntryAttempt.objects.current()` or you will see retired rows.
+Clearing the sheet stamps `Team.draft_order` (finishing order). After
 `entry_grace_minutes` past `GameSettings.started_at` — stamped once, the first time status
 becomes running — the gate opens for everyone regardless, per the design doc. Seed the pool
 with `seed_entry_questions`; `seed_demo` stands up teams, logins, a mentor and the pool in

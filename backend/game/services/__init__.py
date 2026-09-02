@@ -4,6 +4,8 @@ from .entry import (
     can_claim_start,
     correct_count,
     entry_status,
+    refresh_entry_question,
+    refreshes_used,
     require_entry_clearance,
 )
 from .mentor import (
@@ -31,6 +33,8 @@ __all__ = [
     "grade_attempt",
     "grade_submission",
     "is_reachable",
+    "refresh_entry_question",
+    "refreshes_used",
     "release_attempt",
     "require_entry_clearance",
     "submit_answer",
