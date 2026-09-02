@@ -38,12 +38,16 @@ def restart_game(*, by=None) -> dict:
         last_duel_at=None,
     )
 
+    # Zero the run ledger so both timers start over. `duration_minutes` is left
+    # alone: an organiser set it deliberately, and it is the length of the game,
+    # not a fact about the run that just ended.
     settings_row.status = GameStatus.NOT_STARTED
-    # Cleared so the elapsed clock restarts from the next kick-off. `ends_at` is
-    # left alone: an organiser typed it in, and silently dropping it is worse
-    # than a stale value they can see and change.
     settings_row.started_at = None
-    settings_row.save(update_fields=["status", "started_at"])
+    settings_row.accumulated_seconds = 0
+    settings_row.running_since = None
+    settings_row.save(
+        update_fields=["status", "started_at", "accumulated_seconds", "running_since"]
+    )
 
     summary = {
         "occupancies": deleted.get("game.Occupancy", 0),

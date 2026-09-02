@@ -329,7 +329,11 @@ class GameStateSerializer(serializers.Serializer):
     is_running = serializers.BooleanField(read_only=True)
     server_time = serializers.DateTimeField(read_only=True)
     started_at = serializers.DateTimeField(read_only=True, allow_null=True)
-    ends_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    # The raw ledger, so the client can tick locally and freeze on its own when
+    # the game is not running instead of waiting for the next poll.
+    accumulated_seconds = serializers.IntegerField(read_only=True)
+    running_since = serializers.DateTimeField(read_only=True, allow_null=True)
+    duration_seconds = serializers.IntegerField(read_only=True)
     elapsed_seconds = serializers.IntegerField(read_only=True, allow_null=True)
     remaining_seconds = serializers.IntegerField(read_only=True, allow_null=True)
     leaderboard_public = serializers.BooleanField(read_only=True)
@@ -343,7 +347,7 @@ class GameSettingsSerializer(serializers.ModelSerializer):
         fields = (
             "status",
             "leaderboard_public",
-            "ends_at",
+            "duration_minutes",
             "attempt_ttl_minutes",
             "initial_balance",
         )

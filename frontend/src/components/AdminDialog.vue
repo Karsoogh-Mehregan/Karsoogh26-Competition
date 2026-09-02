@@ -44,18 +44,7 @@ const STATUSES: { value: GameStatus; label: string; hint: string }[] = [
 
 const ttl = ref('')
 const balance = ref('')
-const endsAt = ref('')
-
-/** `datetime-local` wants a naive local string, not an ISO instant. */
-function toLocalInput(iso: string | null): string {
-  if (!iso) return ''
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return ''
-  const pad = (value: number) => String(value).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-    date.getHours(),
-  )}:${pad(date.getMinutes())}`
-}
+const duration = ref('')
 
 watch(
   settings,
@@ -63,7 +52,7 @@ watch(
     if (!value) return
     ttl.value = String(value.attempt_ttl_minutes)
     balance.value = String(value.initial_balance)
-    endsAt.value = toLocalInput(value.ends_at)
+    duration.value = String(value.duration_minutes)
   },
   { immediate: true },
 )
@@ -137,17 +126,16 @@ async function doRestart() {
   }
 }
 
-function saveEndsAt() {
-  if (endsAt.value === '') {
-    apply({ ends_at: null }, 'زمان پایان حذف شد')
+function saveDuration() {
+  const minutes = parseCount(duration.value)
+  if (minutes === null) {
+    toast.error('مدت بازی باید عددی صحیح بر حسب دقیقه باشد.')
     return
   }
-  const parsed = new Date(endsAt.value)
-  if (Number.isNaN(parsed.getTime())) {
-    toast.error('زمان پایان معتبر نیست.')
-    return
-  }
-  apply({ ends_at: parsed.toISOString() }, 'زمان پایان ثبت شد')
+  apply(
+    { duration_minutes: minutes },
+    minutes === 0 ? 'شمارش معکوس خاموش شد' : `مدت بازی: ${minutes} دقیقه`,
+  )
 }
 </script>
 
@@ -204,19 +192,22 @@ function saveEndsAt() {
         </section>
 
         <section class="flex flex-col gap-2">
-          <Label for="admin-ends-at">زمان پایان بازی</Label>
+          <Label for="admin-duration">مدت کل بازی (دقیقه)</Label>
           <div class="flex items-center gap-2">
             <Input
-              id="admin-ends-at"
-              v-model="endsAt"
-              type="datetime-local"
-              class="flex-1"
+              id="admin-duration"
+              v-model="duration"
+              inputmode="numeric"
+              class="flex-1 tabular-nums"
               :disabled="saving"
             />
-            <Button size="sm" variant="outline" :disabled="saving" @click="saveEndsAt">ثبت</Button>
+            <Button size="sm" variant="outline" :disabled="saving" @click="saveDuration">
+              ثبت
+            </Button>
           </div>
           <p class="text-muted-foreground text-xs">
-            شمارش معکوس بالای صفحه از این زمان می‌آید. خالی بگذارید تا حذف شود.
+            شمارش معکوس «تا پایان» از این مدت منهای زمان بازی‌شده می‌آید، پس با توقف بازی
+            متوقف می‌شود. عدد ۰ شمارش معکوس را خاموش می‌کند.
           </p>
         </section>
 

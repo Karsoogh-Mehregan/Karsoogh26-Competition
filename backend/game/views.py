@@ -564,7 +564,9 @@ def _game_state_payload(settings_row: GameSettings) -> dict:
         "is_running": settings_row.is_running,
         "server_time": timezone.now(),
         "started_at": settings_row.started_at,
-        "ends_at": settings_row.ends_at,
+        "accumulated_seconds": settings_row.accumulated_seconds,
+        "running_since": settings_row.running_since,
+        "duration_seconds": settings_row.duration_seconds,
         "elapsed_seconds": settings_row.elapsed_seconds,
         "remaining_seconds": settings_row.remaining_seconds,
         "leaderboard_public": settings_row.leaderboard_public,
@@ -589,9 +591,11 @@ def _game_state_payload(settings_row: GameSettings) -> dict:
                 "is_running": True,
                 "server_time": "2026-09-02T12:00:00+03:30",
                 "started_at": "2026-09-02T11:00:00+03:30",
-                "ends_at": "2026-09-02T15:00:00+03:30",
+                "accumulated_seconds": 0,
+                "running_since": "2026-09-02T11:00:00+03:30",
+                "duration_seconds": 10800,
                 "elapsed_seconds": 3600,
-                "remaining_seconds": 10800,
+                "remaining_seconds": 7200,
                 "leaderboard_public": False,
             },
             response_only=True,
@@ -650,7 +654,7 @@ class GameSettingsView(APIView):
         "them — refunds every team to the starting balance, drops claimed colours and "
         "draft order, and puts the status back to not_started. The map, the question "
         "bank and the economy tables are untouched, so the next run starts on the same "
-        "board. `ends_at` is deliberately kept."
+        "board. `duration_minutes` is deliberately kept."
     ),
     request=GameRestartSerializer,
     responses=GameRestartResultSerializer,

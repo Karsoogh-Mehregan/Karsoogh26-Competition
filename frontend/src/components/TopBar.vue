@@ -1,33 +1,35 @@
 <script setup lang="ts">
-import { CheckIcon, ClockIcon, HourglassIcon, SettingsIcon, TimerIcon } from '@lucide/vue'
+import { CheckIcon, PauseIcon, SettingsIcon } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import AdminDialog from '@/components/AdminDialog.vue'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useActing } from '@/composables/useActing'
 import { formatClock, useGameClock } from '@/composables/useGameClock'
 import { useStage } from '@/composables/useStage'
 
 const { me, isGameGod } = useActing()
-const { state, clockLabel, elapsedSeconds, remainingSeconds, isOvertime, isEndingSoon } =
+const { state, status, isRunning, elapsedSeconds, remainingSeconds, isOvertime, isEndingSoon } =
   useGameClock()
 const { title, hint, stepIndex, onPath, steps } = useStage()
 
 const adminOpen = ref(false)
 
-const STATUS_VARIANT: Record<string, string> = {
-  running: 'border-transparent bg-emerald-500 text-white',
-  paused: 'border-transparent bg-amber-500 text-amber-950',
-  finished: 'border-transparent bg-slate-500 text-white',
-  not_started: '',
+// The status dot carries the game state on its own, so the timers do not have
+// to explain themselves twice.
+const STATUS_TONE: Record<string, string> = {
+  running: 'is-running',
+  paused: 'is-paused',
+  finished: 'is-finished',
+  not_started: 'is-idle',
 }
+const statusTone = computed(() => STATUS_TONE[status.value] ?? 'is-idle')
 
-const statusClass = computed(() => STATUS_VARIANT[state.value?.status ?? 'not_started'] ?? '')
-
-const remainingClass = computed(() => {
-  if (isOvertime.value) return 'text-destructive'
-  if (isEndingSoon.value) return 'text-destructive'
-  return ''
+const elapsedLabel = computed(() =>
+  elapsedSeconds.value === null ? '—' : formatClock(elapsedSeconds.value),
+)
+const remainingLabel = computed(() => {
+  if (remainingSeconds.value === null) return null
+  return isOvertime.value ? 'پایان' : formatClock(remainingSeconds.value)
 })
 
 function stepState(index: number): 'done' | 'current' | 'todo' {
@@ -39,68 +41,63 @@ function stepState(index: number): 'done' | 'current' | 'todo' {
 </script>
 
 <template>
-  <header v-if="me" class="topbar glass-panel" dir="rtl">
-    <!-- Stage: where this player is right now -->
-    <div class="topbar-stage">
-      <div class="topbar-stage-head">
-        <span class="topbar-title">{{ title }}</span>
-        <Badge v-if="state" :class="statusClass" class="shrink-0">
-          {{ state.status_display }}
-        </Badge>
+  <header v-if="me" class="topbar" dir="rtl">
+    <!-- Where this player is right now -->
+    <div class="stage">
+      <div class="stage-head">
+        <span class="status-dot" :class="statusTone" aria-hidden="true" />
+        <span class="stage-title">{{ title }}</span>
+        <span class="stage-status" :class="statusTone">{{ state?.status_display ?? '—' }}</span>
       </div>
-      <p class="topbar-hint">{{ hint }}</p>
-
-      <ol v-if="onPath" class="topbar-steps" :aria-label="`مرحلهٔ فعلی: ${title}`">
-        <li
-          v-for="(step, index) in steps"
-          :key="step.key"
-          class="topbar-step"
-          :class="`is-${stepState(index)}`"
-          :aria-current="stepState(index) === 'current' ? 'step' : undefined"
-        >
-          <span class="topbar-step-dot">
-            <CheckIcon v-if="stepState(index) === 'done'" class="size-2.5" />
-          </span>
-          <span class="topbar-step-label">{{ step.label }}</span>
-        </li>
-      </ol>
+      <p class="stage-hint">{{ hint }}</p>
     </div>
 
-    <!-- Clock: one time for the whole hall, taken from the server -->
-    <div class="topbar-clock" role="group" aria-label="زمان">
-      <div class="topbar-time">
-        <ClockIcon class="size-4 shrink-0" aria-hidden="true" />
-        <span class="topbar-time-value tabular-nums">{{ clockLabel }}</span>
-      </div>
-      <div class="topbar-timers">
-        <span v-if="elapsedSeconds !== null" class="topbar-timer" title="زمان سپری‌شده">
-          <TimerIcon class="size-3.5 shrink-0" aria-hidden="true" />
-          <span class="tabular-nums">{{ formatClock(elapsedSeconds) }}</span>
+    <ol v-if="onPath" class="steps" :aria-label="`مرحلهٔ فعلی: ${title}`">
+      <li
+        v-for="(step, index) in steps"
+        :key="step.key"
+        class="step"
+        :class="`is-${stepState(index)}`"
+        :aria-current="stepState(index) === 'current' ? 'step' : undefined"
+      >
+        <span class="step-dot">
+          <CheckIcon v-if="stepState(index) === 'done'" class="size-2.5" />
+          <span v-else class="step-num">{{ index + 1 }}</span>
         </span>
-        <span
-          v-if="remainingSeconds !== null"
-          class="topbar-timer"
-          :class="remainingClass"
-          title="زمان باقی‌مانده"
-        >
-          <HourglassIcon class="size-3.5 shrink-0" aria-hidden="true" />
-          <span class="tabular-nums">
-            {{ isOvertime ? 'پایان زمان' : formatClock(remainingSeconds) }}
-          </span>
-        </span>
+        <span class="step-label">{{ step.label }}</span>
+      </li>
+    </ol>
+
+    <!-- Timers. Labelled, because two bare numbers side by side mean nothing. -->
+    <div class="timers" :class="{ 'is-frozen': !isRunning }">
+      <div class="timer">
+        <span class="timer-label">زمان بازی</span>
+        <span class="timer-value tabular-nums">{{ elapsedLabel }}</span>
       </div>
+      <span v-if="remainingLabel" class="timer-sep" aria-hidden="true" />
+      <div
+        v-if="remainingLabel"
+        class="timer"
+        :class="{ 'is-urgent': isEndingSoon || isOvertime }"
+      >
+        <span class="timer-label">تا پایان</span>
+        <span class="timer-value tabular-nums">{{ remainingLabel }}</span>
+      </div>
+      <span v-if="!isRunning" class="timer-frozen">
+        <PauseIcon class="size-3" aria-hidden="true" />
+        متوقف
+      </span>
     </div>
 
-    <!-- Admin: mentors only -->
     <Button
       v-if="isGameGod"
       variant="outline"
       size="sm"
-      class="topbar-admin"
+      class="admin-button"
       @click="adminOpen = true"
     >
       <SettingsIcon class="size-4" />
-      کنترل بازی
+      <span class="admin-label">کنترل بازی</span>
     </Button>
 
     <AdminDialog v-if="isGameGod" v-model:open="adminOpen" />
@@ -111,134 +108,201 @@ function stepState(index: number): 'done' | 'current' | 'todo' {
 .topbar {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.75rem 1.25rem;
   flex-wrap: wrap;
-  padding: 0.5rem 1rem;
-  border-radius: 0;
-  border-inline: 0;
-  border-block-start: 0;
+  padding: 0.55rem 1rem;
+  border-block-end: 1px solid var(--border);
+  background: var(--card);
 }
 
-.topbar-stage {
+/* ---- stage ---- */
+.stage {
   display: flex;
   min-width: 0;
-  flex: 1 1 16rem;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0.1rem;
 }
-.topbar-stage-head {
+.stage-head {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.45rem;
 }
-.topbar-title {
+.stage-title {
   font-size: 0.9375rem;
   font-weight: 700;
+  white-space: nowrap;
 }
-.topbar-hint {
+.stage-status {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.stage-hint {
   margin: 0;
   color: var(--muted-foreground);
   font-size: 0.75rem;
 }
 
-.topbar-steps {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.25rem 0.75rem;
-  margin: 0.3rem 0 0;
-  padding: 0;
-  list-style: none;
+.status-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background: var(--muted-foreground);
 }
-.topbar-step {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  font-size: 0.6875rem;
+.status-dot.is-running {
+  background: #10b981;
+  box-shadow: 0 0 0 3px color-mix(in oklab, #10b981 22%, transparent);
+}
+.status-dot.is-paused {
+  background: #f59e0b;
+}
+.status-dot.is-finished {
+  background: #64748b;
+}
+.stage-status.is-running {
+  color: #047857;
+}
+.stage-status.is-paused {
+  color: #b45309;
+}
+.stage-status.is-finished,
+.stage-status.is-idle {
   color: var(--muted-foreground);
 }
-.topbar-step-dot {
-  display: grid;
-  place-items: center;
-  width: 0.9rem;
-  height: 0.9rem;
-  border-radius: 9999px;
-  border: 1px solid var(--border);
-  background: var(--background);
-  color: #fff;
-}
-.topbar-step.is-done {
-  color: var(--foreground);
-}
-.topbar-step.is-done .topbar-step-dot {
-  border-color: transparent;
-  background: var(--color-emerald-500, #10b981);
-}
-.topbar-step.is-current {
-  color: var(--foreground);
-  font-weight: 700;
-}
-.topbar-step.is-current .topbar-step-dot {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 22%, transparent);
-}
 
-.topbar-clock {
+/* ---- steps ---- */
+.steps {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding-inline: 0.75rem;
-  border-inline: 1px solid color-mix(in oklab, var(--foreground) 10%, transparent);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+  overflow-x: auto;
 }
-.topbar-time {
+.step {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  color: var(--muted-foreground);
-}
-.topbar-time-value {
-  font-size: 1.0625rem;
-  font-weight: 700;
-  color: var(--foreground);
-  letter-spacing: 0.01em;
-}
-.topbar-timers {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-}
-.topbar-timer {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
+  gap: 0.35rem;
+  white-space: nowrap;
   font-size: 0.75rem;
   color: var(--muted-foreground);
 }
+.step-dot {
+  display: grid;
+  place-items: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.step-num {
+  color: var(--muted-foreground);
+}
+.step.is-done {
+  color: var(--foreground);
+}
+.step.is-done .step-dot {
+  border-color: transparent;
+  background: #10b981;
+  color: #fff;
+}
+.step.is-current {
+  color: var(--foreground);
+  font-weight: 700;
+}
+.step.is-current .step-dot {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.step.is-current .step-num {
+  color: inherit;
+}
 
-.topbar-admin {
+/* ---- timers ---- */
+.timers {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin-inline-start: auto;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  transition: opacity 0.2s ease;
+}
+.timers.is-frozen {
+  opacity: 0.72;
+}
+.timer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.15;
+}
+.timer-label {
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+.timer-value {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.timer.is-urgent .timer-value,
+.timer.is-urgent .timer-label {
+  color: var(--destructive);
+}
+.timer-sep {
+  width: 1px;
+  align-self: stretch;
+  margin-block: 0.15rem;
+  background: var(--border);
+}
+.timer-frozen {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+
+.admin-button {
   flex-shrink: 0;
 }
 
-/* Shed the prose first, the steps only when there is really no room: the
-   stage is the reason this bar exists. */
-@media (max-width: 900px) {
-  .topbar {
-    gap: 0.5rem 0.75rem;
-  }
-  .topbar-hint {
+@media (max-width: 1100px) {
+  .stage-hint {
     display: none;
-  }
-  .topbar-clock {
-    border-inline: 0;
-    padding-inline: 0;
   }
 }
 
-@media (max-width: 620px) {
-  .topbar-steps {
+@media (max-width: 860px) {
+  .steps {
+    order: 3;
+    width: 100%;
+    gap: 0.6rem;
+  }
+  .timers {
+    order: 2;
+  }
+}
+
+@media (max-width: 520px) {
+  .steps {
     display: none;
   }
-  .topbar-admin span {
+  .admin-label {
     display: none;
   }
 }

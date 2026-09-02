@@ -1,11 +1,16 @@
 /**
- * The one clock the whole hall agrees on.
+ * The two timers the whole hall agrees on.
  *
- * Laptops in a contest hall disagree about the time — by minutes, sometimes by
- * hours. So nothing here trusts `Date.now()` on its own: every response carries
- * the server's `server_time`, we keep the difference, and every displayed
- * number is derived from `Date.now() + offset`. A team arguing that its timer
- * ran fast is then arguing with the server, not with its own clock.
+ * Two things this deliberately does not do:
+ *
+ * 1. It does not trust `Date.now()` on its own. Laptops in a contest hall
+ *    disagree about the time, sometimes by hours, so every response carries the
+ *    server's `server_time`, we keep the difference, and everything is derived
+ *    from `Date.now() + offset`.
+ * 2. It does not measure wall time since kick-off. Elapsed is *running* time:
+ *    the server banks each running stretch into `accumulated_seconds` and only
+ *    sets `running_since` while the game is actually running. Pausing therefore
+ *    freezes both timers here with no extra logic, and a restart zeroes them.
  */
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useMeQuery } from '@/queries/auth'
@@ -37,11 +42,7 @@ function stopTicking() {
   }
 }
 
-function secondsBetween(fromMs: number, toMs: number): number {
-  return Math.max(0, Math.round((toMs - fromMs) / 1000))
-}
-
-/** `H:MM:SS`, or `MM:SS` under an hour. Latin digits; Persian is done by Intl. */
+/** `H:MM:SS`, or `MM:SS` under an hour. */
 export function formatClock(totalSeconds: number): string {
   const seconds = Math.max(0, Math.floor(totalSeconds))
   const hours = Math.floor(seconds / 3600)
@@ -52,14 +53,6 @@ export function formatClock(totalSeconds: number): string {
   return hours > 0 ? `${hours}:${mm}:${ss}` : `${mm}:${ss}`
 }
 
-const timeFormatter = new Intl.DateTimeFormat('fa-IR', {
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hour12: false,
-  timeZone: 'Asia/Tehran',
-})
-
 export function useGameClock() {
   const meQuery = useMeQuery()
   const isAuthenticated = () => meQuery.data.value != null
@@ -68,8 +61,7 @@ export function useGameClock() {
   startTicking()
   onScopeDispose(stopTicking)
 
-  // Re-anchor on every fetch: this corrects drift and any clock the user
-  // changes mid-contest.
+  // Re-anchor on every fetch: corrects drift and any clock the user changes.
   watch(
     () => stateQuery.data.value?.server_time,
     (serverTime) => {
@@ -85,37 +77,50 @@ export function useGameClock() {
   const state = computed<GameState | null>(() => stateQuery.data.value ?? null)
   const serverNow = computed(() => now.value + offset.value)
 
-  /** Wall-clock time in Tehran, the time on the hall's wall. */
-  const clockLabel = computed(() => timeFormatter.format(new Date(serverNow.value)))
+  const isRunning = computed(() => state.value?.is_running ?? false)
+  const status = computed(() => state.value?.status ?? 'not_started')
+  const hasStarted = computed(() => state.value?.started_at != null)
 
-  const startedAtMs = computed(() => {
-    const value = state.value?.started_at
-    return value ? Date.parse(value) : null
+  /**
+   * Running seconds so far. The live stretch is only added while the game is
+   * running, so this stops on its own the moment an admin pauses.
+   */
+  const elapsedSeconds = computed<number | null>(() => {
+    const current = state.value
+    if (!current || current.started_at === null) return null
+
+    let total = current.accumulated_seconds
+    if (current.is_running && current.running_since) {
+      const since = Date.parse(current.running_since)
+      if (!Number.isNaN(since)) {
+        total += Math.max(0, Math.round((serverNow.value - since) / 1000))
+      }
+    }
+    return total
   })
-  const endsAtMs = computed(() => {
-    const value = state.value?.ends_at
-    return value ? Date.parse(value) : null
+
+  /** Time left of the allotted duration, or null when no limit is set. */
+  const remainingSeconds = computed<number | null>(() => {
+    const total = state.value?.duration_seconds ?? 0
+    if (total === 0) return null
+    return Math.max(0, total - (elapsedSeconds.value ?? 0))
   })
 
-  /** Seconds since kick-off, or null before it. */
-  const elapsedSeconds = computed(() =>
-    startedAtMs.value === null ? null : secondsBetween(startedAtMs.value, serverNow.value),
-  )
-
-  /** Seconds until the planned finish, or null when none is set. */
-  const remainingSeconds = computed(() =>
-    endsAtMs.value === null ? null : secondsBetween(serverNow.value, endsAtMs.value),
-  )
-
-  const isOvertime = computed(() => remainingSeconds.value === 0 && endsAtMs.value !== null)
+  const isOvertime = computed(() => remainingSeconds.value === 0)
   const isEndingSoon = computed(
-    () => remainingSeconds.value !== null && remainingSeconds.value > 0 && remainingSeconds.value <= 300,
+    () =>
+      isRunning.value &&
+      remainingSeconds.value !== null &&
+      remainingSeconds.value > 0 &&
+      remainingSeconds.value <= 300,
   )
 
   return {
     state,
+    status,
+    isRunning,
+    hasStarted,
     loading: computed(() => stateQuery.isPending.value),
-    clockLabel,
     elapsedSeconds,
     remainingSeconds,
     isOvertime,

@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from .models import User
-from .permissions import GAME_GOD_PERM, MENTOR_PERM
+from .permissions import MENTOR_PERM, has_game_god_rights
 
 
 class CsrfSerializer(serializers.Serializer):
@@ -26,7 +26,7 @@ class MeSerializer(serializers.ModelSerializer):
         return user.has_perm(MENTOR_PERM)
 
     def get_is_game_god(self, user: User) -> bool:
-        return user.has_perm(GAME_GOD_PERM)
+        return has_game_god_rights(user)
 
     def get_team(self, user: User) -> dict | None:
         if user.team_id is None:

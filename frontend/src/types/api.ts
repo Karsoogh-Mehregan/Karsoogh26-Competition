@@ -122,7 +122,9 @@ export interface GameState {
   is_running: boolean
   server_time: string
   started_at: string | null
-  ends_at: string | null
+  accumulated_seconds: number
+  running_since: string | null
+  duration_seconds: number
   elapsed_seconds: number | null
   remaining_seconds: number | null
   leaderboard_public: boolean
@@ -131,7 +133,7 @@ export interface GameState {
 export interface GameSettings {
   status: GameStatus
   leaderboard_public: boolean
-  ends_at: string | null
+  duration_minutes: number
   attempt_ttl_minutes: number
   initial_balance: number
 }

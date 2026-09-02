@@ -271,12 +271,22 @@ class GameSettings(models.Model):
     started_at = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="Stamped the first time status becomes running; anchors the elapsed clock.",
+        help_text="Stamped the first time status becomes running. Informational.",
     )
-    ends_at = models.DateTimeField(
+    # The run ledger. Elapsed time is accumulated running time, not wall time
+    # since kick-off, so pausing the game genuinely pauses every team's timer.
+    accumulated_seconds = models.PositiveIntegerField(
+        default=0,
+        help_text="Seconds the game has spent in the running state, excluding pauses.",
+    )
+    running_since = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="Planned finish. Drives the countdown every team sees; purely informational.",
+        help_text="Start of the current running stretch; null whenever the game is not running.",
+    )
+    duration_minutes = models.PositiveSmallIntegerField(
+        default=180,
+        help_text="Total playing time. The countdown is this minus elapsed; 0 turns it off.",
     )
 
     class Meta:
@@ -291,13 +301,49 @@ class GameSettings(models.Model):
         return f"Game settings ({self.get_status_display()})"
 
     def save(self, *args, **kwargs):
-        """Stamp kick-off once, so the elapsed clock has a fixed anchor."""
-        if self.status == GameStatus.RUNNING and self.started_at is None:
-            self.started_at = timezone.now()
-            update_fields = kwargs.get("update_fields")
-            if update_fields is not None:
-                kwargs["update_fields"] = {*update_fields, "started_at"}
+        """Roll the run ledger on every status change, whatever changed it.
+
+        Done here rather than in the view so the admin, a shell session and the
+        API all keep the same books.
+        """
+        previous_status = None
+        if not self._state.adding:
+            previous_status = (
+                type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
+            )
+        touched = self._roll_clock(previous_status)
+        update_fields = kwargs.get("update_fields")
+        if touched and update_fields is not None:
+            kwargs["update_fields"] = {*update_fields, *touched}
         super().save(*args, **kwargs)
+
+    def _roll_clock(self, previous_status) -> tuple:
+        """Bank the stretch that just ended, and open a new one if now running."""
+        if previous_status == self.status:
+            # Self-heal a row that claims to be running but never opened a
+            # stretch — a hand-edited database, or a migration that added the
+            # ledger while the game was already running.
+            if self.status == GameStatus.RUNNING and self.running_since is None:
+                self.running_since = timezone.now()
+                return ("running_since",)
+            return ()
+
+        now = timezone.now()
+        touched = set()
+
+        if previous_status == GameStatus.RUNNING and self.running_since is not None:
+            self.accumulated_seconds += max(0, int((now - self.running_since).total_seconds()))
+            self.running_since = None
+            touched |= {"accumulated_seconds", "running_since"}
+
+        if self.status == GameStatus.RUNNING:
+            self.running_since = now
+            touched.add("running_since")
+            if self.started_at is None:
+                self.started_at = now
+                touched.add("started_at")
+
+        return tuple(touched)
 
     @classmethod
     def load(cls) -> "GameSettings":
@@ -313,17 +359,24 @@ class GameSettings(models.Model):
 
     @property
     def elapsed_seconds(self) -> int | None:
-        """Seconds since kick-off, or None before it."""
+        """Running time so far, frozen while paused. None before kick-off."""
         if self.started_at is None:
             return None
-        return max(0, int((timezone.now() - self.started_at).total_seconds()))
+        total = self.accumulated_seconds
+        if self.is_running and self.running_since is not None:
+            total += max(0, int((timezone.now() - self.running_since).total_seconds()))
+        return total
+
+    @property
+    def duration_seconds(self) -> int:
+        return self.duration_minutes * 60
 
     @property
     def remaining_seconds(self) -> int | None:
-        """Seconds until the planned finish, or None when no finish is set."""
-        if self.ends_at is None:
+        """Time left of the allotted duration, or None when no limit is set."""
+        if self.duration_minutes == 0:
             return None
-        return max(0, int((self.ends_at - timezone.now()).total_seconds()))
+        return max(0, self.duration_seconds - (self.elapsed_seconds or 0))
 
 
 class Question(models.Model):
