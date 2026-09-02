@@ -1,28 +1,18 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { toast } from 'vue-sonner'
-import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import MapHud from './MapHud.vue'
 import { useActing } from '../composables/useActing'
 import { useEntry } from '../composables/useEntry'
-import { useAttemptStore } from '../stores/attempt'
+import { capacityForType } from '@/lib/mapLevels'
+import { useInspectorStore } from '../stores/inspector'
 import { useGraph } from '../composables/useGraph.js'
 import { useMapViewport } from '../composables/useMapViewport'
 
 const HOUSE_FILL = '#E2CFA6'
 
-const { me, teams, actingTeam, isPlayer, claimStart, assignQuestion } = useActing()
-const { canClaimStart, open: openEntrySheet } = useEntry()
-const attemptStore = useAttemptStore()
-const router = useRouter()
+const { me, teams, actingTeam, isPlayer } = useActing()
+const { canClaimStart } = useEntry()
+const inspector = useInspectorStore()
 const { nodes, edges, nodeById, adjacency, startEligibleIds } = useGraph()
 
 const loggedIn = computed(() => !!me.value)
@@ -30,14 +20,6 @@ const hasTeam = computed(() => !!actingTeam.value)
 // A mentor can pick a team to view its state on the map, but only the team
 // itself can move — mentors would otherwise see clickable nodes that 403.
 const canAct = computed(() => loggedIn.value && hasTeam.value && isPlayer.value)
-const pendingNode = ref(null)
-const dialogOpen = computed({
-  get: () => pendingNode.value !== null,
-  set: (open) => {
-    if (!open) pendingNode.value = null
-  },
-})
-
 function isStartNode(n) {
   return !!n && (n.type === 'start' || n.shape === 'diamond')
 }
@@ -265,8 +247,12 @@ function nodeState(n) {
   return 'disabled'
 }
 
-function isNodeInteractive(n) {
-  return isNodeAnswerable(n.id) || isNodeSelectable(n.id) || isEntryGate(n)
+function isNodeInteractive() {
+  return loggedIn.value
+}
+
+function isNodeInspected(n) {
+  return inspector.inspection?.nodeCode === n.id
 }
 
 function nodeLabel(n) {
@@ -277,45 +263,28 @@ function nodeLabel(n) {
   return n.id
 }
 
+function inspectIntent(n) {
+  const holding = answerableHolding(n.id)
+  if (holding) return { intent: 'solve', occupancyId: holding.id }
+  if (isEntryGate(n)) return { intent: 'entry_gate', occupancyId: null }
+  if (isNodeSelectable(n.id)) {
+    const claimingStart = isStartNode(n) && actingHeldIds.value.size === 0
+    return { intent: claimingStart ? 'claim_start' : 'reserve', occupancyId: null }
+  }
+  return { intent: 'view', occupancyId: null }
+}
+
+/**
+ * Every node opens the detail panel, even one this team can do nothing with —
+ * seeing who holds a building and how full it is is worth a click on its own.
+ * What the panel *offers* is the intent, decided here where the adjacency and
+ * entry-sheet rules already live.
+ */
 function onNodeClick(n) {
   // A click that ended a pan is a camera move, not a move on the board.
   if (consumedByDrag()) return
-  const holding = answerableHolding(n.id)
-  if (holding) {
-    attemptStore.select(holding.id)
-    router.push({ name: 'solve' })
-    return
-  }
-  if (isEntryGate(n)) {
-    openEntrySheet()
-    return
-  }
-  if (!isNodeSelectable(n.id)) return
-  pendingNode.value = n
-}
-
-const pendingIsStart = computed(
-  () => isStartNode(pendingNode.value) && actingHeldIds.value.size === 0,
-)
-
-async function confirmNodeAction() {
-  const node = pendingNode.value
-  const claimStartNode = pendingIsStart.value
-  pendingNode.value = null
-  if (!node || !hasTeam.value) return
-  try {
-    if (claimStartNode) {
-      await claimStart(node.id)
-      toast.success('خانهٔ شروع ثبت شد')
-      return
-    }
-    const result = await assignQuestion(node.id)
-    attemptStore.select(result.id)
-    toast.success(`سؤال ${result.question_id ?? ''} رزرو شد`)
-    router.push({ name: 'solve' })
-  } catch (err) {
-    toast.error(err.message || 'عملیات ناموفق بود.')
-  }
+  const { intent, occupancyId } = inspectIntent(n)
+  inspector.inspect(n.id, intent, occupancyId)
 }
 
 function reservedHoldingsOn(n) {
@@ -372,15 +341,8 @@ function shapeOpacity(n) {
   return holdingOpacity(colored)
 }
 
-function startDuel() {
-  pendingNode.value = null
-  toast.info('دوئل هنوز فعال نشده است.')
-}
-
 function slotCount(n) {
-  if (n.type === 'l3' || n.type === 'l4') return 2
-  if (n.type === 'l5' || n.type === 'l6' || n.type === 'center') return 3
-  return 1
+  return capacityForType(n.type)
 }
 
 function visualRadius(n) {
@@ -523,11 +485,11 @@ function shapePath(n) {
           'node',
           'state-' + nodeState(n),
           'shape-' + n.shape,
-          { 'search-hit': searchHit === n.id },
+          { 'search-hit': searchHit === n.id, 'is-inspected': isNodeInspected(n) },
         ]"
-        :role="isNodeInteractive(n) ? 'button' : undefined"
-        :tabindex="isNodeInteractive(n) ? 0 : undefined"
-        :aria-label="isNodeInteractive(n) ? nodeLabel(n) : undefined"
+        :role="isNodeInteractive() ? 'button' : undefined"
+        :tabindex="isNodeInteractive() ? 0 : undefined"
+        :aria-label="isNodeInteractive() ? nodeLabel(n) : undefined"
         @click="onNodeClick(n)"
         @keydown.enter.prevent="onNodeClick(n)"
         @keydown.space.prevent="onNodeClick(n)"
@@ -652,23 +614,6 @@ function shapePath(n) {
     </text>
   </svg>
 
-    <Dialog v-model:open="dialogOpen">
-      <DialogContent class="sm:max-w-xs" dir="rtl" :show-close-button="false">
-        <DialogHeader class="text-center sm:text-center">
-          <DialogTitle>این خانه</DialogTitle>
-          <DialogDescription>
-            {{ pendingNode ? pendingNode.id : '' }}
-          </DialogDescription>
-        </DialogHeader>
-        <div class="flex flex-col gap-2">
-          <Button class="w-full" @click="confirmNodeAction">
-            {{ pendingIsStart ? 'ورود به این خانه' : 'رزرو این خانه' }}
-          </Button>
-          <Button class="w-full" variant="outline" @click="startDuel">دویل</Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-
     <MapHud :nodes="nodes" @highlight="onSearchHighlight" />
 
     <ul v-if="canAct" class="legend glass-panel" aria-label="راهنمای رنگ خانه‌ها">
@@ -790,6 +735,19 @@ function shapePath(n) {
 .node {
   cursor: default;
   transition: opacity 0.25s ease;
+}
+/* Which node the house panel is showing. Deliberately louder than hover: the
+   detail beside the map is useless if you lose track of what it belongs to. */
+.is-inspected .node-shape {
+  stroke: #1d4ed8;
+  stroke-width: 3px;
+}
+.is-inspected {
+  filter: drop-shadow(0 0 9px rgba(29, 78, 216, 0.55));
+}
+.search-hit .node-shape {
+  stroke: #b45309;
+  stroke-width: 2.6px;
 }
 .node-shape {
   stroke: #33506b;
