@@ -1,11 +1,18 @@
 """Minesweeper domain services. Mutations belong here, not in views."""
 
+import copy
 import random
 
 from django.db import transaction
 
-from minesweeper.exceptions import InvalidDifficulty
-from minesweeper.models import DIFFICULTY_LAYOUTS, MinesweeperGame
+from minesweeper.exceptions import (
+    CellAlreadyRevealed,
+    CellFlagged,
+    GameFinished,
+    InvalidCell,
+    InvalidDifficulty,
+)
+from minesweeper.models import DIFFICULTY_LAYOUTS, MinesweeperGame, MinesweeperStatus
 from teams.models import Team
 
 _NEIGHBOR_OFFSETS = (
@@ -74,3 +81,32 @@ def create_game(team: Team, difficulty: str) -> MinesweeperGame:
         mine_count=mine_count,
         board=_generate_board(width, height, mine_count),
     )
+
+
+@transaction.atomic
+def reveal_cell(game_id: int, row: int, col: int) -> MinesweeperGame:
+    """Reveal one cell. Neighbours, flags, and win/loss are not handled here.
+
+    Locks the game row for the read-modify-write so concurrent reveals cannot
+    clobber each other's board. A missing pk raises ``MinesweeperGame.DoesNotExist``
+    — the same shape as other services that ``.get()``; views map that to 404.
+    """
+    game = MinesweeperGame.objects.select_for_update().get(pk=game_id)
+
+    if game.status != MinesweeperStatus.IN_PROGRESS:
+        raise GameFinished("This game is already finished.")
+
+    if not (0 <= row < game.height and 0 <= col < game.width):
+        raise InvalidCell(f"Cell ({row}, {col}) is outside the board.")
+
+    cell = game.board["cells"][row][col]
+    if cell["revealed"]:
+        raise CellAlreadyRevealed("This cell is already revealed.")
+    if cell["flagged"]:
+        raise CellFlagged("A flagged cell cannot be revealed.")
+
+    board = copy.deepcopy(game.board)
+    board["cells"][row][col]["revealed"] = True
+    game.board = board
+    game.save(update_fields=["board"])
+    return game
