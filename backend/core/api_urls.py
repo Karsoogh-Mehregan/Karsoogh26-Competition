@@ -10,6 +10,7 @@ urlpatterns = [
     # game.urls owns "teams/<code>/nodes/<code>/..."; teams.urls only defines "",
     # so the two do not shadow each other.
     path("", include("game.urls")),
+    path("minesweeper/", include("minesweeper.urls")),
 ]
 
 if settings.DEBUG:
