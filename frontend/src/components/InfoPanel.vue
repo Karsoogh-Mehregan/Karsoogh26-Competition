@@ -2,6 +2,7 @@
 import { CheckIcon, CircleCheckIcon, CoinsIcon, HourglassIcon, SearchIcon } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import QuestionPanel from '@/components/QuestionPanel.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -63,7 +64,12 @@ function isNoneSelected() {
 </script>
 
 <template>
-  <aside class="flex h-full w-80 shrink-0 flex-col overflow-hidden border-e bg-card">
+  <aside class="flex h-full w-96 shrink-0 flex-col overflow-hidden border-e bg-card">
+    <div v-if="isPlayer" class="flex min-h-0 max-h-[55%] shrink-0 flex-col overflow-hidden px-5 pt-4">
+      <QuestionPanel />
+    </div>
+
+    <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
     <header class="border-b px-5 py-4">
       <h1 class="text-lg font-bold">تیم‌ها</h1>
       <p v-if="actingTeam" class="text-muted-foreground mt-1 text-sm">
@@ -273,5 +279,6 @@ function isNoneSelected() {
         خروج از حساب {{ me.username }}
       </Button>
     </footer>
+    </div>
   </aside>
 </template>

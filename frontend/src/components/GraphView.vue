@@ -10,14 +10,15 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import MapHud from './MapHud.vue'
-import QuestionDialog from './QuestionDialog.vue'
 import { useActing } from '../composables/useActing'
+import { useAttemptStore } from '../stores/attempt'
 import { useGraph } from '../composables/useGraph.js'
 import { useMapViewport } from '../composables/useMapViewport'
 
 const HOUSE_FILL = '#E2CFA6'
 
 const { me, teams, actingTeam, isPlayer, claimStart, assignQuestion } = useActing()
+const attemptStore = useAttemptStore()
 const { nodes, edges, nodeById, adjacency, startEligibleIds } = useGraph()
 
 const loggedIn = computed(() => !!me.value)
@@ -32,7 +33,6 @@ const dialogOpen = computed({
     if (!open) pendingNode.value = null
   },
 })
-const pendingOccupancyId = ref(null)
 
 function isStartNode(n) {
   return !!n && (n.type === 'start' || n.shape === 'diamond')
@@ -265,7 +265,7 @@ function onNodeClick(n) {
   if (consumedByDrag()) return
   const holding = answerableHolding(n.id)
   if (holding) {
-    pendingOccupancyId.value = holding.id
+    attemptStore.select(holding.id)
     return
   }
   if (!isNodeSelectable(n.id)) return
@@ -288,6 +288,7 @@ async function confirmNodeAction() {
       return
     }
     const result = await assignQuestion(node.id)
+    attemptStore.select(result.id)
     toast.success(`سؤال ${result.question_id ?? ''} رزرو شد`)
   } catch (err) {
     toast.error(err.message || 'عملیات ناموفق بود.')
@@ -572,11 +573,6 @@ function shapePath(n) {
         </div>
       </DialogContent>
     </Dialog>
-
-    <QuestionDialog
-      :occupancy-id="pendingOccupancyId"
-      @close="pendingOccupancyId = null"
-    />
 
     <MapHud :nodes="nodes" @highlight="onSearchHighlight" />
 

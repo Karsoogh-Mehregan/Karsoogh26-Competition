@@ -176,6 +176,83 @@ class OccupancyQuestionResponseSerializer(serializers.Serializer):
     question = QuestionForTeamSerializer()
 
 
+def remaining_seconds_for(expires_at) -> int:
+    if expires_at is None:
+        return 0
+    delta = expires_at - timezone.now()
+    return max(0, int(delta.total_seconds()))
+
+
+def attempt_status_for(occupancy: Occupancy) -> str:
+    if occupancy.grade is not None:
+        return "graded"
+    if occupancy.question_id is None:
+        return "no_question"
+    if hasattr(occupancy, "submission"):
+        return "answered"
+    if occupancy.is_expired:
+        return "expired"
+    return "open"
+
+
+class AttemptSubmissionSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    submitted_at = serializers.DateTimeField()
+
+
+class ActiveAttemptSerializer(serializers.ModelSerializer):
+    node_code = serializers.CharField(source="node.code", read_only=True)
+    node_name = serializers.CharField(source="node.name", read_only=True)
+    level = serializers.CharField(source="node.level_id", read_only=True)
+    is_expired = serializers.BooleanField(read_only=True)
+    remaining_seconds = serializers.SerializerMethodField()
+    question = serializers.SerializerMethodField()
+    submission = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Occupancy
+        fields = (
+            "id",
+            "node_code",
+            "node_name",
+            "level",
+            "slot",
+            "floor",
+            "is_spawn",
+            "grade",
+            "expires_at",
+            "remaining_seconds",
+            "is_expired",
+            "question",
+            "submission",
+            "status",
+        )
+        read_only_fields = fields
+
+    def get_remaining_seconds(self, obj: Occupancy) -> int:
+        return remaining_seconds_for(obj.expires_at)
+
+    @extend_schema_field(QuestionForTeamSerializer(allow_null=True))
+    def get_question(self, obj: Occupancy):
+        if obj.question_id is None:
+            return None
+        serializer = QuestionForTeamSerializer(
+            obj.question,
+            context={**self.context, "expires_at": obj.expires_at},
+        )
+        return serializer.data
+
+    @extend_schema_field(AttemptSubmissionSerializer(allow_null=True))
+    def get_submission(self, obj: Occupancy):
+        if not hasattr(obj, "submission"):
+            return None
+        return AttemptSubmissionSerializer(obj.submission).data
+
+    def get_status(self, obj: Occupancy) -> str:
+        return attempt_status_for(obj)
+
+
 def occupancy_for_user(pk: int, user) -> Occupancy:
     try:
         return Occupancy.objects.select_related("team", "question", "node__level").get(pk=pk)

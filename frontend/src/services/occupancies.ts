@@ -1,12 +1,5 @@
-import { get, post, postForm } from '@/lib/http'
-import type { OccupancyQuestion, SubmitCreated } from '@/types/api'
-
-export function getOccupancyQuestion(
-  occupancyId: number,
-  signal?: AbortSignal,
-): Promise<OccupancyQuestion> {
-  return get<OccupancyQuestion>(`/occupancies/${occupancyId}/question/`, signal)
-}
+import { post, postForm } from '@/lib/http'
+import type { SubmitCreated } from '@/types/api'
 
 export interface SubmitAnswerPayload {
   body?: string
