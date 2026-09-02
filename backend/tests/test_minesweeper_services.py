@@ -131,11 +131,14 @@ class TestInvalidDifficulty:
         assert MinesweeperGame.objects.count() == 0
 
 
-def _find_cell(game, *, mine: bool):
+def _find_cell(game, *, mine: bool, min_adjacent: int | None = None):
     for row_index, row in enumerate(game.board["cells"]):
         for col_index, cell in enumerate(row):
-            if cell["mine"] is mine and not cell["revealed"] and not cell["flagged"]:
-                return row_index, col_index
+            if cell["mine"] is not mine or cell["revealed"] or cell["flagged"]:
+                continue
+            if min_adjacent is not None and cell["adjacent_mines"] < min_adjacent:
+                continue
+            return row_index, col_index
     raise AssertionError(f"no unrevealed unflagged cell with mine={mine}")
 
 
@@ -154,10 +157,64 @@ def _finish(game, status):
     game.refresh_from_db()
 
 
+# 9×9 / 10 mines: a mine wall in column 4 isolates the left (cols 0–3) from the right.
+SPLIT_MINES = frozenset((row, 4) for row in range(9)) | frozenset({(8, 8)})
+
+
+def _adjacent_from_mines(mines, row, col, *, width, height) -> int:
+    count = 0
+    for d_row, d_col in _NEIGHBOR_OFFSETS:
+        n_row, n_col = row + d_row, col + d_col
+        if 0 <= n_row < height and 0 <= n_col < width and (n_row, n_col) in mines:
+            count += 1
+    return count
+
+
+def _make_board(width, height, mines, flags=frozenset()):
+    return {
+        "cells": [
+            [
+                {
+                    "mine": (row, col) in mines,
+                    "revealed": False,
+                    "flagged": (row, col) in flags,
+                    "adjacent_mines": _adjacent_from_mines(
+                        mines, row, col, width=width, height=height
+                    ),
+                }
+                for col in range(width)
+            ]
+            for row in range(height)
+        ]
+    }
+
+
+def _install_board(game, mines, flags=frozenset()):
+    assert len(mines) == game.mine_count
+    game.board = _make_board(game.width, game.height, mines, flags)
+    game.save(update_fields=["board"])
+    game.refresh_from_db()
+
+
+def _split_game(team, flags=frozenset()):
+    game = create_game(team, MinesweeperDifficulty.EASY)
+    _install_board(game, SPLIT_MINES, flags)
+    return game
+
+
+def _revealed(board) -> set[tuple[int, int]]:
+    return {
+        (row, col)
+        for row, line in enumerate(board["cells"])
+        for col, cell in enumerate(line)
+        if cell["revealed"]
+    }
+
+
 class TestRevealCell:
     def test_reveals_a_safe_cell_and_persists(self, team):
         game = create_game(team, MinesweeperDifficulty.EASY)
-        row, col = _find_cell(game, mine=False)
+        row, col = _find_cell(game, mine=False, min_adjacent=1)
         original = copy.deepcopy(game.board)
         original_cell = original["cells"][row][col]
 
@@ -257,13 +314,140 @@ class TestRevealCell:
         assert game.status == status
 
 
+class TestFloodFill:
+    def test_zero_cell_expands_connected_region_and_boundary(self, team):
+        game = _split_game(team)
+        original = copy.deepcopy(game.board)
+
+        updated = reveal_cell(game.pk, 0, 0)
+        revealed = _revealed(updated.board)
+
+        assert (0, 0) in revealed
+        assert (2, 2) in revealed  # connected zero, several steps away
+        assert (0, 3) in revealed  # numbered boundary against the mine wall
+        assert (3, 3) in revealed
+        assert (0, 4) not in revealed  # mine
+        assert (8, 8) not in revealed  # mine on the far side
+        assert (0, 5) not in revealed  # isolated right-side zero
+        assert (8, 7) not in revealed
+
+        for row, col in revealed:
+            cell = updated.board["cells"][row][col]
+            before = original["cells"][row][col]
+            assert cell["mine"] is False
+            assert cell["flagged"] is False
+            assert cell["mine"] == before["mine"]
+            assert cell["flagged"] == before["flagged"]
+            assert cell["adjacent_mines"] == before["adjacent_mines"]
+
+        for row, line in enumerate(updated.board["cells"]):
+            for col, cell in enumerate(line):
+                if (row, col) in revealed:
+                    continue
+                assert cell == original["cells"][row][col]
+
+        stored = MinesweeperGame.objects.get(pk=game.pk)
+        assert stored.board == updated.board
+        assert stored.status == MinesweeperStatus.IN_PROGRESS
+        assert stored.score == 0
+        assert stored.finished_at is None
+
+    def test_numbered_cell_does_not_expand(self, team):
+        game = _split_game(team)
+        original = copy.deepcopy(game.board)
+
+        updated = reveal_cell(game.pk, 0, 3)
+        assert _revealed(updated.board) == {(0, 3)}
+        assert updated.board["cells"][0][3]["adjacent_mines"] > 0
+        for row, line in enumerate(updated.board["cells"]):
+            for col, cell in enumerate(line):
+                if (row, col) == (0, 3):
+                    continue
+                assert cell == original["cells"][row][col]
+
+    def test_mine_does_not_expand(self, team):
+        game = _split_game(team)
+        original = copy.deepcopy(game.board)
+
+        updated = reveal_cell(game.pk, 0, 4)
+        assert _revealed(updated.board) == {(0, 4)}
+        assert updated.board["cells"][0][4]["mine"] is True
+        assert updated.status == MinesweeperStatus.IN_PROGRESS
+        for row, line in enumerate(updated.board["cells"]):
+            for col, cell in enumerate(line):
+                if (row, col) == (0, 4):
+                    continue
+                assert cell == original["cells"][row][col]
+
+    def test_flagged_cell_blocks_direct_reveal(self, team):
+        game = _split_game(team, flags=frozenset({(0, 0)}))
+        original = copy.deepcopy(game.board)
+
+        with pytest.raises(CellFlagged):
+            reveal_cell(game.pk, 0, 0)
+
+        game.refresh_from_db()
+        assert game.board == original
+
+    def test_flagged_cell_is_skipped_during_flood_fill(self, team):
+        game = _split_game(team, flags=frozenset({(0, 1)}))
+        original_flag = copy.deepcopy(game.board["cells"][0][1])
+
+        updated = reveal_cell(game.pk, 0, 0)
+        flagged = updated.board["cells"][0][1]
+        revealed = _revealed(updated.board)
+
+        assert flagged == original_flag
+        assert flagged["revealed"] is False
+        assert flagged["flagged"] is True
+        assert (0, 0) in revealed
+        assert (0, 2) in revealed  # reached around the flag
+        assert (0, 1) not in revealed
+
+    def test_already_revealed_cells_are_not_mutated_by_flood_fill(self, team):
+        game = _split_game(team)
+        _patch_cell(game, 1, 1, revealed=True)
+        snapshot = copy.deepcopy(game.board["cells"][1][1])
+
+        updated = reveal_cell(game.pk, 0, 0)
+        assert updated.board["cells"][1][1] == snapshot
+        assert (0, 0) in _revealed(updated.board)
+        assert (2, 2) in _revealed(updated.board)
+
+    def test_corner_zero_stays_in_bounds(self, team):
+        game = _split_game(team)
+        updated = reveal_cell(game.pk, 0, 0)
+        revealed = _revealed(updated.board)
+        assert (0, 0) in revealed
+        assert all(0 <= row < 9 and 0 <= col < 9 for row, col in revealed)
+        assert updated.status == MinesweeperStatus.IN_PROGRESS
+
+    def test_edge_zero_stays_in_bounds(self, team):
+        game = _split_game(team)
+        updated = reveal_cell(game.pk, 0, 2)
+        revealed = _revealed(updated.board)
+        assert (0, 2) in revealed
+        assert (0, 0) in revealed
+        assert (0, 5) not in revealed
+        assert all(0 <= row < 9 and 0 <= col < 9 for row, col in revealed)
+
+    def test_flooding_every_safe_cell_does_not_mark_a_win(self, team):
+        """Right-side pocket is small; opening a left zero still must not finish."""
+        game = _split_game(team)
+        updated = reveal_cell(game.pk, 0, 0)
+        assert updated.status == MinesweeperStatus.IN_PROGRESS
+        assert updated.score == 0
+        assert updated.finished_at is None
+
+
 @pytest.mark.postgres_only
 @pytest.mark.django_db(transaction=True)
 class TestRevealConcurrency:
     def test_concurrent_reveals_both_persist(self, team):
         """Without the row lock, last-write-wins would drop one of the two cells."""
         game = create_game(team, MinesweeperDifficulty.EASY)
-        targets = [(0, 0), (0, 1)]
+        targets = [(0, 3), (8, 3)]
+        _install_board(game, SPLIT_MINES)
         barrier = threading.Barrier(len(targets))
         errors = []
 
