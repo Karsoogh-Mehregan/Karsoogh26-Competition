@@ -18,5 +18,7 @@ export function submitAnswer(
     form.append('file', payload.file)
     return postForm<SubmitCreated>(`/occupancies/${occupancyId}/submit/`, form)
   }
-  return post<SubmitCreated>(`/occupancies/${occupancyId}/submit/`, { body: payload.body ?? '' })
+  return post<SubmitCreated>(`/occupancies/${occupancyId}/submit/`, {
+    body: String(payload.body ?? ''),
+  })
 }

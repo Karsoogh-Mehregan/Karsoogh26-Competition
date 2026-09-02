@@ -1,3 +1,4 @@
+from django.db.models import Q
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
@@ -40,7 +41,7 @@ from game.serializers import (
     SubmitCreatedSerializer,
     occupancy_for_user,
 )
-from game.services import grade_submission, submit_answer
+from game.services import grade_submission, release_expired_attempts, submit_answer
 from teams.models import Team
 
 _OCCUPANCY_PK = OpenApiParameter("pk", int, OpenApiParameter.PATH, description="Occupancy id")
@@ -139,9 +140,11 @@ def _map_service_error(exc: GameServiceError):
         raise Conflict("بازی در حال اجرا نیست.") from exc
     if isinstance(exc, NoQuestionAvailable):
         raise Conflict("سؤال استفاده نشده‌ای برای این سطح باقی نمانده است.") from exc
+    if isinstance(exc, SubmissionWindowClosed):
+        raise Conflict("تایم شما تموم شد.") from exc
     if isinstance(
         exc,
-        (OccupancyNotActive, SubmissionWindowClosed, AlreadySubmitted),
+        (OccupancyNotActive, AlreadySubmitted),
     ):
         raise Conflict(str(exc)) from exc
     if isinstance(exc, InvalidAnswerPayload):
@@ -202,11 +205,12 @@ class TeamAttemptsView(APIView):
     permission_classes = [IsAuthenticated, IsOwnTeam]
 
     def get(self, request, team_code: str):
+        release_expired_attempts()
         occupancies = (
-            Occupancy.objects.active()
-            .filter(team__code=team_code)
+            Occupancy.objects.filter(team__code=team_code)
+            .filter(Q(released_at__isnull=True) | Q(question_id__isnull=False))
             .select_related("node__level", "question", "submission")
-            .order_by("node__code")
+            .order_by("node__code", "-entered_at")
         )
         serializer = ActiveAttemptSerializer(
             occupancies,

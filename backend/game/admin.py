@@ -40,6 +40,7 @@ class LevelConfigAdmin(admin.ModelAdmin):
         "level",
         "capacity",
         "entry_cost",
+        "attempt_ttl_minutes",
         "networth_base",
         "networth_factor",
         "duel_factor",
@@ -136,7 +137,6 @@ class GameSettingsAdmin(admin.ModelAdmin):
         "__str__",
         "status",
         "initial_balance",
-        "attempt_ttl_minutes",
         "leaderboard_public",
     )
 

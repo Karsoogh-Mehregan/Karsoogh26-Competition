@@ -10,7 +10,7 @@ from core.openapi import OpenApiExample, extend_schema
 from game.api_exceptions import Conflict
 from game.models import Node
 from game.permissions import IsOwnTeam
-from game.services import claim_spawn
+from game.services import claim_spawn, release_expired_attempts
 
 from . import board_cache
 from .models import Team
@@ -52,6 +52,7 @@ class TeamListView(APIView):
     serializer_class = TeamSerializer
 
     def get(self, request):
+        release_expired_attempts()
         user = request.user
         return Response(
             board_cache.mask(
