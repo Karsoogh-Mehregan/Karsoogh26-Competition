@@ -14,11 +14,17 @@ from game.api_exceptions import Conflict, Unprocessable
 from game.exceptions import (
     AlreadyGraded,
     AlreadySubmitted,
+    EntryAlreadyAnswered,
+    EntryAnswerWasCorrect,
+    EntryNotAnswered,
     GameNotRunning,
     GameServiceError,
     InvalidAnswerPayload,
     MissingFloor,
+    NoEntryQuestions,
+    NoEntryRetriesLeft,
     NoQuestionAvailable,
+    NotOnEntrySheet,
     NotTeamMember,
     OccupancyNotActive,
     SubmissionWindowClosed,
@@ -28,6 +34,9 @@ from game.permissions import IsOwnTeam, IsTeamMember
 from game.serializers import (
     ActiveAttemptSerializer,
     AssignQuestionSerializer,
+    EntryAnswerResultSerializer,
+    EntryAnswerSerializer,
+    EntrySheetSerializer,
     GradeResultSerializer,
     GradeSerializer,
     GradeSubmissionSerializer,
@@ -140,6 +149,18 @@ def _map_service_error(exc: GameServiceError):
         raise Conflict("بازی در حال اجرا نیست.") from exc
     if isinstance(exc, NoQuestionAvailable):
         raise Conflict("سؤال استفاده نشده‌ای برای این سطح باقی نمانده است.") from exc
+    if isinstance(exc, NoEntryQuestions):
+        raise Conflict("سؤال ورودی فعالی برای ساختن برگهٔ این تیم وجود ندارد.") from exc
+    if isinstance(exc, NotOnEntrySheet):
+        raise NotFound("این سؤال روی برگهٔ ورودی این تیم نیست.") from exc
+    if isinstance(exc, EntryAlreadyAnswered):
+        raise Conflict("به این سؤال قبلاً پاسخ داده‌اید.") from exc
+    if isinstance(exc, EntryNotAnswered):
+        raise Conflict("ابتدا باید به این سؤال پاسخ دهید.") from exc
+    if isinstance(exc, EntryAnswerWasCorrect):
+        raise Conflict("پاسخ این سؤال درست بوده و نیازی به تلاش دوباره ندارد.") from exc
+    if isinstance(exc, NoEntryRetriesLeft):
+        raise Conflict("فرصت تلاش دوبارهٔ شما تمام شده است.") from exc
     if isinstance(exc, SubmissionWindowClosed):
         raise Conflict("تایم شما تموم شد.") from exc
     if isinstance(
@@ -152,6 +173,145 @@ def _map_service_error(exc: GameServiceError):
     if isinstance(exc, (AlreadyGraded, MissingFloor)):
         raise Unprocessable(str(exc)) from exc
     raise exc
+
+
+_ENTRY_ATTEMPT = {
+    "position": 1,
+    "code": "entry-sum-1-10",
+    "title": "جمع یک تا ده",
+    "body": "حاصل جمع اعداد ۱ تا ۱۰ چند است؟",
+    "answer": None,
+    "is_correct": None,
+    "answered_at": None,
+}
+_ENTRY_SHEET = {
+    "required_correct": 2,
+    "correct_count": 0,
+    "answered_count": 0,
+    "total_count": 3,
+    "qualified": False,
+    "grace_over": False,
+    "grace_ends_at": "2026-08-30T10:20:00Z",
+    "can_claim_start": False,
+    "draft_order": None,
+    "retries_used": 0,
+    "retries_left": 3,
+    "questions": [_ENTRY_ATTEMPT],
+}
+
+
+class EntryViewBase(APIView):
+    """The entry sheet belongs to the caller's own team; no team_code in the URL."""
+
+    permission_classes = [IsAuthenticated, IsTeamMember, GameIsRunning]
+
+    def sheet_response(self, team, extra: dict | None = None, serializer=EntrySheetSerializer):
+        status_payload = services.entry_status(team)
+        return Response(serializer({**status_payload, **(extra or {})}).data)
+
+
+@extend_schema(
+    tags=["entry"],
+    summary="Read the entry sheet",
+    description=(
+        "The caller team's pre-game questions, drawn on first read and stable after that. "
+        "Answering enough of them correctly — or waiting out the grace window — is what "
+        "unlocks `claim-start/`. Correct answers are never included."
+    ),
+    responses=EntrySheetSerializer,
+    examples=[OpenApiExample("sheet", value=_ENTRY_SHEET, response_only=True)],
+)
+class EntrySheetView(EntryViewBase):
+    serializer_class = EntrySheetSerializer
+
+    def get(self, request):
+        team = request.user.team
+        try:
+            services.assign_entry_sheet(team)
+        except GameServiceError as exc:
+            _map_service_error(exc)
+        return self.sheet_response(team)
+
+
+@extend_schema(
+    tags=["entry"],
+    summary="Answer one entry question",
+    description=(
+        "Integer answer, checked against the database immediately. One shot per question: "
+        "a second POST for the same code is a 409."
+    ),
+    parameters=[
+        OpenApiParameter("code", str, OpenApiParameter.PATH, description="e.g. entry-sum-1-10"),
+    ],
+    request=EntryAnswerSerializer,
+    responses=EntryAnswerResultSerializer,
+    examples=[
+        OpenApiExample("request", value={"answer": 55}, request_only=True),
+        OpenApiExample(
+            "correct",
+            value={
+                **_ENTRY_SHEET,
+                "is_correct": True,
+                "correct_count": 1,
+                "answered_count": 1,
+            },
+            response_only=True,
+        ),
+    ],
+)
+class EntryAnswerView(EntryViewBase):
+    serializer_class = EntryAnswerSerializer
+
+    def post(self, request, code: str):
+        payload = EntryAnswerSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        team = request.user.team
+        try:
+            attempt = services.answer_entry_question(team, code, payload.validated_data["answer"])
+        except GameServiceError as exc:
+            _map_service_error(exc)
+
+        team.refresh_from_db(fields=["draft_order"])
+        return self.sheet_response(
+            team,
+            extra={"is_correct": attempt.is_correct},
+            serializer=EntryAnswerResultSerializer,
+        )
+
+
+@extend_schema(
+    tags=["entry"],
+    summary="Retry a wrongly-answered entry question",
+    description=(
+        "Clears a wrong answer so the team can answer *the same question* again. The "
+        "question does not change. Capped by `GameSettings.entry_max_retries`, counted "
+        "across the whole sheet. Only a question that was answered *and* wrong can be "
+        "retried."
+    ),
+    parameters=[
+        OpenApiParameter("code", str, OpenApiParameter.PATH, description="e.g. entry-sum-1-10"),
+    ],
+    request=None,
+    responses=EntrySheetSerializer,
+    examples=[
+        OpenApiExample(
+            "retry opened",
+            value={**_ENTRY_SHEET, "retries_used": 1, "retries_left": 2},
+            response_only=True,
+        ),
+    ],
+)
+class EntryRetryView(EntryViewBase):
+    serializer_class = None
+
+    def post(self, request, code: str):
+        team = request.user.team
+        try:
+            services.retry_entry_question(team, code)
+        except GameServiceError as exc:
+            _map_service_error(exc)
+        return self.sheet_response(team)
 
 
 @extend_schema(

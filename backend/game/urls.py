@@ -11,6 +11,18 @@ urlpatterns = [
     path(f"{_HOLDING}assign-question/", views.AssignQuestionView.as_view(), name="assign-question"),
     path(f"{_HOLDING}grade/", views.GradeView.as_view(), name="grade"),
     path(f"{_HOLDING}release/", views.ReleaseView.as_view(), name="release"),
+    # Pre-game entry sheet, always the caller's own team.
+    path("entry/sheet/", views.EntrySheetView.as_view(), name="entry-sheet"),
+    path(
+        "entry/questions/<slug:code>/answer/",
+        views.EntryAnswerView.as_view(),
+        name="entry-answer",
+    ),
+    path(
+        "entry/questions/<slug:code>/retry/",
+        views.EntryRetryView.as_view(),
+        name="entry-retry",
+    ),
     path(
         "teams/<slug:team_code>/attempts/",
         views.TeamAttemptsView.as_view(),

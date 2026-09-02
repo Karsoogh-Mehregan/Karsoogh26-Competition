@@ -5,4 +5,5 @@ export const queryKeys = {
   attemptsRoot: () => ['attempts'] as const,
   attempts: (teamCode: string) => ['attempts', teamCode] as const,
   leaderboard: () => ['leaderboard'] as const,
+  entrySheet: () => ['entry-sheet'] as const,
 }

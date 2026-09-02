@@ -112,3 +112,32 @@ export interface GradeResult {
   released_at: string | null
   release_reason: string
 }
+
+export interface EntryAttempt {
+  position: number
+  code: string
+  title: string
+  body: string
+  answer: number | null
+  is_correct: boolean | null
+  answered_at: string | null
+}
+
+export interface EntrySheet {
+  required_correct: number
+  correct_count: number
+  answered_count: number
+  total_count: number
+  qualified: boolean
+  grace_over: boolean
+  grace_ends_at: string | null
+  can_claim_start: boolean
+  draft_order: number | null
+  retries_used: number
+  retries_left: number
+  questions: EntryAttempt[]
+}
+
+export interface EntryAnswerResult extends EntrySheet {
+  is_correct: boolean
+}

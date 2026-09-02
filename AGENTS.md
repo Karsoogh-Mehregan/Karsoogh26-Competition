@@ -108,7 +108,31 @@ resulting `Submission` through `/api/submissions/…`, so `assign-question/`'s r
 no `submission_id` — none exists until the team actually answers.
 `POST teams/<code>/claim-start/` is the other half — it writes the team's colour *and* seats
 it on the matching spawn node (`services.claim_spawn`), which is what unblocks the first
-`assign-question`. `grade/` and `release/` still address an existing holding and 404 without one.
+`assign-question`. It is itself gated on the entry sheet (below). `grade/` and `release/`
+still address an existing holding and 404 without one.
+
+**The entry sheet gates the spawn.** Before a team may claim a start node it must clear
+`GameSettings.entry_required_correct` of the `entry_question_count` questions on its sheet
+(defaults: 2 of 3). `EntryQuestion.answer` is an **integer**, so `services/entry.py` grades
+the moment a team submits — no mentor, no `Submission`, no `Occupancy`; this is a separate
+model from `Question` precisely because the sheet is answered before a team holds any node.
+`GET /api/entry/sheet/` draws the sheet on first read (least-served + random tiebreak, same
+as `assign_question`) and is stable after that; `POST /api/entry/questions/<code>/answer/`
+is one answer per *try* — a second POST is a 409. A team that got one wrong may open a
+fresh try at **the same question** via `POST /api/entry/questions/<code>/retry/`, up to
+`entry_max_retries` times across the whole sheet (default 3; 0 makes every answer final).
+The question never changes — only the initial sheet draw picks questions. A retry
+soft-retires the failed `EntryAttempt` (`superseded_at`, the same append-and-retire shape
+as `Occupancy`) and opens a new row for the same question at the same `position`, so every
+guess stays on the record; `entryattempt_no_repeat` is therefore scoped to current rows.
+Read the sheet through `EntryAttempt.objects.current()` or you will see superseded tries.
+Clearing the sheet stamps `Team.draft_order` (finishing order). After
+`entry_grace_minutes` past `GameSettings.started_at` — stamped once, the first time status
+becomes running — the gate opens for everyone regardless, per the design doc. There are no
+seed commands: fill the pool through the admin, and create logins with
+`create_team_users --fund`, which tops every team up to `GameSettings.initial_balance`
+(400 — the design doc's 200+200, paid to every team whether it cleared the sheet or only
+waited out the grace).
 
 **Occupancy is append-and-soft-release.** Rows are never deleted; a release sets
 `released_at`. Every uniqueness rule is therefore a *partial* constraint scoped to

@@ -24,7 +24,7 @@ def uncopy_ttl(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("game", "0008_leaderboard_public"),
+        ("game", "0012_starting_balance_400"),
     ]
 
     operations = [

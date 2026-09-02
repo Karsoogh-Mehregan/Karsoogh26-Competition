@@ -1,5 +1,12 @@
 <script setup>
-import { CheckIcon, SearchIcon } from '@lucide/vue'
+import {
+  CheckIcon,
+  CircleCheckIcon,
+  ClipboardListIcon,
+  CoinsIcon,
+  HourglassIcon,
+  SearchIcon,
+} from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { Badge } from '@/components/ui/badge'
@@ -8,6 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useActing } from '../composables/useActing'
+import { useEntry } from '../composables/useEntry'
 
 const {
   me,
@@ -22,6 +30,7 @@ const {
   actAs,
   logout,
 } = useActing()
+const { sheet, needsEntrySheet, open: openEntrySheet } = useEntry()
 const route = useRoute()
 
 const username = ref('')
@@ -232,6 +241,76 @@ const showTeamPicker = computed(() => isMentor.value || isPlayer.value)
           تیمی پیدا نشد.
         </p>
       </template>
+
+      <Card v-else-if="isPlayer" class="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+        <CardHeader>
+          <CardTitle class="flex items-center gap-2">
+            <span
+              v-if="actingTeam?.color"
+              class="size-3 shrink-0 rounded-full border"
+              :style="{ backgroundColor: actingTeam.color }"
+            />
+            {{ actingTeam?.name ?? me.team.name }}
+          </CardTitle>
+          <div class="mt-3 flex items-center gap-2">
+            <CoinsIcon class="text-muted-foreground size-4 shrink-0" />
+            <span class="text-muted-foreground text-xs">موجودی</span>
+            <span class="ms-auto text-xl leading-none font-bold tabular-nums">
+              {{ formatBalance(actingTeam?.balance) }}
+            </span>
+          </div>
+        </CardHeader>
+        <CardContent class="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+          <Button
+            v-if="needsEntrySheet"
+            class="w-full"
+            @click="openEntrySheet()"
+          >
+            <ClipboardListIcon class="size-4" />
+            پاسخ به سؤال‌های ورودی
+            <Badge v-if="sheet" variant="secondary" class="ms-auto tabular-nums">
+              {{ sheet.correct_count }}/{{ sheet.required_correct }}
+            </Badge>
+          </Button>
+          <Button
+            v-else-if="sheet && !sheet.qualified"
+            class="w-full"
+            variant="outline"
+            @click="openEntrySheet()"
+          >
+            <ClipboardListIcon class="size-4" />
+            سؤال‌های ورودی
+          </Button>
+          <h2 class="text-muted-foreground text-xs font-medium">خانه‌های من</h2>
+          <p v-if="!actingTeam?.holdings.length" class="text-muted-foreground text-sm">
+            هنوز خانه‌ای رزرو نشده است.
+          </p>
+          <ul v-else class="-mx-1 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-1">
+            <li
+              v-for="holding in actingTeam.holdings"
+              :key="holding.id"
+              class="bg-muted/40 flex flex-col gap-1.5 rounded-md border p-2.5"
+            >
+              <div class="flex items-start justify-between gap-2">
+                <span class="text-sm font-medium">{{ holding.node_name }}</span>
+                <Badge variant="outline" class="shrink-0 font-normal">{{ holding.level }}</Badge>
+              </div>
+              <Badge
+                v-if="holding.grade == null"
+                variant="secondary"
+                class="w-fit font-normal"
+              >
+                <HourglassIcon class="size-3" />
+                در انتظار پاسخ یا نمره
+              </Badge>
+              <Badge v-else variant="outline" class="w-fit font-normal">
+                <CircleCheckIcon class="size-3" />
+                نمره {{ holding.grade }}
+              </Badge>
+            </li>
+          </ul>
+        </CardContent>
+      </Card>
     </div>
 
     <footer v-if="me && !loading" class="border-t px-5 py-3">

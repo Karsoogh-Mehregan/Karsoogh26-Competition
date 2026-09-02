@@ -10,6 +10,7 @@ media/
 # collectstatic output — build artifact, never committed
 staticfiles/
 
+
 # Byte-compiled / optimized / DLL files
 *.py[cod]
 *$py.class
