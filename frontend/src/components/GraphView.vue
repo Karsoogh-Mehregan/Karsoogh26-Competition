@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -17,6 +18,7 @@ const HOUSE_FILL = '#E8D5B0'
 
 const { me, teams, actingTeam, isPlayer, claimStart, assignQuestion } = useActing()
 const attemptStore = useAttemptStore()
+const router = useRouter()
 const { nodes, edges, nodeById, adjacency, startEligibleIds } = useGraph()
 
 const loggedIn = computed(() => !!me.value)
@@ -36,15 +38,15 @@ function isStartNode(n) {
   return !!n && (n.type === 'start' || n.shape === 'diamond')
 }
 
-const paintedHoldings = computed(() => {
-  if (actingTeam.value) {
-    const color = actingTeam.value.color
-    return actingTeam.value.holdings.map((holding) => ({ ...holding, color }))
-  }
-  return teams.value.flatMap((team) =>
-    team.holdings.map((holding) => ({ ...holding, color: team.color })),
-  )
-})
+const paintedHoldings = computed(() =>
+  teams.value.flatMap((team) =>
+    team.holdings.map((holding) => ({
+      ...holding,
+      color: team.color,
+      team_code: team.code,
+    })),
+  ),
+)
 
 const holdingsByNode = computed(() => {
   const map = new Map()
@@ -93,7 +95,7 @@ const expandableHeldIds = computed(() => {
   )
 })
 
-function isHeld(id) {
+function isHeldByAnyone(id) {
   return holdingsByNode.value.has(id)
 }
 
@@ -113,7 +115,7 @@ function isNodeSelectable(id) {
 }
 
 function isNodeSelected(id) {
-  return isHeld(id)
+  return actingHeldIds.value.has(id)
 }
 
 function answerableHolding(id) {
@@ -190,6 +192,7 @@ function nodeState(n) {
   if (isNodeSelected(n.id)) return 'visited'
   if (isNodeSelectable(n.id)) return 'selectable'
   if (isStartNode(n) && !claimedStartIds.value.has(n.id)) return 'idle'
+  if (isHeldByAnyone(n.id)) return 'occupied'
   return 'disabled'
 }
 
@@ -208,6 +211,7 @@ function onNodeClick(n) {
   const holding = answerableHolding(n.id)
   if (holding) {
     attemptStore.select(holding.id)
+    router.push({ name: 'solve' })
     return
   }
   if (!isNodeSelectable(n.id)) return
@@ -232,9 +236,22 @@ async function confirmNodeAction() {
     const result = await assignQuestion(node.id)
     attemptStore.select(result.id)
     toast.success(`سؤال ${result.question_id ?? ''} رزرو شد`)
+    router.push({ name: 'solve' })
   } catch (err) {
     toast.error(err.message || 'عملیات ناموفق بود.')
   }
+}
+
+function reservedHoldingsOn(n) {
+  return (holdingsByNode.value.get(n.id) ?? []).filter(
+    (holding) => !holding.is_spawn && holding.grade == null,
+  )
+}
+
+function holdingOpacity(holding) {
+  if (!holding) return 1
+  if (!actingTeam.value) return 0.32
+  return holding.team_code === actingTeam.value.code ? 1 : 0.32
 }
 
 function ringFill(n, ringIndexFromOutside) {
@@ -242,11 +259,25 @@ function ringFill(n, ringIndexFromOutside) {
   const floor = ringIndexFromOutside + 1
   const onFloor = holdings.find((holding) => holding.floor === floor)
   if (onFloor?.color) return onFloor.color
-  if (ringIndexFromOutside === 0) {
-    const pending = holdings.find((holding) => holding.floor == null)
-    if (pending?.color) return pending.color
-  }
+  const reserved = reservedHoldingsOn(n)[ringIndexFromOutside]
+  if (reserved?.color) return reserved.color
   return HOUSE_FILL
+}
+
+function ringOpacity(n, ringIndexFromOutside) {
+  const holdings = holdingsByNode.value.get(n.id) ?? []
+  const floor = ringIndexFromOutside + 1
+  const onFloor = holdings.find((holding) => holding.floor === floor)
+  const reserved = reservedHoldingsOn(n)[ringIndexFromOutside]
+  return holdingOpacity(onFloor ?? reserved)
+}
+
+function ringIsHatched(n, ringIndexFromOutside) {
+  return ringIndexFromOutside < reservedHoldingsOn(n).length
+}
+
+function isShapeHatched(n) {
+  return slotCount(n) === 1 && reservedHoldingsOn(n).length > 0
 }
 
 function nodeFill(n) {
@@ -257,6 +288,12 @@ function nodeFill(n) {
   }
   if (isStartNode(n)) return n.color
   return HOUSE_FILL
+}
+
+function shapeOpacity(n) {
+  const holdings = holdingsByNode.value.get(n.id) ?? []
+  const colored = holdings.find((holding) => holding.color)
+  return holdingOpacity(colored)
 }
 
 function startDuel() {
@@ -333,6 +370,15 @@ function shapePath(n) {
       >
         <path d="M 0 0 L 10 5 L 0 10 z" fill="#222" />
       </marker>
+      <pattern
+        id="reserve-hatch"
+        patternUnits="userSpaceOnUse"
+        width="6"
+        height="6"
+        patternTransform="rotate(45)"
+      >
+        <line x1="0" y1="0" x2="0" y2="6" stroke="#1a1a1a" stroke-width="2.2" />
+      </pattern>
     </defs>
 
     <!-- outward direction markers: yellow diamond start nodes only -->
@@ -386,21 +432,52 @@ function shapePath(n) {
         @blur="hoveredId = null"
       >
         <template v-if="slotCount(n) > 1">
+          <template v-for="(r, i) in slotRadii(n)" :key="n.id + '-ring-' + i">
+            <circle
+              :r="r"
+              :fill="ringFill(n, i)"
+              :opacity="ringOpacity(n, i)"
+              class="node-shape"
+            />
+            <circle
+              v-if="ringIsHatched(n, i)"
+              :r="r"
+              fill="url(#reserve-hatch)"
+              :opacity="ringOpacity(n, i)"
+              class="node-hatch"
+            />
+          </template>
+        </template>
+        <template v-else-if="n.shape === 'circle'">
           <circle
-            v-for="(r, i) in slotRadii(n)"
-            :key="i"
-            :r="r"
-            :fill="ringFill(n, i)"
+            :r="visualRadius(n)"
+            :fill="nodeFill(n)"
+            :opacity="shapeOpacity(n)"
             class="node-shape"
           />
+          <circle
+            v-if="isShapeHatched(n)"
+            :r="visualRadius(n)"
+            fill="url(#reserve-hatch)"
+            :opacity="shapeOpacity(n)"
+            class="node-hatch"
+          />
         </template>
-        <circle
-          v-else-if="n.shape === 'circle'"
-          :r="visualRadius(n)"
-          :fill="nodeFill(n)"
-          class="node-shape"
-        />
-        <path v-else :d="shapePath(n)" :fill="nodeFill(n)" class="node-shape" />
+        <template v-else>
+          <path
+            :d="shapePath(n)"
+            :fill="nodeFill(n)"
+            :opacity="shapeOpacity(n)"
+            class="node-shape"
+          />
+          <path
+            v-if="isShapeHatched(n)"
+            :d="shapePath(n)"
+            fill="url(#reserve-hatch)"
+            :opacity="shapeOpacity(n)"
+            class="node-hatch"
+          />
+        </template>
 
         <circle
           v-if="isNodeSelected(n.id)"
@@ -535,6 +612,15 @@ function shapePath(n) {
   stroke: #1a1a1a;
   stroke-width: 1.4;
   transition: filter 0.2s ease, stroke-width 0.15s ease;
+}
+.node-hatch {
+  stroke: none;
+  pointer-events: none;
+}
+
+.state-occupied {
+  opacity: 1;
+  cursor: default;
 }
 
 .node-label {

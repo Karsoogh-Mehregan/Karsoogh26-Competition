@@ -1,6 +1,13 @@
 import { computed, onBeforeUnmount, ref, watch, type Ref } from 'vue'
 
-export function useCountdown(secondsSource: Ref<number | undefined | null>) {
+function secondsUntil(iso: string | null | undefined): number {
+  if (!iso) return 0
+  const end = Date.parse(iso)
+  if (Number.isNaN(end)) return 0
+  return Math.max(0, Math.floor((end - Date.now()) / 1000))
+}
+
+export function useCountdown(expiresAt: Ref<string | null | undefined>) {
   const remaining = ref(0)
   let timer: ReturnType<typeof setInterval> | null = null
 
@@ -11,26 +18,25 @@ export function useCountdown(secondsSource: Ref<number | undefined | null>) {
     }
   }
 
+  function tick() {
+    remaining.value = secondsUntil(expiresAt.value)
+    if (remaining.value === 0) stopTimer()
+  }
+
   watch(
-    secondsSource,
-    (seconds) => {
+    expiresAt,
+    (value) => {
       stopTimer()
-      if (seconds == null) {
-        remaining.value = 0
-        return
-      }
-      remaining.value = seconds
-      timer = setInterval(() => {
-        remaining.value = Math.max(0, remaining.value - 1)
-        if (remaining.value === 0) stopTimer()
-      }, 1000)
+      tick()
+      if (!value || remaining.value === 0) return
+      timer = setInterval(tick, 1000)
     },
     { immediate: true },
   )
 
   onBeforeUnmount(stopTimer)
 
-  const expired = computed(() => remaining.value <= 0 && secondsSource.value != null)
+  const expired = computed(() => remaining.value <= 0 && !!expiresAt.value)
   const urgent = computed(() => !expired.value && remaining.value <= 60)
 
   const timerClass = computed(() => {

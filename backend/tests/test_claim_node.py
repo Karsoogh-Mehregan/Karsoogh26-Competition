@@ -1,5 +1,7 @@
 """assign-question is the move: it reserves a reachable node and starts the clock."""
 
+from datetime import timedelta
+
 import pytest
 from django.contrib.auth.models import Group
 from django.urls import reverse
@@ -17,6 +19,7 @@ from game.models import (
     Occupancy,
     Question,
 )
+from game.services import assign_question
 from teams.models import Team
 from teams.start_colors import color_for_start
 
@@ -261,6 +264,22 @@ class TestSlotsAndCost:
         assert response.status_code == 409
         team.refresh_from_db()
         assert team.balance == 500
+
+    def test_an_expired_reservation_frees_the_slot(
+        self, client_team, running_game, graph, questions, team
+    ):
+        hold(team, graph[START_CODE], is_spawn=True)
+        occ = hold(team, graph["e1"])
+        assign_question(occ)
+        occ.expires_at = timezone.now() - timedelta(minutes=1)
+        occ.save(update_fields=["expires_at"])
+
+        response = client_team.post(claim_url("alpha", "e1"))
+
+        assert response.status_code == 200
+        occ.refresh_from_db()
+        assert occ.released_at is not None
+        assert Occupancy.objects.active().filter(team=team, node=graph["e1"]).exists()
 
 
 class TestGuards:

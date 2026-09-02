@@ -11,7 +11,7 @@ from core.openapi import OpenApiExample, extend_schema
 from game.api_exceptions import Conflict
 from game.models import Node
 from game.permissions import IsOwnTeam
-from game.services import claim_spawn
+from game.services import claim_spawn, release_expired_attempts
 
 from .models import Team
 from .serializers import ClaimStartSerializer, LeaderboardRowSerializer, TeamSerializer
@@ -47,9 +47,12 @@ from .start_colors import color_for_start
     ],
 )
 class TeamListView(ListAPIView):
-    queryset = Team.objects.with_holdings()
     serializer_class = TeamSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        release_expired_attempts()
+        return Team.objects.with_holdings()
 
 
 @extend_schema(

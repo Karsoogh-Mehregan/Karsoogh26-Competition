@@ -176,7 +176,7 @@ class TestAssignQuestion:
         fresh.refresh_from_db()
         assert fresh.question_assigned_at is not None
         assert fresh.expires_at - fresh.question_assigned_at == timedelta(
-            minutes=running_game.attempt_ttl_minutes
+            minutes=fresh.node.level.attempt_ttl_minutes
         )
         assert response.data["is_expired"] is False
         assert response.data["question_id"] == fresh.question_id

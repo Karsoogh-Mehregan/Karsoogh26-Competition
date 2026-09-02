@@ -8,6 +8,7 @@ export function useTeamsQuery(enabled: () => boolean) {
     queryKey: queryKeys.teams(),
     queryFn: ({ signal }) => listTeams(signal),
     enabled,
+    refetchInterval: 15_000,
   })
 }
 

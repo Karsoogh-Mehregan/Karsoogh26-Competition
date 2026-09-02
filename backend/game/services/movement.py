@@ -6,7 +6,7 @@ from teams.models import Team
 from teams.start_colors import color_for_start
 
 from .mentor import Conflict
-from .questions import assign_question
+from .questions import assign_question, release_expired_attempts
 
 
 def is_reachable(node: Node, held_ids: set[int]) -> bool:
@@ -98,6 +98,8 @@ def claim_node(team: Team, node: Node) -> Occupancy:
     """
     if not GameSettings.load().is_running:
         raise Conflict("بازی در حال اجرا نیست.")
+
+    release_expired_attempts()
 
     holding = (
         Occupancy.objects.active()
