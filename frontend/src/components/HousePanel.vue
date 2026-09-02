@@ -72,7 +72,7 @@ async function runAction() {
   }
 
   if (current.intent === 'solve') {
-    if (current.occupancyId != null) attemptStore.select(current.occupancyId)
+    attemptStore.select(current.occupancyId)
     router.push({ name: 'solve' })
     return
   }

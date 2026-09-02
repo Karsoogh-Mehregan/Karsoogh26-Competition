@@ -178,12 +178,17 @@ function createStage() {
     invalidate()
   }
 
+  function releaseDrag() {
+    if (pointerId === null) return
+    if (canvas.hasPointerCapture(pointerId)) {
+      canvas.releasePointerCapture(pointerId)
+    }
+    pointerId = null
+  }
+
   function onPointerUp(event: PointerEvent) {
     if (pointerId !== event.pointerId) return
-    pointerId = null
-    if (canvas.hasPointerCapture(event.pointerId)) {
-      canvas.releasePointerCapture(event.pointerId)
-    }
+    releaseDrag()
   }
 
   canvas.addEventListener('pointerdown', onPointerDown)
@@ -249,6 +254,7 @@ function createStage() {
         cancelAnimationFrame(frame)
         frame = 0
       }
+      releaseDrag()
       canvas.remove()
     },
 

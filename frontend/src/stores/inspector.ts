@@ -22,17 +22,33 @@ export type InspectIntent =
   /** Look, but nothing to do. */
   | 'view'
 
-export interface Inspection {
-  nodeCode: string
-  intent: InspectIntent
-  /** Occupancy id, when the intent is `solve`. */
-  occupancyId: number | null
-}
+/**
+ * A union, not a struct with a nullable field: `solve` without the occupancy it
+ * means to solve is not a state the panel can act on, so it is not a state the
+ * type allows. The only producer is `GraphView.vue`, which is plain untyped JS,
+ * hence the runtime check as well.
+ */
+export type Inspection =
+  | { nodeCode: string; intent: 'solve'; occupancyId: number }
+  | { nodeCode: string; intent: Exclude<InspectIntent, 'solve'>; occupancyId: null }
 
 export const useInspectorStore = defineStore('inspector', () => {
   const inspection = ref<Inspection | null>(null)
 
+  function inspect(nodeCode: string, intent: 'solve', occupancyId: number): void
+  function inspect(
+    nodeCode: string,
+    intent: Exclude<InspectIntent, 'solve'>,
+    occupancyId?: null,
+  ): void
   function inspect(nodeCode: string, intent: InspectIntent, occupancyId: number | null = null) {
+    if (intent !== 'solve') {
+      inspection.value = { nodeCode, intent, occupancyId: null }
+      return
+    }
+    if (occupancyId == null) {
+      throw new Error(`inspect("${nodeCode}", "solve") needs an occupancyId.`)
+    }
     inspection.value = { nodeCode, intent, occupancyId }
   }
 

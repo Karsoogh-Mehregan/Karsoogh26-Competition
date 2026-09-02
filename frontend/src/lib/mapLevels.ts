@@ -40,8 +40,25 @@ export const LEVEL_LABEL: Record<Level, string> = {
   toll: 'عوارضی',
 }
 
+const warned = new Set<string>()
+
+/**
+ * Unknown types are a data bug, and the backend's `import_graph` refuses to
+ * import one. Here it has to stay non-fatal: this runs inside the map's render
+ * path, and a blank board mid-contest is worse than one wrong house. So it
+ * throws while developing and falls back — loudly, once per type — in a build.
+ */
 export function levelForType(type: string): Level {
-  return TYPE_TO_LEVEL[type] ?? 'easy'
+  const level = TYPE_TO_LEVEL[type]
+  if (level) return level
+  if (import.meta.env.DEV) {
+    throw new Error(`mapLevels: unmapped node type "${type}" — add it to TYPE_TO_LEVEL.`)
+  }
+  if (!warned.has(type)) {
+    warned.add(type)
+    console.error(`mapLevels: unmapped node type "${type}", falling back to "easy".`)
+  }
+  return 'easy'
 }
 
 export function capacityForType(type: string): 1 | 2 | 3 {

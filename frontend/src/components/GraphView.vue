@@ -341,11 +341,6 @@ function shapeOpacity(n) {
   return holdingOpacity(colored)
 }
 
-function startDuel() {
-  pendingNode.value = null
-  toast.info('دوئل هنوز فعال نشده است.')
-}
-
 function slotCount(n) {
   return capacityForType(n.type)
 }
