@@ -16,14 +16,18 @@ const ROUTES: Record<string, () => QueryKey[]> = {
   'board.released': () => BOARD,
   // A grade moves balances, so the leaderboard is stale too.
   'board.graded': () => [queryKeys.teams(), queryKeys.leaderboard()],
-  'question.assigned': () => [queryKeys.occupancyQuestion()],
+  'question.assigned': () => [queryKeys.allAttempts()],
   'mentor.submission.created': () => [queryKeys.submissions()],
+  // An admin flipped the game state; everyone's clock and stage bar are stale.
+  'game.state': () => [queryKeys.gameState(), queryKeys.gameSettings()],
 }
 
 const RESYNC_KEYS: QueryKey[] = [
   queryKeys.teams(),
   queryKeys.leaderboard(),
   queryKeys.submissions(),
+  queryKeys.gameState(),
+  queryKeys.allAttempts(),
 ]
 
 function createBoardStream() {

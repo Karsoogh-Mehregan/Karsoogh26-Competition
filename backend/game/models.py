@@ -268,6 +268,17 @@ class GameSettings(models.Model):
     )
     leaderboard_public = models.BooleanField(default=False)
 
+    started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Stamped the first time status becomes running; anchors the elapsed clock.",
+    )
+    ends_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Planned finish. Drives the countdown every team sees; purely informational.",
+    )
+
     class Meta:
         verbose_name = "game settings"
         verbose_name_plural = "game settings"
@@ -275,6 +286,15 @@ class GameSettings(models.Model):
 
     def __str__(self):
         return f"Game settings ({self.get_status_display()})"
+
+    def save(self, *args, **kwargs):
+        """Stamp kick-off once, so the elapsed clock has a fixed anchor."""
+        if self.status == GameStatus.RUNNING and self.started_at is None:
+            self.started_at = timezone.now()
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = {*update_fields, "started_at"}
+        super().save(*args, **kwargs)
 
     @classmethod
     def load(cls) -> "GameSettings":
@@ -287,6 +307,20 @@ class GameSettings(models.Model):
     @property
     def is_paused(self) -> bool:
         return self.status == GameStatus.PAUSED
+
+    @property
+    def elapsed_seconds(self) -> int | None:
+        """Seconds since kick-off, or None before it."""
+        if self.started_at is None:
+            return None
+        return max(0, int((timezone.now() - self.started_at).total_seconds()))
+
+    @property
+    def remaining_seconds(self) -> int | None:
+        """Seconds until the planned finish, or None when no finish is set."""
+        if self.ends_at is None:
+            return None
+        return max(0, int((self.ends_at - timezone.now()).total_seconds()))
 
 
 class Question(models.Model):

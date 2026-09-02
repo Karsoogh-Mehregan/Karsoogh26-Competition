@@ -1,5 +1,6 @@
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
@@ -22,11 +23,13 @@ from game.exceptions import (
     OccupancyNotActive,
     SubmissionWindowClosed,
 )
-from game.models import Node, Occupancy, Question, Submission, TeamQuestion
+from game.models import GameSettings, Node, Occupancy, Question, Submission, TeamQuestion
 from game.permissions import IsOwnTeam, IsTeamMember
 from game.serializers import (
     ActiveAttemptSerializer,
     AssignQuestionSerializer,
+    GameSettingsSerializer,
+    GameStateSerializer,
     GradeResultSerializer,
     GradeSerializer,
     GradeSubmissionSerializer,
@@ -542,3 +545,87 @@ class ReleaseView(MentorActionView):
 
     def perform(self, holding, data):
         return services.release_attempt(holding, data["reason"])
+
+
+def _game_state_payload(settings_row: GameSettings) -> dict:
+    return {
+        "status": settings_row.status,
+        "status_display": settings_row.get_status_display(),
+        "is_running": settings_row.is_running,
+        "server_time": timezone.now(),
+        "started_at": settings_row.started_at,
+        "ends_at": settings_row.ends_at,
+        "elapsed_seconds": settings_row.elapsed_seconds,
+        "remaining_seconds": settings_row.remaining_seconds,
+        "leaderboard_public": settings_row.leaderboard_public,
+    }
+
+
+@extend_schema(
+    tags=["game"],
+    summary="Game state and server clock",
+    description=(
+        "Status, kick-off, planned finish and the server's own clock. Every client "
+        "derives its countdown from `server_time` so the whole hall sees the same "
+        "numbers regardless of how wrong the local clock is."
+    ),
+    responses=GameStateSerializer,
+    examples=[
+        OpenApiExample(
+            "running",
+            value={
+                "status": "running",
+                "status_display": "در حال اجرا",
+                "is_running": True,
+                "server_time": "2026-09-02T12:00:00+03:30",
+                "started_at": "2026-09-02T11:00:00+03:30",
+                "ends_at": "2026-09-02T15:00:00+03:30",
+                "elapsed_seconds": 3600,
+                "remaining_seconds": 10800,
+                "leaderboard_public": False,
+            },
+            response_only=True,
+        ),
+    ],
+)
+class GameStateView(APIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = GameStateSerializer
+
+    def get(self, request):
+        return Response(GameStateSerializer(_game_state_payload(GameSettings.load())).data)
+
+
+@extend_schema(
+    tags=["game"],
+    summary="Read or change game settings",
+    description=(
+        "Mentor-only. PATCH one or more of status, leaderboard_public, ends_at, "
+        "attempt_ttl_minutes, initial_balance. Any change publishes a `game.state` "
+        "event so every open client re-reads the state without a refresh."
+    ),
+    request=GameSettingsSerializer,
+    responses=GameSettingsSerializer,
+    examples=[
+        OpenApiExample("start", value={"status": "running"}, request_only=True),
+    ],
+)
+class GameSettingsView(APIView):
+    permission_classes = [IsMentor]
+    serializer_class = GameSettingsSerializer
+
+    def get(self, request):
+        return Response(GameSettingsSerializer(GameSettings.load()).data)
+
+    def patch(self, request):
+        settings_row = GameSettings.load()
+        serializer = GameSettingsSerializer(settings_row, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        settings_row.refresh_from_db()
+        services.publish_on_commit(
+            services.GAME_STATE,
+            {"status": settings_row.status},
+        )
+        return Response(serializer.data)

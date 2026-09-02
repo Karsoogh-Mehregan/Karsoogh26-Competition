@@ -135,10 +135,13 @@ class GameSettingsAdmin(admin.ModelAdmin):
     list_display = (
         "__str__",
         "status",
+        "started_at",
+        "ends_at",
         "initial_balance",
         "attempt_ttl_minutes",
         "leaderboard_public",
     )
+    readonly_fields = ("started_at",)
 
     def has_add_permission(self, request):
         return not GameSettings.objects.exists()

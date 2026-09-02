@@ -112,3 +112,25 @@ export interface GradeResult {
   released_at: string | null
   release_reason: string
 }
+
+export type GameStatus = 'not_started' | 'running' | 'paused' | 'finished'
+
+export interface GameState {
+  status: GameStatus
+  status_display: string
+  is_running: boolean
+  server_time: string
+  started_at: string | null
+  ends_at: string | null
+  elapsed_seconds: number | null
+  remaining_seconds: number | null
+  leaderboard_public: boolean
+}
+
+export interface GameSettings {
+  status: GameStatus
+  leaderboard_public: boolean
+  ends_at: string | null
+  attempt_ttl_minutes: number
+  initial_balance: number
+}

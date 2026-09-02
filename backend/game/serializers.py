@@ -2,7 +2,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from core.openapi import extend_schema_field
-from game.models import Occupancy, Question, Submission
+from game.models import GameSettings, Occupancy, Question, Submission
 from game.services import MENTOR_RELEASE_REASONS
 
 
@@ -314,3 +314,41 @@ class ReleaseSerializer(serializers.Serializer):
     reason = serializers.ChoiceField(
         choices=[(reason.value, reason.label) for reason in MENTOR_RELEASE_REASONS]
     )
+
+
+class GameStateSerializer(serializers.Serializer):
+    """What every logged-in client needs to draw the clock and the stage bar.
+
+    `server_time` is the point of the whole thing: contest clients disagree
+    about the wall clock, so the SPA derives one offset from this and shows the
+    same countdown to everyone.
+    """
+
+    status = serializers.CharField(read_only=True)
+    status_display = serializers.CharField(read_only=True)
+    is_running = serializers.BooleanField(read_only=True)
+    server_time = serializers.DateTimeField(read_only=True)
+    started_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    ends_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    elapsed_seconds = serializers.IntegerField(read_only=True, allow_null=True)
+    remaining_seconds = serializers.IntegerField(read_only=True, allow_null=True)
+    leaderboard_public = serializers.BooleanField(read_only=True)
+
+
+class GameSettingsSerializer(serializers.ModelSerializer):
+    """The mentor-editable knobs. `started_at` is stamped by the model, not set."""
+
+    class Meta:
+        model = GameSettings
+        fields = (
+            "status",
+            "leaderboard_public",
+            "ends_at",
+            "attempt_ttl_minutes",
+            "initial_balance",
+        )
+
+    def validate_attempt_ttl_minutes(self, value):
+        if value < 1:
+            raise serializers.ValidationError("مهلت پاسخ باید دست‌کم ۱ دقیقه باشد.")
+        return value
