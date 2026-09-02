@@ -7,6 +7,7 @@ app_name = "game"
 _HOLDING = "teams/<slug:team_code>/nodes/<slug:node_code>/"
 
 urlpatterns = [
+    path("levels/", views.LevelListView.as_view(), name="level-list"),
     # Mentor actions on a holding, addressed by (team, node).
     path(f"{_HOLDING}assign-question/", views.AssignQuestionView.as_view(), name="assign-question"),
     path(f"{_HOLDING}grade/", views.GradeView.as_view(), name="grade"),

@@ -15,7 +15,8 @@ from django.db import transaction
 from django.utils.crypto import get_random_string
 
 from game.models import GameSettings
-from teams.models import Team
+from teams.ledger import apply_balance_change
+from teams.models import BalanceReason, Team
 
 User = get_user_model()
 
@@ -82,7 +83,13 @@ class Command(BaseCommand):
             funded = 0
             if options["fund"]:
                 initial_balance = GameSettings.load().initial_balance
-                funded = Team.objects.filter(balance=0).update(balance=initial_balance)
+                for team in Team.objects.filter(balance=0):
+                    apply_balance_change(
+                        team,
+                        initial_balance,
+                        reason=BalanceReason.INITIAL,
+                    )
+                    funded += 1
 
         writer = csv.writer(self.stdout)
         writer.writerow(["code", "name", "username", "password"])

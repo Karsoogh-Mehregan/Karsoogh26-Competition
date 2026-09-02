@@ -3,7 +3,7 @@ from rest_framework import serializers
 from accounts.permissions import MENTOR_PERM
 from game.models import Occupancy
 
-from .models import Team
+from .models import BalanceEvent, Team
 from .start_colors import color_for_start
 
 
@@ -37,6 +37,15 @@ class TeamSerializer(serializers.ModelSerializer):
         if user.has_perm(MENTOR_PERM) or user.team_id == team.pk:
             return team.balance
         return None
+
+
+class BalanceEventSerializer(serializers.ModelSerializer):
+    reason_label = serializers.CharField(source="get_reason_display", read_only=True)
+
+    class Meta:
+        model = BalanceEvent
+        fields = ("id", "delta", "balance_after", "reason", "reason_label", "detail", "created_at")
+        read_only_fields = fields
 
 
 class LeaderboardRowSerializer(serializers.Serializer):

@@ -6,4 +6,7 @@ export const queryKeys = {
   attempts: (teamCode: string) => ['attempts', teamCode] as const,
   leaderboard: () => ['leaderboard'] as const,
   entrySheet: () => ['entry-sheet'] as const,
+  levels: () => ['levels'] as const,
+  balanceEventsRoot: () => ['balance-events'] as const,
+  balanceEvents: (teamCode: string) => ['balance-events', teamCode] as const,
 }

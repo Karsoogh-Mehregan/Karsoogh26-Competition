@@ -141,3 +141,19 @@ export interface EntrySheet {
 export interface EntryAnswerResult extends EntrySheet {
   is_correct: boolean
 }
+
+export interface LevelConfigRow {
+  level: string
+  entry_cost: number
+  capacity: number
+}
+
+export interface BalanceEvent {
+  id: number
+  delta: number
+  balance_after: number
+  reason: string
+  reason_label: string
+  detail: string
+  created_at: string
+}

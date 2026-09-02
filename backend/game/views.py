@@ -29,7 +29,7 @@ from game.exceptions import (
     OccupancyNotActive,
     SubmissionWindowClosed,
 )
-from game.models import Node, Occupancy, Question, Submission, TeamQuestion
+from game.models import LevelConfig, Node, Occupancy, Question, Submission, TeamQuestion
 from game.permissions import IsOwnTeam, IsTeamMember
 from game.serializers import (
     ActiveAttemptSerializer,
@@ -41,6 +41,7 @@ from game.serializers import (
     GradeSerializer,
     GradeSubmissionSerializer,
     HoldingSerializer,
+    LevelConfigSerializer,
     OccupancyQuestionResponseSerializer,
     QuestionForTeamSerializer,
     ReleaseSerializer,
@@ -173,6 +174,27 @@ def _map_service_error(exc: GameServiceError):
     if isinstance(exc, (AlreadyGraded, MissingFloor)):
         raise Unprocessable(str(exc)) from exc
     raise exc
+
+
+@extend_schema(
+    tags=["game"],
+    summary="Level configs",
+    description="Entry cost and capacity per level, for the reserve dialog.",
+    examples=[
+        OpenApiExample(
+            "levels",
+            value=[{"level": "easy", "entry_cost": 20, "capacity": 1}],
+            response_only=True,
+        ),
+    ],
+    responses=LevelConfigSerializer(many=True),
+)
+class LevelListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        rows = LevelConfig.objects.order_by("level")
+        return Response(LevelConfigSerializer(rows, many=True).data)
 
 
 _ENTRY_ATTEMPT = {

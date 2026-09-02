@@ -12,10 +12,10 @@ type QueryKey = readonly unknown[]
 const BOARD = [queryKeys.teams()]
 const ROUTES: Record<string, () => QueryKey[]> = {
   'board.spawn.claimed': () => BOARD,
-  'board.node.claimed': () => BOARD,
+  'board.node.claimed': () => [queryKeys.teams(), queryKeys.balanceEventsRoot()],
   'board.released': () => [queryKeys.teams(), queryKeys.attemptsRoot()],
   // A grade moves balances, so the leaderboard is stale too.
-  'board.graded': () => [queryKeys.teams(), queryKeys.leaderboard()],
+  'board.graded': () => [queryKeys.teams(), queryKeys.leaderboard(), queryKeys.balanceEventsRoot()],
   'question.assigned': () => [queryKeys.attemptsRoot()],
   'mentor.submission.created': () => [queryKeys.submissions()],
 }
@@ -25,6 +25,7 @@ const RESYNC_KEYS: QueryKey[] = [
   queryKeys.leaderboard(),
   queryKeys.submissions(),
   queryKeys.attemptsRoot(),
+  queryKeys.balanceEventsRoot(),
 ]
 
 function createBoardStream() {

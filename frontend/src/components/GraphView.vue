@@ -16,11 +16,15 @@ import { useEntry } from '../composables/useEntry'
 import { useAttemptStore } from '../stores/attempt'
 import { useGraph } from '../composables/useGraph.js'
 import { useMapViewport } from '../composables/useMapViewport'
+import { formatBalance } from '@/lib/format'
+import { entryCostForNodeType } from '@/lib/nodeLevels'
+import { useLevelsQuery } from '@/queries/game'
 
 const HOUSE_FILL = '#E2CFA6'
 
 const { me, teams, actingTeam, isPlayer, claimStart, assignQuestion } = useActing()
 const { canClaimStart, open: openEntrySheet } = useEntry()
+const levelsQuery = useLevelsQuery(() => !!me.value)
 const attemptStore = useAttemptStore()
 const router = useRouter()
 const { nodes, edges, nodeById, adjacency, startEligibleIds } = useGraph()
@@ -298,6 +302,17 @@ const pendingIsStart = computed(
   () => isStartNode(pendingNode.value) && actingHeldIds.value.size === 0,
 )
 
+const pendingEntryCost = computed(() => {
+  if (!pendingNode.value || pendingIsStart.value) return null
+  return entryCostForNodeType(pendingNode.value.type, levelsQuery.data.value)
+})
+
+const pendingReserveLabel = computed(() => {
+  if (pendingIsStart.value) return 'ورود به این خانه'
+  if (pendingEntryCost.value == null) return 'رزرو این خانه'
+  return `رزرو این خانه (${formatBalance(pendingEntryCost.value)})`
+})
+
 async function confirmNodeAction() {
   const node = pendingNode.value
   const claimStartNode = pendingIsStart.value
@@ -318,9 +333,15 @@ async function confirmNodeAction() {
   }
 }
 
-function reservedHoldingsOn(n) {
-  return (holdingsByNode.value.get(n.id) ?? []).filter(
-    (holding) => !holding.is_spawn && holding.grade == null,
+function ringHolding(n, ringIndexFromOutside) {
+  const holdings = holdingsByNode.value.get(n.id) ?? []
+  const index = ringIndexFromOutside + 1
+  const owned = holdings.find((holding) => holding.floor === index)
+  if (owned) return owned
+  return (
+    holdings.find(
+      (holding) => holding.floor == null && !holding.is_spawn && holding.slot === index,
+    ) ?? null
   )
 }
 
@@ -331,29 +352,23 @@ function holdingOpacity(holding) {
 }
 
 function ringFill(n, ringIndexFromOutside) {
-  const holdings = holdingsByNode.value.get(n.id) ?? []
-  const floor = ringIndexFromOutside + 1
-  const onFloor = holdings.find((holding) => holding.floor === floor)
-  if (onFloor?.color) return onFloor.color
-  const reserved = reservedHoldingsOn(n)[ringIndexFromOutside]
-  if (reserved?.color) return reserved.color
+  const holding = ringHolding(n, ringIndexFromOutside)
+  if (holding?.color) return holding.color
   return HOUSE_FILL
 }
 
 function ringOpacity(n, ringIndexFromOutside) {
-  const holdings = holdingsByNode.value.get(n.id) ?? []
-  const floor = ringIndexFromOutside + 1
-  const onFloor = holdings.find((holding) => holding.floor === floor)
-  const reserved = reservedHoldingsOn(n)[ringIndexFromOutside]
-  return holdingOpacity(onFloor ?? reserved)
+  return holdingOpacity(ringHolding(n, ringIndexFromOutside))
 }
 
 function ringIsHatched(n, ringIndexFromOutside) {
-  return ringIndexFromOutside < reservedHoldingsOn(n).length
+  const holding = ringHolding(n, ringIndexFromOutside)
+  return !!holding && holding.floor == null && !holding.is_spawn
 }
 
 function isShapeHatched(n) {
-  return slotCount(n) === 1 && reservedHoldingsOn(n).length > 0
+  const holdings = holdingsByNode.value.get(n.id) ?? []
+  return holdings.some((holding) => !holding.is_spawn && holding.floor == null)
 }
 
 function nodeFill(n) {
@@ -662,7 +677,7 @@ function shapePath(n) {
         </DialogHeader>
         <div class="flex flex-col gap-2">
           <Button class="w-full" @click="confirmNodeAction">
-            {{ pendingIsStart ? 'ورود به این خانه' : 'رزرو این خانه' }}
+            {{ pendingReserveLabel }}
           </Button>
           <Button class="w-full" variant="outline" @click="startDuel">دویل</Button>
         </div>

@@ -1,5 +1,9 @@
 import { get, post } from '@/lib/http'
-import type { AssignQuestionResult, GradeResult, SubmissionRow } from '@/types/api'
+import type { AssignQuestionResult, GradeResult, LevelConfigRow, SubmissionRow } from '@/types/api'
+
+export function listLevels(signal?: AbortSignal): Promise<LevelConfigRow[]> {
+  return get<LevelConfigRow[]>('/levels/', signal)
+}
 
 export function assignQuestion(
   teamCode: string,

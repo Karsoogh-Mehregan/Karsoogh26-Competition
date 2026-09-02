@@ -13,8 +13,13 @@ from game.permissions import IsOwnTeam
 from game.services import claim_spawn, release_expired_attempts, require_entry_clearance
 
 from . import board_cache
-from .models import Team
-from .serializers import ClaimStartSerializer, LeaderboardRowSerializer, TeamSerializer
+from .models import BalanceEvent, Team
+from .serializers import (
+    BalanceEventSerializer,
+    ClaimStartSerializer,
+    LeaderboardRowSerializer,
+    TeamSerializer,
+)
 from .start_colors import color_for_start
 
 
@@ -128,3 +133,34 @@ class ClaimStartView(APIView):
             raise Conflict("این خانهٔ شروع قبلاً گرفته شده است.") from exc
         data = TeamSerializer(team, context={"request": request}).data
         return Response(data, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    tags=["teams"],
+    summary="Team score log",
+    description="Every change to this team's گیلاریوم, newest first. Own team only.",
+    examples=[
+        OpenApiExample(
+            "log",
+            value=[
+                {
+                    "id": 2,
+                    "delta": -20,
+                    "balance_after": 380,
+                    "reason": "entry",
+                    "reason_label": "رزرو خانه",
+                    "detail": "Easy 1",
+                    "created_at": "2026-09-02T12:00:00Z",
+                }
+            ],
+            response_only=True,
+        ),
+    ],
+    responses=BalanceEventSerializer(many=True),
+)
+class TeamBalanceEventView(APIView):
+    permission_classes = [IsAuthenticated, IsOwnTeam]
+
+    def get(self, request, team_code: str):
+        events = BalanceEvent.objects.filter(team__code=team_code)
+        return Response(BalanceEventSerializer(events, many=True).data)

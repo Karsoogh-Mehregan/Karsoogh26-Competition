@@ -1,10 +1,8 @@
 <script setup>
 import {
   CheckIcon,
-  CircleCheckIcon,
   ClipboardListIcon,
   CoinsIcon,
-  HourglassIcon,
   SearchIcon,
 } from '@lucide/vue'
 import { computed, ref } from 'vue'
@@ -15,7 +13,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useActing } from '../composables/useActing'
+import { useBalanceEvents } from '../composables/useBalanceEvents'
 import { useEntry } from '../composables/useEntry'
+import { formatBalance, formatSignedBalance } from '@/lib/format'
 
 const {
   me,
@@ -31,6 +31,7 @@ const {
   logout,
 } = useActing()
 const { sheet, needsEntrySheet, open: openEntrySheet } = useEntry()
+const { events: balanceEvents, loading: ledgerLoading, error: ledgerError } = useBalanceEvents()
 const route = useRoute()
 
 const username = ref('')
@@ -76,8 +77,6 @@ const listedTeams = computed(() => {
 function isSelected(team) {
   return actingTeam.value?.code === team.code
 }
-
-const showTeamPicker = computed(() => isMentor.value || isPlayer.value)
 </script>
 
 <template>
@@ -178,7 +177,7 @@ const showTeamPicker = computed(() => isMentor.value || isPlayer.value)
         </Button>
       </form>
 
-      <template v-else-if="showTeamPicker">
+      <template v-else-if="isMentor">
         <div v-if="isMentor" class="relative mb-3 shrink-0">
           <Label for="team-search" class="sr-only">جستجوی تیم</Label>
           <SearchIcon
@@ -194,17 +193,7 @@ const showTeamPicker = computed(() => isMentor.value || isPlayer.value)
           />
         </div>
         <ul class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
-          <li v-if="isPlayer && listedTeams[0]" class="px-1 py-3">
-            <span class="flex min-w-0 items-center gap-2 font-semibold">
-              <span
-                v-if="listedTeams[0].color || actingTeam?.color"
-                class="size-3 shrink-0 rounded-full border"
-                :style="{ backgroundColor: listedTeams[0].color || actingTeam?.color }"
-              />
-              {{ listedTeams[0].name }}
-            </span>
-          </li>
-          <li v-for="team in isMentor ? listedTeams : []" :key="team.code">
+          <li v-for="team in listedTeams" :key="team.code">
             <Button
               class="h-auto w-full items-start justify-between py-3 whitespace-normal"
               :variant="isSelected(team) ? 'default' : 'outline'"
@@ -229,88 +218,94 @@ const showTeamPicker = computed(() => isMentor.value || isPlayer.value)
           </li>
         </ul>
         <p
-          v-if="isMentor && teams.length === 0"
+          v-if="teams.length === 0"
           class="text-muted-foreground mt-3 shrink-0 text-sm"
         >
           تیمی ثبت نشده است.
         </p>
         <p
-          v-else-if="isMentor && listedTeams.length === 0"
+          v-else-if="listedTeams.length === 0"
           class="text-muted-foreground mt-3 shrink-0 text-sm"
         >
           تیمی پیدا نشد.
         </p>
       </template>
 
-      <Card v-else-if="isPlayer" class="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-        <CardHeader>
-          <CardTitle class="flex items-center gap-2">
-            <span
-              v-if="actingTeam?.color"
-              class="size-3 shrink-0 rounded-full border"
-              :style="{ backgroundColor: actingTeam.color }"
-            />
-            {{ actingTeam?.name ?? me.team.name }}
-          </CardTitle>
-          <div class="mt-3 flex items-center gap-2">
+      <div v-else-if="isPlayer" class="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+        <div class="flex items-center gap-2 px-1 font-semibold">
+          <span
+            v-if="actingTeam?.color || listedTeams[0]?.color"
+            class="size-3 shrink-0 rounded-full border"
+            :style="{ backgroundColor: actingTeam?.color || listedTeams[0]?.color }"
+          />
+          {{ actingTeam?.name ?? me.team.name }}
+        </div>
+
+        <div class="rounded-xl border px-4 py-3">
+          <div class="flex items-center gap-2">
             <CoinsIcon class="text-muted-foreground size-4 shrink-0" />
-            <span class="text-muted-foreground text-xs">موجودی</span>
+            <span class="font-semibold">گیلاریوم</span>
             <span class="ms-auto text-xl leading-none font-bold tabular-nums">
               {{ formatBalance(actingTeam?.balance) }}
             </span>
           </div>
-        </CardHeader>
-        <CardContent class="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
-          <Button
-            v-if="needsEntrySheet"
-            class="w-full"
-            @click="openEntrySheet()"
+        </div>
+
+        <Button
+          v-if="needsEntrySheet"
+          class="w-full shrink-0"
+          @click="openEntrySheet()"
+        >
+          <ClipboardListIcon class="size-4" />
+          پاسخ به سؤال‌های ورودی
+          <Badge v-if="sheet" variant="secondary" class="ms-auto tabular-nums">
+            {{ sheet.correct_count }}/{{ sheet.required_correct }}
+          </Badge>
+        </Button>
+        <Button
+          v-else-if="sheet && !sheet.qualified"
+          class="w-full shrink-0"
+          variant="outline"
+          @click="openEntrySheet()"
+        >
+          <ClipboardListIcon class="size-4" />
+          سؤال‌های ورودی
+        </Button>
+
+        <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border">
+          <p v-if="ledgerError" class="text-destructive px-3 py-2 text-sm">{{ ledgerError }}</p>
+          <div v-else-if="ledgerLoading" class="flex flex-col gap-2 p-3">
+            <Skeleton class="h-12 w-full" />
+            <Skeleton class="h-12 w-full" />
+          </div>
+          <p
+            v-else-if="balanceEvents.length === 0"
+            class="text-muted-foreground px-3 py-3 text-sm"
           >
-            <ClipboardListIcon class="size-4" />
-            پاسخ به سؤال‌های ورودی
-            <Badge v-if="sheet" variant="secondary" class="ms-auto tabular-nums">
-              {{ sheet.correct_count }}/{{ sheet.required_correct }}
-            </Badge>
-          </Button>
-          <Button
-            v-else-if="sheet && !sheet.qualified"
-            class="w-full"
-            variant="outline"
-            @click="openEntrySheet()"
-          >
-            <ClipboardListIcon class="size-4" />
-            سؤال‌های ورودی
-          </Button>
-          <h2 class="text-muted-foreground text-xs font-medium">خانه‌های من</h2>
-          <p v-if="!actingTeam?.holdings.length" class="text-muted-foreground text-sm">
-            هنوز خانه‌ای رزرو نشده است.
+            هنوز تغییری در امتیاز ثبت نشده است.
           </p>
-          <ul v-else class="-mx-1 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-1">
+          <ul v-else class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
             <li
-              v-for="holding in actingTeam.holdings"
-              :key="holding.id"
-              class="bg-muted/40 flex flex-col gap-1.5 rounded-md border p-2.5"
+              v-for="event in balanceEvents"
+              :key="event.id"
+              class="bg-muted/40 rounded-md border px-3 py-2 text-sm"
             >
-              <div class="flex items-start justify-between gap-2">
-                <span class="text-sm font-medium">{{ holding.node_name }}</span>
-                <Badge variant="outline" class="shrink-0 font-normal">{{ holding.level }}</Badge>
+              <div class="flex items-baseline justify-between gap-2">
+                <span class="font-medium">{{ event.reason_label }}</span>
+                <span
+                  class="shrink-0 font-bold tabular-nums"
+                  :class="event.delta < 0 ? 'text-destructive' : 'text-green-600'"
+                >
+                  {{ formatSignedBalance(event.delta) }}
+                </span>
               </div>
-              <Badge
-                v-if="holding.grade == null"
-                variant="secondary"
-                class="w-fit font-normal"
-              >
-                <HourglassIcon class="size-3" />
-                در انتظار پاسخ یا نمره
-              </Badge>
-              <Badge v-else variant="outline" class="w-fit font-normal">
-                <CircleCheckIcon class="size-3" />
-                نمره {{ holding.grade }}
-              </Badge>
+              <p v-if="event.detail" class="text-muted-foreground mt-0.5 text-xs">
+                {{ event.detail }}
+              </p>
             </li>
           </ul>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
 
     <footer v-if="me && !loading" class="border-t px-5 py-3">

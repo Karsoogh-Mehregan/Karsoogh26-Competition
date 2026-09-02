@@ -354,3 +354,9 @@ class EntryAnswerSerializer(serializers.Serializer):
 
 class EntryAnswerResultSerializer(EntrySheetSerializer):
     is_correct = serializers.BooleanField(read_only=True)
+
+
+class LevelConfigSerializer(serializers.Serializer):
+    level = serializers.CharField(read_only=True)
+    entry_cost = serializers.IntegerField(read_only=True)
+    capacity = serializers.IntegerField(read_only=True)

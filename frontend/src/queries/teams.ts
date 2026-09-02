@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
-import { computed } from 'vue'
+import { computed, type ComputedRef, type Ref } from 'vue'
 import { streamConnected } from '@/lib/boardStreamState'
-import { claimStart, getLeaderboard, listTeams } from '@/services/teams'
+import { claimStart, getLeaderboard, listBalanceEvents, listTeams } from '@/services/teams'
 import type { Team } from '@/types/api'
 import { queryKeys } from './keys'
 
@@ -23,6 +23,18 @@ export function useLeaderboardQuery(enabled: () => boolean) {
   })
 }
 
+export function useBalanceEventsQuery(
+  teamCode: Ref<string | null> | ComputedRef<string | null>,
+  enabled: () => boolean,
+) {
+  return useQuery({
+    queryKey: computed(() => queryKeys.balanceEvents(teamCode.value ?? '')),
+    queryFn: ({ signal }) => listBalanceEvents(teamCode.value as string, signal),
+    enabled: () => enabled() && teamCode.value != null,
+    refetchInterval: computed(() => (streamConnected.value ? false : 15_000)),
+  })
+}
+
 export interface ClaimStartVariables {
   teamCode: string
   node: string
@@ -36,7 +48,10 @@ export function useClaimStartMutation() {
       queryClient.setQueryData<Team[]>(queryKeys.teams(), (teams) =>
         teams?.map((item) => (item.code === team.code ? team : item)),
       )
-      return queryClient.invalidateQueries({ queryKey: queryKeys.teams() })
+      return Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.teams() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.balanceEventsRoot() }),
+      ])
     },
   })
 }
