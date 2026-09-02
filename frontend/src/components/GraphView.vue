@@ -15,7 +15,7 @@ import { useActing } from '../composables/useActing'
 import { useGraph } from '../composables/useGraph.js'
 import { useMapViewport } from '../composables/useMapViewport'
 
-const HOUSE_FILL = '#E8D5B0'
+const HOUSE_FILL = '#E2CFA6'
 
 const { me, teams, actingTeam, isPlayer, claimStart, assignQuestion } = useActing()
 const { nodes, edges, nodeById, adjacency, startEligibleIds } = useGraph()
@@ -195,6 +195,19 @@ function px(value) {
   return value * unitsPerPx.value
 }
 
+// One dot every GRID_UNITS map units. Translating the pattern by the camera
+// origin pins the dots to the map, so they slide under your finger as you pan
+// and spread apart as you zoom in.
+const GRID_UNITS = 120
+const gridStyle = computed(() => {
+  const perPx = unitsPerPx.value || 1
+  const cell = GRID_UNITS / perPx
+  return {
+    backgroundSize: `${cell}px ${cell}px`,
+    backgroundPosition: `${-box.value.x / perPx}px ${-box.value.y / perPx}px`,
+  }
+})
+
 // ---- edge helpers ----
 function edgePath(e) {
   const a = nodeById.get(e.source)
@@ -342,12 +355,11 @@ function shapePath(n) {
 
 <template>
   <div class="graph-wrap">
-    <!-- Something for the glass panels to blur. Purely decorative. -->
-    <div class="map-aurora" aria-hidden="true">
-      <span class="aurora-blob blob-a" />
-      <span class="aurora-blob blob-b" />
-      <span class="aurora-blob blob-c" />
-    </div>
+    <!-- A near-neutral ground with a faint dot grid pinned to map coordinates:
+         it gives the glass something to refract and makes panning read as
+         motion, without colouring over the nodes. -->
+    <div class="map-ground" aria-hidden="true" />
+    <div class="map-grid" aria-hidden="true" :style="gridStyle" />
 
     <svg
       ref="svgRef"
@@ -362,9 +374,9 @@ function shapePath(n) {
     <defs>
       <!-- Fake glass: a lit top edge fading to nothing, laid over the node fill. -->
       <linearGradient id="glass-sheen" x1="0" y1="0" x2="0.35" y2="1">
-        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.6" />
-        <stop offset="42%" stop-color="#ffffff" stop-opacity="0.06" />
-        <stop offset="100%" stop-color="#3d6c93" stop-opacity="0.14" />
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.34" />
+        <stop offset="38%" stop-color="#ffffff" stop-opacity="0.03" />
+        <stop offset="100%" stop-color="#2c4661" stop-opacity="0.1" />
       </linearGradient>
       <marker
         id="arrow"
@@ -586,60 +598,27 @@ function shapePath(n) {
   background: var(--background);
 }
 
-/* ---- aurora backdrop ----
-   Slow-drifting colour behind the map. Its only job is to give the glass
-   panels — and the translucent node fills — something to refract. */
-.map-aurora {
+/* ---- backdrop ----
+   Deliberately almost colourless. The map has 473 nodes to read; anything
+   saturated back here competes with them and tires the eye at high zoom. */
+.map-ground {
   position: absolute;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  overflow: hidden;
-  background: radial-gradient(circle at 50% 40%, #ffffff 0%, #eef4fa 52%, #dde7f2 100%);
+  background:
+    radial-gradient(120% 90% at 50% 0%, #ffffff 0%, #f7f9fc 55%, #eff3f8 100%);
 }
-.aurora-blob {
+.map-grid {
   position: absolute;
-  display: block;
-  border-radius: 9999px;
-  filter: blur(70px);
-  opacity: 0.62;
-  will-change: transform;
-}
-.blob-a {
-  inset-block-start: -12%;
-  inset-inline-start: 8%;
-  width: 46%;
-  aspect-ratio: 1;
-  background: #7fb2d9;
-  animation: drift-a 34s ease-in-out infinite alternate;
-}
-.blob-b {
-  inset-block-end: -18%;
-  inset-inline-end: 2%;
-  width: 52%;
-  aspect-ratio: 1;
-  background: #e0b775;
-  opacity: 0.5;
-  animation: drift-b 42s ease-in-out infinite alternate;
-}
-.blob-c {
-  inset-block-start: 32%;
-  inset-inline-end: 34%;
-  width: 34%;
-  aspect-ratio: 1;
-  background: #a99ad9;
-  opacity: 0.42;
-  animation: drift-c 50s ease-in-out infinite alternate;
-}
-
-@keyframes drift-a {
-  to { transform: translate3d(14%, 18%, 0) scale(1.18); }
-}
-@keyframes drift-b {
-  to { transform: translate3d(-16%, -12%, 0) scale(1.12); }
-}
-@keyframes drift-c {
-  to { transform: translate3d(10%, -20%, 0) scale(0.88); }
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: radial-gradient(
+    circle,
+    color-mix(in oklab, #2c4661 22%, transparent) 1px,
+    transparent 1px
+  );
 }
 
 .legend {
@@ -699,8 +678,8 @@ function shapePath(n) {
 }
 
 .edge {
-  stroke: #9dc8e4;
-  stroke-width: 0.7px;
+  stroke: #8fb9d6;
+  stroke-width: 0.8px;
   vector-effect: non-scaling-stroke;
   transition: stroke 0.2s ease, stroke-width 0.2s ease, opacity 0.2s ease;
 }
@@ -718,14 +697,14 @@ function shapePath(n) {
   transition: opacity 0.25s ease;
 }
 .node-shape {
-  stroke: color-mix(in oklab, #10243a 55%, transparent);
-  stroke-width: 0.9px;
-  fill-opacity: 0.92;
+  stroke: #33506b;
+  stroke-width: 1.1px;
   vector-effect: non-scaling-stroke;
-  transition: filter 0.2s ease, stroke-width 0.15s ease, fill-opacity 0.2s ease;
+  transition: filter 0.2s ease, stroke-width 0.15s ease;
 }
 .node:hover .node-shape {
-  fill-opacity: 1;
+  stroke: #10243a;
+  stroke-width: 1.8px;
 }
 
 /* The lit edge that reads as glass. Never a hit target. */
@@ -735,8 +714,8 @@ function shapePath(n) {
 
 .zoom-label {
   pointer-events: none;
-  fill: #10243a;
-  opacity: 0.72;
+  fill: #1d3145;
+  opacity: 0.85;
 }
 
 .ring-search {
@@ -877,7 +856,6 @@ function shapePath(n) {
   .ring-current,
   .ring-selectable,
   .ring-search,
-  .aurora-blob,
   .state-answerable .node-shape {
     animation: none;
   }
