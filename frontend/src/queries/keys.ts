@@ -7,4 +7,7 @@ export const queryKeys = {
   territoryGames: () => ['events', 'territory-control', 'games'] as const,
   territoryGame: (gameId: number | 'none') =>
     ['events', 'territory-control', 'games', gameId] as const,
+  charityBags: () => ['events', 'charity-bag', 'instances'] as const,
+  charityBag: (eventId: number | 'none') =>
+    ['events', 'charity-bag', 'instances', eventId] as const,
 }

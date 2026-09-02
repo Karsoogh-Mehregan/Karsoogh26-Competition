@@ -34,6 +34,7 @@ export function useLoginMutation() {
       return Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.teams() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.territoryGames() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.charityBags() }),
       ])
     },
   })
@@ -48,6 +49,7 @@ export function useLogoutMutation() {
       queryClient.removeQueries({ queryKey: queryKeys.teams() })
       queryClient.removeQueries({ queryKey: queryKeys.submissions() })
       queryClient.removeQueries({ queryKey: queryKeys.territoryGames() })
+      queryClient.removeQueries({ queryKey: queryKeys.charityBags() })
       await ensureCsrf()
     },
   })

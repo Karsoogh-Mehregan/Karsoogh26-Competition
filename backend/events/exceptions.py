@@ -24,3 +24,23 @@ class InvalidStartingCell(TerritoryEventError):
 
 class InvalidTarget(TerritoryEventError):
     """A normal move must target an adjacent neutral or enemy cell."""
+
+
+class CharityBagError(Exception):
+    """Base class for Charity Bag domain errors."""
+
+
+class CharityBagNotActive(CharityBagError):
+    pass
+
+
+class CharityBagAlreadyEntered(CharityBagError):
+    pass
+
+
+class CharityBagInsufficientBalance(CharityBagError):
+    pass
+
+
+class CharityBagInvalidWindow(CharityBagError):
+    pass

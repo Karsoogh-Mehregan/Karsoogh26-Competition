@@ -4,6 +4,7 @@ import {
   CircleCheckIcon,
   CoinsIcon,
   HourglassIcon,
+  HandHeartIcon,
   SearchIcon,
   SwordsIcon,
 } from '@lucide/vue'
@@ -94,6 +95,19 @@ function isNoneSelected() {
         <Button as-child size="sm" :variant="route.path === '/' ? 'default' : 'outline'">
           <RouterLink to="/" :aria-current="route.path === '/' ? 'page' : undefined">
             نقشه
+          </RouterLink>
+        </Button>
+        <Button
+          as-child
+          size="sm"
+          :variant="route.path.startsWith('/events/charity-bag') ? 'default' : 'outline'"
+        >
+          <RouterLink
+            to="/events/charity-bag"
+            :aria-current="route.path.startsWith('/events/charity-bag') ? 'page' : undefined"
+          >
+            <HandHeartIcon class="size-3.5" />
+            کیسه خیریه
           </RouterLink>
         </Button>
         <Button

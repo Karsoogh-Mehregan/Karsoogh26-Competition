@@ -159,3 +159,43 @@ export interface PlayTerritoryTurnInput {
   row: number
   column: number
 }
+
+export type CharityBagStatus = 'scheduled' | 'active' | 'resolving' | 'finished'
+export type CharityBagAction = 'contribute' | 'request'
+
+export interface CharityBagParticipation {
+  team: { code: string; name: string; color: string | null }
+  action: CharityBagAction
+  amount: number
+  stake_deducted: number
+  final_payout: number
+  submitted_at: string
+  settled_at: string | null
+}
+
+export interface CharityBagEvent {
+  id: number
+  status: CharityBagStatus
+  starts_at: string
+  ends_at: string
+  remaining_seconds: number
+  can_participate: boolean
+  my_participation: CharityBagParticipation | null
+  participations: CharityBagParticipation[]
+  total_contributed: number | null
+  total_requested: number | null
+  charity_succeeded: boolean | null
+  settlement_started_at: string | null
+  settled_at: string | null
+}
+
+export interface EnterCharityBagInput {
+  action: CharityBagAction
+  amount: number
+}
+
+export interface CreateCharityBagInput {
+  starts_at?: string
+  ends_at?: string
+  duration_seconds?: number
+}

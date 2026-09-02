@@ -1,5 +1,9 @@
+from datetime import timedelta
+
+from django.conf import settings
 from django.db.models import Prefetch, Q
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
@@ -11,15 +15,31 @@ from core.openapi import OpenApiExample, OpenApiParameter, extend_schema
 from game.api_exceptions import Conflict
 from teams.models import Team
 
-from .exceptions import NotParticipant, TerritoryEventError
-from .models import TerritoryCell, TerritoryGame, TerritoryTurn
+from .exceptions import CharityBagError, NotParticipant, TerritoryEventError
+from .models import (
+    CharityBagEvent,
+    CharityBagParticipation,
+    TerritoryCell,
+    TerritoryGame,
+    TerritoryTurn,
+)
 from .permissions import IsTerritoryParticipant
 from .serializers import (
+    CharityBagEventSerializer,
+    CreateCharityBagSerializer,
     CreateTerritoryGameSerializer,
+    EnterCharityBagSerializer,
     PlayTerritoryTurnSerializer,
     TerritoryGameStateSerializer,
 )
-from .services import create_territory_game, play_territory_turn
+from .services import (
+    create_charity_bag,
+    create_territory_game,
+    enter_charity_bag,
+    play_territory_turn,
+    sync_charity_bag,
+    sync_due_charity_bags,
+)
 
 _GAME_PK = OpenApiParameter("pk", int, OpenApiParameter.PATH, description="Territory game id")
 
@@ -143,3 +163,92 @@ class TerritoryTurnView(APIView):
 
         game = territory_games().get(pk=game.pk)
         return Response(TerritoryGameStateSerializer(game).data)
+
+
+def charity_bags():
+    return CharityBagEvent.objects.prefetch_related(
+        Prefetch(
+            "participations",
+            queryset=CharityBagParticipation.objects.select_related("team"),
+        )
+    )
+
+
+def _charity_response(event, request, *, response_status=status.HTTP_200_OK):
+    event = charity_bags().get(pk=event.pk)
+    serializer = CharityBagEventSerializer(event, context={"request": request})
+    return Response(serializer.data, status=response_status)
+
+
+class CharityBagListCreateView(APIView):
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsMentor()]
+        return [IsAuthenticated()]
+
+    def get(self, request):
+        sync_due_charity_bags()
+        serializer = CharityBagEventSerializer(
+            charity_bags(),
+            many=True,
+            context={"request": request},
+        )
+        return Response(serializer.data)
+
+    def post(self, request):
+        payload = CreateCharityBagSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        starts_at = payload.validated_data.get("starts_at", timezone.now())
+        duration = payload.validated_data.get(
+            "duration_seconds", settings.CHARITY_BAG_DURATION_SECONDS
+        )
+        ends_at = payload.validated_data.get("ends_at", starts_at + timedelta(seconds=duration))
+        try:
+            event = create_charity_bag(starts_at, ends_at)
+        except CharityBagError as exc:
+            raise Conflict(str(exc)) from exc
+        return _charity_response(
+            event,
+            request,
+            response_status=status.HTTP_201_CREATED,
+        )
+
+
+class CharityBagDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk: int):
+        get_object_or_404(CharityBagEvent, pk=pk)
+        event = sync_charity_bag(pk)
+        return _charity_response(event, request)
+
+
+class CharityBagParticipationView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk: int):
+        if request.user.team_id is None:
+            raise PermissionDenied("فقط حساب یک تیم می‌تواند در کیسه خیریه شرکت کند.")
+        get_object_or_404(CharityBagEvent, pk=pk)
+        payload = EnterCharityBagSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            enter_charity_bag(
+                pk,
+                request.user.team,
+                payload.validated_data["action"],
+                payload.validated_data["amount"],
+            )
+        except CharityBagError as exc:
+            raise Conflict(str(exc)) from exc
+        event = CharityBagEvent.objects.get(pk=pk)
+        return _charity_response(event, request)
+
+
+class CharityBagResolveView(APIView):
+    permission_classes = [IsMentor]
+
+    def post(self, request, pk: int):
+        get_object_or_404(CharityBagEvent, pk=pk)
+        event = sync_charity_bag(pk)
+        return _charity_response(event, request)

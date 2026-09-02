@@ -11,7 +11,7 @@ import {
   SwordsIcon,
   TargetIcon,
 } from '@lucide/vue'
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import TerritoryBoard from '@/components/territory/TerritoryBoard.vue'
 import { Badge } from '@/components/ui/badge'
@@ -28,6 +28,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { useActing } from '@/composables/useActing'
 import { ApiError } from '@/lib/http'
+import { playDiceRollSound, playResultSound } from '@/lib/gameAudio'
 import {
   useCreateTerritoryGameMutation,
   usePlayTerritoryTurnMutation,
@@ -44,6 +45,9 @@ const selectedGameId = ref<number | null>(null)
 const gameQuery = useTerritoryGameQuery(selectedGameId, enabled)
 const playMutation = usePlayTerritoryTurnMutation()
 const createMutation = useCreateTerritoryGameMutation()
+const rollingDie = ref(false)
+const rollingFace = ref(1)
+let rollingTimer: number | null = null
 
 const selectedCell = ref<TerritoryCell | null>(null)
 const createOpen = ref(false)
@@ -174,18 +178,45 @@ function selectCell(cell: TerritoryCell): void {
   selectedCell.value = cell
 }
 
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
+}
+
+function stopRolling(): void {
+  if (rollingTimer != null) window.clearInterval(rollingTimer)
+  rollingTimer = null
+  rollingDie.value = false
+}
+
+onBeforeUnmount(stopRolling)
+
 async function confirmTurn(): Promise<void> {
   if (!game.value || !selectedCell.value) return
   const cell = selectedCell.value
+  const needsRoll = selectedAction.value !== 'start'
+  if (needsRoll) {
+    rollingDie.value = true
+    playDiceRollSound()
+    rollingTimer = window.setInterval(() => {
+      rollingFace.value = (rollingFace.value % 6) + 1
+    }, 85)
+  }
   try {
-    const updated = await playMutation.mutateAsync({
-      gameId: game.value.id,
-      row: cell.row,
-      column: cell.column,
-    })
+    const [updated] = await Promise.all([
+      playMutation.mutateAsync({
+        gameId: game.value.id,
+        row: cell.row,
+        column: cell.column,
+      }),
+      wait(needsRoll ? 1120 : 0),
+    ])
+    stopRolling()
+    if (updated.previous_turn?.dice_result) rollingFace.value = updated.previous_turn.dice_result
     selectedCell.value = null
     announceTurn(updated.previous_turn)
+    if (needsRoll && updated.previous_turn) playResultSound(updated.previous_turn.success)
   } catch (error) {
+    stopRolling()
     toast.error(messageOf(error))
   }
 }
@@ -481,7 +512,14 @@ const selectedActionHint = computed(() => {
                 <CardTitle class="text-base">{{ selectedActionTitle }}</CardTitle>
               </CardHeader>
               <CardContent class="flex flex-col gap-4 px-5">
-                <div class="selected-value">
+                <div v-if="rollingDie" class="dice-roll-stage" aria-live="polite">
+                  <div class="rolling-die" aria-hidden="true">{{ rollingFace.toLocaleString('fa-IR') }}</div>
+                  <div>
+                    <strong>تاس در حال چرخش است…</strong>
+                    <span>نتیجه از سرور می‌آید</span>
+                  </div>
+                </div>
+                <div v-else class="selected-value">
                   <span class="text-muted-foreground text-xs">ارزش خانه</span>
                   <strong class="font-secondary text-4xl leading-none tabular-nums">
                     {{ selectedCell.value.toLocaleString('fa-IR') }}
@@ -803,6 +841,10 @@ const selectedActionHint = computed(() => {
 .action-card { background: linear-gradient(160deg, color-mix(in oklab, #2b6ca8 7%, var(--card)), var(--card) 58%); }
 .action-icon { display: grid; width: 2.5rem; height: 2.5rem; place-items: center; border-radius: 0.8rem; background: #2b6ca8; color: white; box-shadow: 0 10px 24px -14px rgb(43 108 168 / 90%); }
 .selected-value { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.85rem 1rem; border: 1px solid var(--border); border-radius: 0.8rem; background: color-mix(in oklab, var(--background) 72%, transparent); }
+.dice-roll-stage { display:flex; min-height:5.2rem; align-items:center; justify-content:center; gap:1rem; overflow:hidden; border:1px solid rgb(43 108 168 / 28%); border-radius:.9rem; background:radial-gradient(circle at 30% 30%,rgb(255 255 255 / 92%),rgb(43 108 168 / 10%)); }
+.dice-roll-stage > div:last-child { display:flex; flex-direction:column; gap:.2rem; }
+.dice-roll-stage span { color:var(--muted-foreground); font-size:.65rem; }
+.rolling-die { display:grid; width:3.4rem; height:3.4rem; place-items:center; border:2px solid #1d4f76; border-radius:.8rem; background:white; color:#174c78; box-shadow:0 12px 20px -14px rgb(23 76 120 / 90%),inset 0 -4px 0 rgb(43 108 168 / 12%); font-family:var(--font-secondary); font-size:1.65rem; font-weight:900; animation:dice-tumble 420ms linear infinite,dice-bounce 210ms ease-in-out infinite alternate; }
 .font-secondary { font-family: var(--font-secondary); }
 .status-card { background: linear-gradient(160deg, var(--card), color-mix(in oklab, #2b6ca8 5%, var(--card))); }
 .status-illustration { display: grid; width: 4rem; height: 4rem; margin-inline: auto; place-items: center; border: 1px solid var(--border); border-radius: 1.25rem; background: var(--muted); color: var(--muted-foreground); transform: rotate(-3deg); }
@@ -820,6 +862,8 @@ const selectedActionHint = computed(() => {
   0%, 100% { transform: rotate(-3deg) translateY(0); }
   50% { transform: rotate(2deg) translateY(-4px); }
 }
+@keyframes dice-tumble { to { transform:rotate(360deg) rotateY(180deg); } }
+@keyframes dice-bounce { to { translate:0 -.35rem; box-shadow:0 20px 22px -16px rgb(23 76 120 / 80%),inset 0 -4px 0 rgb(43 108 168 / 12%); } }
 
 @media (max-width: 640px) {
   .event-header {
@@ -868,6 +912,7 @@ const selectedActionHint = computed(() => {
 
 @media (prefers-reduced-motion: reduce) {
   .turn-orb.is-my-turn,
-  .status-illustration.is-live { animation: none; }
+  .status-illustration.is-live,
+  .rolling-die { animation: none; }
 }
 </style>

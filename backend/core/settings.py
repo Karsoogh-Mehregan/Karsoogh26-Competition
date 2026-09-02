@@ -29,6 +29,8 @@ env = environ.Env(
             "http://127.0.0.1:3001",
         ],
     ),
+    CHARITY_BAG_DURATION_SECONDS=(int, 300),
+    CHARITY_BAG_SCHEDULE_TIMES=(list, ["09:30", "12:30"]),
 )
 environ.Env.read_env(BASE_DIR / ".env")
 
@@ -43,6 +45,11 @@ ALLOWED_HOSTS = env("ALLOWED_HOSTS")
 # SPA is on :3000; Vite proxies /api to :8000. CSRF Origin checks the browser
 # origin against this list when Host does not match Origin (e.g. changeOrigin).
 CSRF_TRUSTED_ORIGINS = env("CSRF_TRUSTED_ORIGINS")
+
+# The specification currently provides two of the intended three daily starts.
+# Add the third time through the environment without changing event logic.
+CHARITY_BAG_DURATION_SECONDS = env("CHARITY_BAG_DURATION_SECONDS")
+CHARITY_BAG_SCHEDULE_TIMES = env("CHARITY_BAG_SCHEDULE_TIMES")
 
 
 # Session/CSRF cookie hardening. DEBUG is only true in local dev (see README),

@@ -216,3 +216,100 @@ class TerritoryTurn(models.Model):
 
     def __str__(self):
         return f"Game {self.game_id}, turn {self.number}"
+
+
+class CharityBagStatus(models.TextChoices):
+    SCHEDULED = "scheduled", "زمان‌بندی شده"
+    ACTIVE = "active", "فعال"
+    RESOLVING = "resolving", "در حال تسویه"
+    FINISHED = "finished", "تمام شده"
+
+
+class CharityBagAction(models.TextChoices):
+    CONTRIBUTE = "contribute", "کمک به خیریه"
+    REQUEST = "request", "درخواست از خیریه"
+
+
+class CharityBagEvent(models.Model):
+    status = models.CharField(
+        max_length=10,
+        choices=CharityBagStatus.choices,
+        default=CharityBagStatus.SCHEDULED,
+    )
+    starts_at = models.DateTimeField()
+    ends_at = models.DateTimeField()
+    total_contributed = models.PositiveIntegerField(default=0)
+    total_requested = models.PositiveIntegerField(default=0)
+    charity_succeeded = models.BooleanField(null=True, blank=True)
+    settlement_started_at = models.DateTimeField(null=True, blank=True)
+    settled_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-starts_at"]
+        constraints = [
+            CheckConstraint(
+                condition=Q(ends_at__gt=F("starts_at")),
+                name="charity_bag_positive_window",
+            ),
+            UniqueConstraint(fields=["starts_at"], name="charity_bag_unique_start"),
+            CheckConstraint(
+                condition=(
+                    Q(
+                        status__in=[
+                            CharityBagStatus.SCHEDULED,
+                            CharityBagStatus.ACTIVE,
+                            CharityBagStatus.RESOLVING,
+                        ],
+                        charity_succeeded__isnull=True,
+                        settled_at__isnull=True,
+                    )
+                    | Q(
+                        status=CharityBagStatus.FINISHED,
+                        charity_succeeded__isnull=False,
+                        settled_at__isnull=False,
+                    )
+                ),
+                name="charity_bag_settlement_state_consistent",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Charity Bag {self.pk} ({self.starts_at:%Y-%m-%d %H:%M})"
+
+
+class CharityBagParticipation(models.Model):
+    event = models.ForeignKey(
+        CharityBagEvent,
+        on_delete=models.CASCADE,
+        related_name="participations",
+    )
+    team = models.ForeignKey(
+        "teams.Team",
+        on_delete=models.PROTECT,
+        related_name="charity_bag_participations",
+    )
+    action = models.CharField(max_length=10, choices=CharityBagAction.choices)
+    amount = models.PositiveIntegerField()
+    stake_deducted = models.PositiveIntegerField()
+    final_payout = models.PositiveIntegerField(default=0)
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    settled_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["submitted_at", "pk"]
+        constraints = [
+            UniqueConstraint(
+                fields=["event", "team"],
+                name="charity_bag_one_entry_per_team",
+            ),
+            CheckConstraint(condition=Q(amount__gt=0), name="charity_bag_amount_positive"),
+            CheckConstraint(
+                condition=Q(stake_deducted=F("amount")),
+                name="charity_bag_stake_matches_amount",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.team} / {self.event_id} / {self.action}"

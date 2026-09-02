@@ -1,13 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, type Ref } from 'vue'
 import {
+  createCharityBag,
   createTerritoryGame,
+  enterCharityBag,
+  getCharityBag,
   getTerritoryGame,
+  listCharityBags,
   listTerritoryGames,
   playTerritoryTurn,
 } from '@/services/events'
 import type {
+  CharityBagEvent,
+  CreateCharityBagInput,
   CreateTerritoryGameInput,
+  EnterCharityBagInput,
   PlayTerritoryTurnInput,
   TerritoryGame,
 } from '@/types/api'
@@ -60,6 +67,59 @@ export function usePlayTerritoryTurnMutation() {
       queryClient.setQueryData<TerritoryGame[]>(queryKeys.territoryGames(), (games) =>
         games?.map((item) => (item.id === game.id ? game : item)),
       )
+    },
+  })
+}
+
+export function useCharityBagsQuery(enabled: () => boolean) {
+  return useQuery({
+    queryKey: queryKeys.charityBags(),
+    queryFn: ({ signal }) => listCharityBags(signal),
+    enabled,
+    refetchInterval: (query) =>
+      query.state.data?.some((event) => ['active', 'resolving'].includes(event.status))
+        ? 2000
+        : 15000,
+  })
+}
+
+export function useCharityBagQuery(eventId: Ref<number | null>, enabled: () => boolean) {
+  return useQuery({
+    queryKey: computed(() => queryKeys.charityBag(eventId.value ?? 'none')),
+    queryFn: ({ signal }) => {
+      if (eventId.value == null) throw new Error('No Charity Bag selected.')
+      return getCharityBag(eventId.value, signal)
+    },
+    enabled: computed(() => enabled() && eventId.value != null),
+    refetchInterval: (query) =>
+      query.state.data && ['active', 'resolving'].includes(query.state.data.status) ? 2000 : false,
+  })
+}
+
+interface EnterCharityVariables extends EnterCharityBagInput {
+  eventId: number
+}
+
+export function useEnterCharityBagMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ eventId, action, amount }: EnterCharityVariables) =>
+      enterCharityBag(eventId, { action, amount }),
+    onSuccess: (event: CharityBagEvent) => {
+      queryClient.setQueryData(queryKeys.charityBag(event.id), event)
+      queryClient.invalidateQueries({ queryKey: queryKeys.teams() })
+      return queryClient.invalidateQueries({ queryKey: queryKeys.charityBags() })
+    },
+  })
+}
+
+export function useCreateCharityBagMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: CreateCharityBagInput) => createCharityBag(input),
+    onSuccess: (event) => {
+      queryClient.setQueryData(queryKeys.charityBag(event.id), event)
+      return queryClient.invalidateQueries({ queryKey: queryKeys.charityBags() })
     },
   })
 }

@@ -5,6 +5,9 @@ from teams.models import Team
 
 from .models import (
     BOARD_SIZE,
+    CharityBagEvent,
+    CharityBagParticipation,
+    CharityBagStatus,
     TerritoryCell,
     TerritoryGame,
     TerritoryGameStatus,
@@ -148,3 +151,106 @@ class PlayTerritoryTurnSerializer(serializers.Serializer):
             message = "This field is not accepted; the backend rolls the die."
             raise serializers.ValidationError({field: message for field in unexpected})
         return super().to_internal_value(data)
+
+
+class CharityBagParticipationSerializer(serializers.ModelSerializer):
+    team = TeamIdentitySerializer(read_only=True)
+
+    class Meta:
+        model = CharityBagParticipation
+        fields = (
+            "team",
+            "action",
+            "amount",
+            "stake_deducted",
+            "final_payout",
+            "submitted_at",
+            "settled_at",
+        )
+        read_only_fields = fields
+
+
+class CharityBagEventSerializer(serializers.ModelSerializer):
+    remaining_seconds = serializers.SerializerMethodField()
+    can_participate = serializers.SerializerMethodField()
+    my_participation = serializers.SerializerMethodField()
+    participations = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CharityBagEvent
+        fields = (
+            "id",
+            "status",
+            "starts_at",
+            "ends_at",
+            "remaining_seconds",
+            "can_participate",
+            "my_participation",
+            "participations",
+            "total_contributed",
+            "total_requested",
+            "charity_succeeded",
+            "settlement_started_at",
+            "settled_at",
+        )
+        read_only_fields = fields
+
+    def get_remaining_seconds(self, event: CharityBagEvent) -> int:
+        from django.utils import timezone
+
+        if event.status != CharityBagStatus.ACTIVE:
+            return 0
+        return max(0, int((event.ends_at - timezone.now()).total_seconds()))
+
+    def _user_team_id(self):
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return None
+        return request.user.team_id
+
+    def get_can_participate(self, event: CharityBagEvent) -> bool:
+        team_id = self._user_team_id()
+        return bool(
+            team_id
+            and event.status == CharityBagStatus.ACTIVE
+            and not event.participations.filter(team_id=team_id).exists()
+        )
+
+    def get_my_participation(self, event: CharityBagEvent):
+        team_id = self._user_team_id()
+        if not team_id:
+            return None
+        entry = next(
+            (row for row in event.participations.all() if row.team_id == team_id),
+            None,
+        )
+        return CharityBagParticipationSerializer(entry).data if entry else None
+
+    def get_participations(self, event: CharityBagEvent) -> list[dict]:
+        if event.status != CharityBagStatus.FINISHED:
+            return []
+        return CharityBagParticipationSerializer(event.participations.all(), many=True).data
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if instance.status != CharityBagStatus.FINISHED:
+            data["total_contributed"] = None
+            data["total_requested"] = None
+            data["charity_succeeded"] = None
+        return data
+
+
+class EnterCharityBagSerializer(serializers.Serializer):
+    action = serializers.ChoiceField(choices=("contribute", "request"))
+    amount = serializers.IntegerField(min_value=1)
+
+
+class CreateCharityBagSerializer(serializers.Serializer):
+    starts_at = serializers.DateTimeField(required=False)
+    ends_at = serializers.DateTimeField(required=False)
+    duration_seconds = serializers.IntegerField(required=False, min_value=1, max_value=3600)
+
+    def validate(self, attrs):
+        if attrs.get("ends_at") and attrs.get("duration_seconds"):
+            raise serializers.ValidationError("Send either ends_at or duration_seconds, not both.")
+        return attrs
