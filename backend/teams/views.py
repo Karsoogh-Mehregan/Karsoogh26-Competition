@@ -10,7 +10,7 @@ from core.openapi import OpenApiExample, extend_schema
 from game.api_exceptions import Conflict
 from game.models import Node
 from game.permissions import IsOwnTeam
-from game.services import claim_spawn, require_entry_clearance, release_expired_attempts
+from game.services import claim_spawn, release_expired_attempts, require_entry_clearance
 
 from . import board_cache
 from .models import Team
