@@ -5,6 +5,7 @@ from game.models import Edge, GameSettings, Level, Node, Occupancy
 from teams.models import Team
 from teams.start_colors import color_for_start
 
+from .events import BOARD_NODE_CLAIMED, BOARD_SPAWN_CLAIMED, publish_on_commit
 from .mentor import Conflict
 from .questions import assign_question
 
@@ -83,9 +84,11 @@ def claim_spawn(team: Team, node: Node) -> Occupancy:
     if holding is not None:
         return holding
     try:
-        return Occupancy.objects.create(team=team, node=node, slot=1, is_spawn=True)
+        holding = Occupancy.objects.create(team=team, node=node, slot=1, is_spawn=True)
     except IntegrityError as exc:
         raise Conflict("این خانهٔ شروع قبلاً گرفته شده است.") from exc
+    publish_on_commit(BOARD_SPAWN_CLAIMED, {"team": team.code, "node": node.code})
+    return holding
 
 
 @transaction.atomic
@@ -112,4 +115,5 @@ def claim_node(team: Team, node: Node) -> Occupancy:
 
     assign_question(holding)
     holding.refresh_from_db()
+    publish_on_commit(BOARD_NODE_CLAIMED, {"team": team.code, "node": node.code})
     return holding

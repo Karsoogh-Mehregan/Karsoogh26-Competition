@@ -1,4 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
+import { computed } from 'vue'
+import { streamConnected } from '@/lib/boardStreamState'
 import { claimStart, getLeaderboard, listTeams } from '@/services/teams'
 import type { Team } from '@/types/api'
 import { queryKeys } from './keys'
@@ -8,6 +10,8 @@ export function useTeamsQuery(enabled: () => boolean) {
     queryKey: queryKeys.teams(),
     queryFn: ({ signal }) => listTeams(signal),
     enabled,
+    // Only while the stream is down; SSE covers the live case.
+    refetchInterval: computed(() => (streamConnected.value ? false : 15_000)),
   })
 }
 
