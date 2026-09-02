@@ -141,3 +141,67 @@ export interface EntrySheet {
 export interface EntryAnswerResult extends EntrySheet {
   is_correct: boolean
 }
+
+export type MinesweeperDifficulty = 'easy' | 'medium' | 'hard'
+
+export type MinesweeperStatus = 'in_progress' | 'won' | 'lost'
+
+/** Unrevealed cell while the game is still in progress — no mine, no count. */
+export interface MinesweeperHiddenCell {
+  revealed: false
+  flagged: boolean
+}
+
+/** Revealed cell while the game is still in progress — count only, never mine. */
+export interface MinesweeperRevealedCell {
+  revealed: true
+  flagged: boolean
+  adjacent_mines: number
+}
+
+export type MinesweeperActiveCell = MinesweeperHiddenCell | MinesweeperRevealedCell
+
+/** Cell after won/lost — mine locations are part of the public result. */
+export interface MinesweeperFinishedCell {
+  revealed: boolean
+  flagged: boolean
+  adjacent_mines: number
+  mine: boolean
+}
+
+export interface MinesweeperBoard<TCell> {
+  cells: TCell[][]
+}
+
+interface MinesweeperGameBase {
+  id: number
+  difficulty: MinesweeperDifficulty
+  width: number
+  height: number
+  mine_count: number
+  score: number
+  started_at: string
+}
+
+export interface MinesweeperActiveGame extends MinesweeperGameBase {
+  status: 'in_progress'
+  finished_at: null
+  board: MinesweeperBoard<MinesweeperActiveCell>
+}
+
+export interface MinesweeperFinishedGame extends MinesweeperGameBase {
+  status: 'won' | 'lost'
+  finished_at: string
+  board: MinesweeperBoard<MinesweeperFinishedCell>
+}
+
+export type MinesweeperGame = MinesweeperActiveGame | MinesweeperFinishedGame
+
+export interface CreateMinesweeperGameRequest {
+  difficulty: MinesweeperDifficulty
+}
+
+export interface MinesweeperCellActionRequest {
+  row: number
+  col: number
+}
