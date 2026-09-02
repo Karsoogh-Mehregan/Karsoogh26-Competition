@@ -36,6 +36,8 @@ export function useActing() {
   const me = computed(() => meQuery.data.value ?? null)
   const teams = computed<Team[]>(() => teamsQuery.data.value ?? [])
   const isMentor = computed(() => me.value?.is_mentor ?? false)
+  // Running the event is a narrower right than grading for it.
+  const isGameGod = computed(() => me.value?.is_game_god ?? false)
   const isPlayer = computed(() => me.value != null && me.value.team != null)
 
   // A player's team is a server fact (me.team); a mentor's is a client-side
@@ -120,6 +122,7 @@ export function useActing() {
     teams,
     actingTeam,
     isMentor,
+    isGameGod,
     isPlayer,
     loading,
     error,

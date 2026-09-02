@@ -8,7 +8,7 @@ import { useActing } from '@/composables/useActing'
 import { formatClock, useGameClock } from '@/composables/useGameClock'
 import { useStage } from '@/composables/useStage'
 
-const { me, isMentor } = useActing()
+const { me, isGameGod } = useActing()
 const { state, clockLabel, elapsedSeconds, remainingSeconds, isOvertime, isEndingSoon } =
   useGameClock()
 const { title, hint, stepIndex, onPath, steps } = useStage()
@@ -93,7 +93,7 @@ function stepState(index: number): 'done' | 'current' | 'todo' {
 
     <!-- Admin: mentors only -->
     <Button
-      v-if="isMentor"
+      v-if="isGameGod"
       variant="outline"
       size="sm"
       class="topbar-admin"
@@ -103,7 +103,7 @@ function stepState(index: number): 'done' | 'current' | 'todo' {
       کنترل بازی
     </Button>
 
-    <AdminDialog v-if="isMentor" v-model:open="adminOpen" />
+    <AdminDialog v-if="isGameGod" v-model:open="adminOpen" />
   </header>
 </template>
 

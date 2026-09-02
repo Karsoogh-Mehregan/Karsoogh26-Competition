@@ -1,6 +1,7 @@
 import { get, patch, post } from '@/lib/http'
 import type {
   AssignQuestionResult,
+  GameRestartResult,
   GameSettings,
   GameState,
   GradeResult,
@@ -35,4 +36,8 @@ export function getGameSettings(signal?: AbortSignal): Promise<GameSettings> {
 
 export function updateGameSettings(changes: Partial<GameSettings>): Promise<GameSettings> {
   return patch<GameSettings>('/game/settings/', changes)
+}
+
+export function restartGame(): Promise<GameRestartResult> {
+  return post<GameRestartResult>('/game/restart/', { confirm: true })
 }

@@ -352,3 +352,24 @@ class GameSettingsSerializer(serializers.ModelSerializer):
         if value < 1:
             raise serializers.ValidationError("مهلت پاسخ باید دست‌کم ۱ دقیقه باشد.")
         return value
+
+
+class GameRestartSerializer(serializers.Serializer):
+    """Confirmation is required in the body, not just in the UI.
+
+    A restart deletes every move of the contest, so it must not be reachable by
+    a stray POST to a URL somebody had open.
+    """
+
+    confirm = serializers.BooleanField()
+
+    def validate_confirm(self, value):
+        if not value:
+            raise serializers.ValidationError("برای بازنشانی بازی باید تأیید کنید.")
+        return value
+
+
+class GameRestartResultSerializer(serializers.Serializer):
+    occupancies = serializers.IntegerField(read_only=True)
+    submissions = serializers.IntegerField(read_only=True)
+    teams = serializers.IntegerField(read_only=True)

@@ -7,7 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.permissions import GameIsRunning, IsMentor
+from accounts.permissions import GameIsRunning, IsGameGod, IsMentor
 from core.openapi import OpenApiExample, OpenApiParameter, OpenApiTypes, extend_schema
 from game import services
 from game.api_exceptions import Conflict, Unprocessable
@@ -23,11 +23,21 @@ from game.exceptions import (
     OccupancyNotActive,
     SubmissionWindowClosed,
 )
-from game.models import GameSettings, Node, Occupancy, Question, Submission, TeamQuestion
+from game.models import (
+    GameSettings,
+    GameStatus,
+    Node,
+    Occupancy,
+    Question,
+    Submission,
+    TeamQuestion,
+)
 from game.permissions import IsOwnTeam, IsTeamMember
 from game.serializers import (
     ActiveAttemptSerializer,
     AssignQuestionSerializer,
+    GameRestartResultSerializer,
+    GameRestartSerializer,
     GameSettingsSerializer,
     GameStateSerializer,
     GradeResultSerializer,
@@ -611,7 +621,7 @@ class GameStateView(APIView):
     ],
 )
 class GameSettingsView(APIView):
-    permission_classes = [IsMentor]
+    permission_classes = [IsGameGod]
     serializer_class = GameSettingsSerializer
 
     def get(self, request):
@@ -629,3 +639,38 @@ class GameSettingsView(APIView):
             {"status": settings_row.status},
         )
         return Response(serializer.data)
+
+
+@extend_schema(
+    tags=["game"],
+    summary="Restart the game",
+    description=(
+        "Game god only, and only with `confirm: true` in the body. Deletes every "
+        "occupancy — and the submissions and served-question records that hang off "
+        "them — refunds every team to the starting balance, drops claimed colours and "
+        "draft order, and puts the status back to not_started. The map, the question "
+        "bank and the economy tables are untouched, so the next run starts on the same "
+        "board. `ends_at` is deliberately kept."
+    ),
+    request=GameRestartSerializer,
+    responses=GameRestartResultSerializer,
+    examples=[
+        OpenApiExample("request", value={"confirm": True}, request_only=True),
+        OpenApiExample(
+            "wiped",
+            value={"occupancies": 37, "submissions": 21, "teams": 8},
+            response_only=True,
+        ),
+    ],
+)
+class GameRestartView(APIView):
+    permission_classes = [IsGameGod]
+    serializer_class = GameRestartSerializer
+
+    def post(self, request):
+        payload = GameRestartSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        summary = services.restart_game(by=request.user)
+        services.publish_on_commit(services.GAME_STATE, {"status": GameStatus.NOT_STARTED})
+        return Response(GameRestartResultSerializer(summary).data)

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
-import { getGameSettings, getGameState, updateGameSettings } from '@/services/game'
-import type { GameSettings, GameState } from '@/types/api'
+import { getGameSettings, getGameState, restartGame, updateGameSettings } from '@/services/game'
+import type { GameRestartResult, GameSettings, GameState } from '@/types/api'
 import { queryKeys } from './keys'
 
 // The clock is derived from `server_time`, so a slow refetch only shifts the
@@ -38,6 +38,16 @@ export function useUpdateGameSettingsMutation() {
         queryClient.invalidateQueries({ queryKey: queryKeys.leaderboard() }),
       ])
     },
+  })
+}
+
+export function useRestartGameMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => restartGame(),
+    // A restart empties the board and refunds everyone, so nothing cached
+    // survives it.
+    onSuccess: (_result: GameRestartResult) => queryClient.invalidateQueries(),
   })
 }
 

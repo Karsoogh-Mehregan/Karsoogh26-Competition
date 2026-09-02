@@ -282,6 +282,9 @@ class GameSettings(models.Model):
     class Meta:
         verbose_name = "game settings"
         verbose_name_plural = "game settings"
+        # Separate from act_as_mentor on purpose: a mentor grades, a game god
+        # starts, pauses and restarts the whole event.
+        permissions = [("control_game", "Can start, pause, restart and configure the game")]
         constraints = [CheckConstraint(condition=Q(id=1), name="gamesettings_singleton")]
 
     def __str__(self):

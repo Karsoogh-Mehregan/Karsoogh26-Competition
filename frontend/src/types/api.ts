@@ -22,6 +22,7 @@ export interface Me {
   username: string
   is_staff: boolean
   is_mentor: boolean
+  is_game_god: boolean
   team: { code: string; name: string } | null
 }
 
@@ -133,4 +134,10 @@ export interface GameSettings {
   ends_at: string | null
   attempt_ttl_minutes: number
   initial_balance: number
+}
+
+export interface GameRestartResult {
+  occupancies: number
+  submissions: number
+  teams: number
 }

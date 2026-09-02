@@ -10,6 +10,7 @@ urlpatterns = [
     # Clock and stage: every client polls state; only mentors may change it.
     path("game/state/", views.GameStateView.as_view(), name="game-state"),
     path("game/settings/", views.GameSettingsView.as_view(), name="game-settings"),
+    path("game/restart/", views.GameRestartView.as_view(), name="game-restart"),
     # Mentor actions on a holding, addressed by (team, node).
     path(f"{_HOLDING}assign-question/", views.AssignQuestionView.as_view(), name="assign-question"),
     path(f"{_HOLDING}grade/", views.GradeView.as_view(), name="grade"),

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CircleAlertIcon, Loader2Icon } from '@lucide/vue'
+import { CircleAlertIcon, Loader2Icon, RotateCcwIcon, TriangleAlertIcon } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Badge } from '@/components/ui/badge'
@@ -16,7 +16,11 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ApiError } from '@/lib/http'
-import { useGameSettingsQuery, useUpdateGameSettingsMutation } from '@/queries/gameState'
+import {
+  useGameSettingsQuery,
+  useRestartGameMutation,
+  useUpdateGameSettingsMutation,
+} from '@/queries/gameState'
 import type { GameSettings, GameStatus } from '@/types/api'
 
 const props = defineProps<{ open: boolean }>()
@@ -29,6 +33,7 @@ const open = computed({
 
 const { data: settings, isPending } = useGameSettingsQuery(() => props.open)
 const { mutateAsync: save, isPending: saving } = useUpdateGameSettingsMutation()
+const { mutateAsync: restart, isPending: restarting } = useRestartGameMutation()
 
 const STATUSES: { value: GameStatus; label: string; hint: string }[] = [
   { value: 'not_started', label: 'شروع نشده', hint: 'هیچ حرکتی پذیرفته نمی‌شود.' },
@@ -114,6 +119,22 @@ function saveNumbers() {
     { attempt_ttl_minutes: ttlValue, initial_balance: balanceValue },
     'تنظیمات ذخیره شد',
   )
+}
+
+// Two deliberate steps: a restart deletes every move of the contest, and this
+// dialog is one click away from the header.
+const confirmingRestart = ref(false)
+
+async function doRestart() {
+  try {
+    const result = await restart()
+    confirmingRestart.value = false
+    toast.success(
+      `بازی بازنشانی شد — ${result.occupancies} خانه و ${result.submissions} پاسخ حذف شد.`,
+    )
+  } catch (error) {
+    toast.error(error instanceof ApiError ? error.detail : 'بازنشانی بازی ناموفق بود.')
+  }
 }
 
 function saveEndsAt() {
@@ -234,6 +255,44 @@ function saveEndsAt() {
         <CircleAlertIcon class="mt-0.5 size-4 shrink-0" />
         دریافت تنظیمات ناموفق بود.
       </p>
+
+      <section
+        v-if="settings"
+        class="border-destructive/30 bg-destructive/5 flex flex-col gap-2 rounded-md border p-3"
+      >
+        <div class="flex items-start gap-2">
+          <TriangleAlertIcon class="text-destructive mt-0.5 size-4 shrink-0" />
+          <div class="flex flex-col gap-0.5">
+            <span class="text-sm font-semibold">بازنشانی بازی</span>
+            <span class="text-muted-foreground text-xs">
+              همهٔ خانه‌ها، پاسخ‌ها و رنگ تیم‌ها پاک می‌شود و موجودی‌ها به مقدار اولیه
+              برمی‌گردد. نقشه و بانک سؤال دست‌نخورده می‌ماند. این کار برگشت‌پذیر نیست.
+            </span>
+          </div>
+        </div>
+
+        <div v-if="!confirmingRestart" class="flex justify-end">
+          <Button variant="outline" size="sm" :disabled="restarting" @click="confirmingRestart = true">
+            <RotateCcwIcon class="size-4" />
+            بازنشانی بازی
+          </Button>
+        </div>
+        <div v-else class="flex items-center justify-end gap-2">
+          <span class="text-destructive me-auto text-xs font-medium">مطمئنید؟</span>
+          <Button
+            variant="outline"
+            size="sm"
+            :disabled="restarting"
+            @click="confirmingRestart = false"
+          >
+            انصراف
+          </Button>
+          <Button variant="destructive" size="sm" :disabled="restarting" @click="doRestart">
+            <Loader2Icon v-if="restarting" class="size-4 animate-spin" />
+            بله، پاک کن
+          </Button>
+        </div>
+      </section>
 
       <DialogFooter class="flex-row gap-2 sm:justify-start">
         <DialogClose as-child>

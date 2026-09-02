@@ -19,6 +19,7 @@ from .mentor import (
 )
 from .movement import claim_node, claim_spawn, is_reachable
 from .questions import assign_question, grade_submission, submit_answer
+from .reset import restart_game
 
 __all__ = [
     "BOARD_GRADED",
@@ -41,5 +42,6 @@ __all__ = [
     "publish",
     "publish_on_commit",
     "release_attempt",
+    "restart_game",
     "submit_answer",
 ]
