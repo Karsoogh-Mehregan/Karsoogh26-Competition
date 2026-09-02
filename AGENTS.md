@@ -108,7 +108,22 @@ resulting `Submission` through `/api/submissions/…`, so `assign-question/`'s r
 no `submission_id` — none exists until the team actually answers.
 `POST teams/<code>/claim-start/` is the other half — it writes the team's colour *and* seats
 it on the matching spawn node (`services.claim_spawn`), which is what unblocks the first
-`assign-question`. `grade/` and `release/` still address an existing holding and 404 without one.
+`assign-question`. It is itself gated on the entry sheet (below). `grade/` and `release/`
+still address an existing holding and 404 without one.
+
+**The entry sheet gates the spawn.** Before a team may claim a start node it must clear
+`GameSettings.entry_required_correct` of the `entry_question_count` questions on its sheet
+(defaults: 2 of 3). `EntryQuestion.answer` is an **integer**, so `services/entry.py` grades
+the moment a team submits — no mentor, no `Submission`, no `Occupancy`; this is a separate
+model from `Question` precisely because the sheet is answered before a team holds any node.
+`GET /api/entry/sheet/` draws the sheet on first read (least-served + random tiebreak, same
+as `assign_question`) and is stable after that; `POST /api/entry/questions/<code>/answer/`
+is **one shot** per question — a second POST is a 409, because retrying an integer is a
+brute-force search. Clearing the sheet stamps `Team.draft_order` (finishing order). After
+`entry_grace_minutes` past `GameSettings.started_at` — stamped once, the first time status
+becomes running — the gate opens for everyone regardless, per the design doc. Seed the pool
+with `seed_entry_questions`; `seed_demo` stands up teams, logins, a mentor and the pool in
+one go.
 
 **Occupancy is append-and-soft-release.** Rows are never deleted; a release sets
 `released_at`. Every uniqueness rule is therefore a *partial* constraint scoped to

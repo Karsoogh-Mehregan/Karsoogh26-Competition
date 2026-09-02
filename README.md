@@ -60,6 +60,7 @@ reachable from other devices on your network.
 ### Other commands
 
 ```bash
+uv run manage.py seed_demo --teams 8 --password demo1234 --csv demo-logins.csv # seeds a demo contest with 8 teams, password `demo1234`, and writes the team logins to `demo-logins.csv` (in backend/)
 uv run pytest        # backend tests        (in backend/)
 uv run ruff check .  # backend lint         (in backend/)
 npm run build        # type-check + bundle  (in frontend/)

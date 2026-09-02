@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.conf import settings
@@ -268,13 +269,45 @@ class GameSettings(models.Model):
     )
     leaderboard_public = models.BooleanField(default=False)
 
+    # Entry phase: every team answers a short sheet before it may take a spawn.
+    entry_question_count = models.PositiveSmallIntegerField(
+        default=3, help_text="How many questions land on each team's entry sheet."
+    )
+    entry_required_correct = models.PositiveSmallIntegerField(
+        default=2, help_text="Correct answers needed to unlock the start node."
+    )
+    entry_grace_minutes = models.PositiveSmallIntegerField(
+        default=20,
+        help_text="Minutes after kick-off when every team may take a spawn regardless.",
+    )
+    started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Stamped the first time status becomes running; anchors the entry grace.",
+    )
+
     class Meta:
         verbose_name = "game settings"
         verbose_name_plural = "game settings"
-        constraints = [CheckConstraint(condition=Q(id=1), name="gamesettings_singleton")]
+        constraints = [
+            CheckConstraint(condition=Q(id=1), name="gamesettings_singleton"),
+            CheckConstraint(
+                condition=Q(entry_required_correct__lte=F("entry_question_count")),
+                name="gamesettings_entry_required_within_sheet",
+            ),
+        ]
 
     def __str__(self):
         return f"Game settings ({self.get_status_display()})"
+
+    def save(self, *args, **kwargs):
+        """Stamp the kick-off time once, so the entry grace has an anchor."""
+        if self.status == GameStatus.RUNNING and self.started_at is None:
+            self.started_at = timezone.now()
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = {*update_fields, "started_at"}
+        super().save(*args, **kwargs)
 
     @classmethod
     def load(cls) -> "GameSettings":
@@ -287,6 +320,18 @@ class GameSettings(models.Model):
     @property
     def is_paused(self) -> bool:
         return self.status == GameStatus.PAUSED
+
+    @property
+    def entry_grace_ends_at(self):
+        """When the sheet stops gating spawns, or None before kick-off."""
+        if self.started_at is None:
+            return None
+        return self.started_at + timedelta(minutes=self.entry_grace_minutes)
+
+    @property
+    def entry_grace_over(self) -> bool:
+        ends_at = self.entry_grace_ends_at
+        return ends_at is not None and timezone.now() >= ends_at
 
 
 class Question(models.Model):
@@ -370,3 +415,72 @@ class Submission(models.Model):
 
     def __str__(self):
         return f"Submission for {self.occupancy_id}"
+
+
+class EntryQuestion(models.Model):
+    """A pre-game sheet question. Answers are integers, so they grade themselves.
+
+    Deliberately not a `Question`: those hang off an `Occupancy` through
+    `TeamQuestion`, and the entry sheet is answered before a team holds any node.
+    """
+
+    code = models.SlugField(max_length=32, unique=True)
+    title = models.CharField(max_length=200)
+    body = models.TextField(help_text="Markdown")
+    answer = models.IntegerField(help_text="Never serialised to a team.")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["code"]
+        indexes = [models.Index(fields=["is_active"], name="entryquestion_active_idx")]
+
+    def __str__(self):
+        return self.title or self.code
+
+
+class EntryAttempt(models.Model):
+    """One question on one team's sheet, plus the single answer they gave.
+
+    One shot per question: the answer is an integer, so retries would be a
+    brute-force search rather than a second attempt at the maths.
+    """
+
+    team = models.ForeignKey("teams.Team", on_delete=models.CASCADE, related_name="entry_attempts")
+    question = models.ForeignKey(EntryQuestion, on_delete=models.PROTECT, related_name="attempts")
+    position = models.PositiveSmallIntegerField(help_text="Slot on the sheet, 1-based.")
+
+    answer = models.IntegerField(null=True, blank=True)
+    is_correct = models.BooleanField(null=True, blank=True)
+    assigned_at = models.DateTimeField(auto_now_add=True)
+    answered_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["team", "position"]
+        constraints = [
+            UniqueConstraint(fields=["team", "question"], name="entryattempt_no_repeat"),
+            UniqueConstraint(fields=["team", "position"], name="entryattempt_one_per_position"),
+            CheckConstraint(condition=Q(position__gte=1), name="entryattempt_position_positive"),
+            # Answering writes all three columns at once; nothing half-recorded.
+            CheckConstraint(
+                condition=(
+                    Q(answered_at__isnull=True, answer__isnull=True, is_correct__isnull=True)
+                    | Q(
+                        answered_at__isnull=False,
+                        answer__isnull=False,
+                        is_correct__isnull=False,
+                    )
+                ),
+                name="entryattempt_answer_recorded_together",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["team", "is_correct"], name="entryattempt_team_correct_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.team} sheet #{self.position}: {self.question.code}"
+
+    @property
+    def is_answered(self) -> bool:
+        return self.answered_at is not None

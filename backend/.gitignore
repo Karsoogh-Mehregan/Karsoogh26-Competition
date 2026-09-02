@@ -10,6 +10,10 @@ media/
 # collectstatic output — build artifact, never committed
 staticfiles/
 
+# Login sheets written by create_team_users / seed_demo — plaintext passwords
+*-logins.csv
+teams.csv
+
 # Byte-compiled / optimized / DLL files
 *.py[cod]
 *$py.class

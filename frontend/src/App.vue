@@ -1,5 +1,6 @@
 <script setup>
 import 'vue-sonner/style.css'
+import EntrySheetDialog from './components/EntrySheetDialog.vue'
 import InfoPanel from './components/InfoPanel.vue'
 import { Toaster } from '@/components/ui/sonner'
 </script>
@@ -11,5 +12,6 @@ import { Toaster } from '@/components/ui/sonner'
       <RouterView />
     </main>
   </div>
+  <EntrySheetDialog />
   <Toaster class="pointer-events-auto" close-button dir="rtl" position="top-center" rich-colors />
 </template>

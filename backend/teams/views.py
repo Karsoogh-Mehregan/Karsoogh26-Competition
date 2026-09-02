@@ -11,7 +11,7 @@ from core.openapi import OpenApiExample, extend_schema
 from game.api_exceptions import Conflict
 from game.models import Node
 from game.permissions import IsOwnTeam
-from game.services import claim_spawn
+from game.services import claim_spawn, require_entry_clearance
 
 from .models import Team
 from .serializers import ClaimStartSerializer, LeaderboardRowSerializer, TeamSerializer
@@ -80,7 +80,11 @@ class LeaderboardView(APIView):
 
 
 class ClaimStartView(APIView):
-    """Claim a start node's color for the team named in the URL."""
+    """Claim a start node's color for the team named in the URL.
+
+    Gated on the entry sheet: a team must have cleared it (or the grace window
+    must have passed) before it may seat itself on a spawn.
+    """
 
     permission_classes = [IsAuthenticated, IsOwnTeam, GameIsRunning]
     serializer_class = ClaimStartSerializer
@@ -89,6 +93,7 @@ class ClaimStartView(APIView):
         team = Team.objects.filter(code=team_code).first()
         if team is None:
             raise NotFound(f"تیم «{team_code}» پیدا نشد.")
+        require_entry_clearance(team)
         serializer = ClaimStartSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         node_id = serializer.validated_data["node"]

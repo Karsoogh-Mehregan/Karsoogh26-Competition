@@ -1,5 +1,12 @@
 <script setup>
-import { CheckIcon, CircleCheckIcon, CoinsIcon, HourglassIcon, SearchIcon } from '@lucide/vue'
+import {
+  CheckIcon,
+  CircleCheckIcon,
+  ClipboardListIcon,
+  CoinsIcon,
+  HourglassIcon,
+  SearchIcon,
+} from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { Badge } from '@/components/ui/badge'
@@ -10,6 +17,7 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatBalance } from '@/lib/format'
 import { useActing } from '../composables/useActing'
+import { useEntry } from '../composables/useEntry'
 
 const {
   me,
@@ -24,6 +32,7 @@ const {
   actAs,
   logout,
 } = useActing()
+const { sheet, needsEntrySheet, open: openEntrySheet } = useEntry()
 const route = useRoute()
 
 const username = ref('')
@@ -236,6 +245,26 @@ function isNoneSelected() {
           </div>
         </CardHeader>
         <CardContent class="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+          <Button
+            v-if="needsEntrySheet"
+            class="w-full"
+            @click="openEntrySheet()"
+          >
+            <ClipboardListIcon class="size-4" />
+            پاسخ به سؤال‌های ورودی
+            <Badge v-if="sheet" variant="secondary" class="ms-auto tabular-nums">
+              {{ sheet.correct_count }}/{{ sheet.required_correct }}
+            </Badge>
+          </Button>
+          <Button
+            v-else-if="sheet && !sheet.qualified"
+            class="w-full"
+            variant="outline"
+            @click="openEntrySheet()"
+          >
+            <ClipboardListIcon class="size-4" />
+            سؤال‌های ورودی
+          </Button>
           <h2 class="text-muted-foreground text-xs font-medium">خانه‌های من</h2>
           <p v-if="!actingTeam?.holdings.length" class="text-muted-foreground text-sm">
             هنوز خانه‌ای رزرو نشده است.

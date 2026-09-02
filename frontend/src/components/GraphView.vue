@@ -11,11 +11,13 @@ import {
 } from '@/components/ui/dialog'
 import QuestionDialog from './QuestionDialog.vue'
 import { useActing } from '../composables/useActing'
+import { useEntry } from '../composables/useEntry'
 import { useGraph } from '../composables/useGraph.js'
 
 const HOUSE_FILL = '#E8D5B0'
 
 const { me, teams, actingTeam, isPlayer, claimStart, assignQuestion } = useActing()
+const { canClaimStart, open: openEntrySheet } = useEntry()
 const { nodes, edges, nodeById, adjacency, startEligibleIds } = useGraph()
 
 const loggedIn = computed(() => !!me.value)
@@ -97,11 +99,21 @@ function isHeld(id) {
   return holdingsByNode.value.has(id)
 }
 
+// A team that has not cleared the entry sheet cannot take a spawn yet, so the
+// start nodes stay unselectable and route the click to the sheet instead.
+function isFreeStart(id) {
+  return startEligibleIds.has(id) && !claimedStartIds.value.has(id)
+}
+
+function isEntryGate(n) {
+  return canAct.value && !canClaimStart.value && actingHeldIds.value.size === 0 && isFreeStart(n.id)
+}
+
 function isNodeSelectable(id) {
   if (!canAct.value) return false
   const held = actingHeldIds.value
   if (held.size === 0) {
-    return startEligibleIds.has(id) && !claimedStartIds.value.has(id)
+    return canClaimStart.value && isFreeStart(id)
   }
   if (held.has(id)) return false
   const expandable = expandableHeldIds.value
@@ -189,18 +201,20 @@ function nodeState(n) {
   if (isNodeAnswerable(n.id)) return 'answerable'
   if (isNodeSelected(n.id)) return 'visited'
   if (isNodeSelectable(n.id)) return 'selectable'
+  if (isEntryGate(n)) return 'gated'
   if (isStartNode(n) && !claimedStartIds.value.has(n.id)) return 'idle'
   return 'disabled'
 }
 
 function isNodeInteractive(n) {
-  return isNodeAnswerable(n.id) || isNodeSelectable(n.id)
+  return isNodeAnswerable(n.id) || isNodeSelectable(n.id) || isEntryGate(n)
 }
 
 function nodeLabel(n) {
   const state = nodeState(n)
   if (state === 'answerable') return `${n.id} — پاسخ به سؤال`
   if (state === 'selectable') return `${n.id} — قابل انتخاب`
+  if (state === 'gated') return `${n.id} — ابتدا سؤال‌های ورودی را پاسخ دهید`
   return n.id
 }
 
@@ -208,6 +222,10 @@ function onNodeClick(n) {
   const holding = answerableHolding(n.id)
   if (holding) {
     pendingOccupancyId.value = holding.id
+    return
+  }
+  if (isEntryGate(n)) {
+    openEntrySheet()
     return
   }
   if (!isNodeSelectable(n.id)) return
@@ -460,6 +478,7 @@ function shapePath(n) {
     <ul v-if="canAct" class="legend" aria-label="راهنمای رنگ خانه‌ها">
       <li><span class="legend-dot legend-answerable" />پاسخ به سؤال</li>
       <li><span class="legend-dot legend-selectable" />قابل رزرو</li>
+      <li v-if="!canClaimStart"><span class="legend-dot legend-gated" />نیازمند سؤال ورودی</li>
       <li><span class="legend-dot legend-visited" />در اختیار شما</li>
     </ul>
   </div>
@@ -505,6 +524,9 @@ function shapePath(n) {
 }
 .legend-selectable {
   background: #2b6ca8;
+}
+.legend-gated {
+  background: #b8860b;
 }
 .legend-visited {
   background: v-bind('actingTeam?.color || HOUSE_FILL');
@@ -566,6 +588,17 @@ function shapePath(n) {
 .state-idle {
   opacity: 1;
   cursor: default;
+}
+
+.state-gated {
+  cursor: pointer;
+}
+.state-gated .node-shape {
+  filter: drop-shadow(0 0 6px rgba(184, 134, 11, 0.7));
+}
+.state-gated:hover .node-shape,
+.state-gated:focus-visible .node-shape {
+  stroke-width: 2.2;
 }
 
 .state-selectable {

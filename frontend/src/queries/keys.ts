@@ -4,4 +4,5 @@ export const queryKeys = {
   submissions: () => ['submissions'] as const,
   occupancyQuestion: () => ['occupancy-question'] as const,
   leaderboard: () => ['leaderboard'] as const,
+  entrySheet: () => ['entry-sheet'] as const,
 }
