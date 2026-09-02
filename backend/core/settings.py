@@ -21,6 +21,12 @@ env = environ.Env(
     DEBUG=(bool, False),
     ALLOWED_HOSTS=(list, []),
     CSRF_TRUSTED_ORIGINS=(list, ["http://localhost:3000", "http://127.0.0.1:3000"]),
+    S3_BUCKET_NAME=(str, ""),
+    S3_ACCESS_KEY=(str, ""),
+    S3_SECRET_KEY=(str, ""),
+    S3_ENDPOINT=(str, ""),
+    S3_REGION=(str, "us-east-1"),
+    S3_PRESIGNED_EXPIRE=(int, 300),
 )
 environ.Env.read_env(BASE_DIR / ".env")
 
@@ -61,6 +67,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     # Third party
     "rest_framework",
+    "storages",
     # Project
     "teams",
     "accounts",
@@ -239,6 +246,44 @@ MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
+# Media goes to S3 (or any S3-compatible endpoint) as soon as a bucket is named;
+# with S3_BUCKET_NAME empty everything falls back to MEDIA_ROOT on disk, which is
+# what development and the test suite run on.
+S3_BUCKET_NAME = env("S3_BUCKET_NAME")
+S3_ACCESS_KEY = env("S3_ACCESS_KEY")
+S3_SECRET_KEY = env("S3_SECRET_KEY")
+S3_ENDPOINT = env("S3_ENDPOINT") or None
+S3_REGION = env("S3_REGION")
+S3_PRESIGNED_EXPIRE = env("S3_PRESIGNED_EXPIRE")
+
+USE_S3_MEDIA = bool(S3_BUCKET_NAME)
+
+if USE_S3_MEDIA:
+    STORAGES = {
+        "default": {
+            "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+            "OPTIONS": {
+                "access_key": S3_ACCESS_KEY,
+                "secret_key": S3_SECRET_KEY,
+                "bucket_name": S3_BUCKET_NAME,
+                "endpoint_url": S3_ENDPOINT,
+                "region_name": S3_REGION,
+                # MinIO and most self-hosted gateways do not do virtual-host
+                # buckets, and only sign v4.
+                "addressing_style": "path",
+                "signature_version": "s3v4",
+                "file_overwrite": False,
+                "default_acl": None,
+                "querystring_auth": True,
+                "querystring_expire": S3_PRESIGNED_EXPIRE,
+            },
+        },
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        },
+    }
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

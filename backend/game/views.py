@@ -1,5 +1,6 @@
+from django.conf import settings
 from django.db.models import Q
-from django.http import FileResponse, Http404
+from django.http import FileResponse, Http404, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
@@ -553,6 +554,12 @@ class SubmissionGradeView(APIView):
         )
 
 
+def _serve_upload(fieldfile):
+    if settings.USE_S3_MEDIA:
+        return HttpResponseRedirect(fieldfile.url)
+    return FileResponse(fieldfile.open("rb"), as_attachment=True, filename=fieldfile.name)
+
+
 @extend_schema(
     tags=["game"],
     summary="Download submission file",
@@ -572,9 +579,7 @@ class SubmissionMediaView(APIView):
             raise Http404("No file attached.")
         if not request.user.is_staff and submission.occupancy.team_id != request.user.team_id:
             raise PermissionDenied("You cannot access this file.")
-        return FileResponse(
-            submission.file.open("rb"), as_attachment=True, filename=submission.file.name
-        )
+        return _serve_upload(submission.file)
 
 
 @extend_schema(
@@ -592,11 +597,7 @@ class QuestionMediaView(APIView):
         if not question.attachment:
             raise Http404("No attachment.")
         if request.user.is_staff:
-            return FileResponse(
-                question.attachment.open("rb"),
-                as_attachment=True,
-                filename=question.attachment.name,
-            )
+            return _serve_upload(question.attachment)
         if request.user.team_id is None:
             raise PermissionDenied("You cannot access this file.")
         served = TeamQuestion.objects.filter(
@@ -605,11 +606,7 @@ class QuestionMediaView(APIView):
         ).exists()
         if not served:
             raise PermissionDenied("You cannot access this file.")
-        return FileResponse(
-            question.attachment.open("rb"),
-            as_attachment=True,
-            filename=question.attachment.name,
-        )
+        return _serve_upload(question.attachment)
 
 
 class MentorActionView(APIView):
