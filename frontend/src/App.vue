@@ -1,7 +1,20 @@
 <script setup>
 import 'vue-sonner/style.css'
+import { onUnmounted, watch } from 'vue'
 import InfoPanel from './components/InfoPanel.vue'
+import { useBoardStream } from '@/composables/useBoardStream'
+import { useMeQuery } from '@/queries/auth'
 import { Toaster } from '@/components/ui/sonner'
+
+const { data: me } = useMeQuery()
+const board = useBoardStream()
+
+watch(
+  me,
+  (value) => (value ? board.start() : board.stop()),
+  { immediate: true },
+)
+onUnmounted(board.stop)
 </script>
 
 <template>
