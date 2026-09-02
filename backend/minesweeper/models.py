@@ -21,6 +21,13 @@ DIFFICULTY_LAYOUTS = {
     MinesweeperDifficulty.HARD: {"width": 30, "height": 16, "mine_count": 99},
 }
 
+# Base points awarded on a win, before the time bonus.
+DIFFICULTY_BASE_SCORES = {
+    MinesweeperDifficulty.EASY: 100,
+    MinesweeperDifficulty.MEDIUM: 250,
+    MinesweeperDifficulty.HARD: 500,
+}
+
 
 def empty_board():
     """Unpopulated server-side board. Services fill `cells` when generating a game.

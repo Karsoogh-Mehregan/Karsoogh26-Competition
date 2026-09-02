@@ -20,3 +20,7 @@ class CellAlreadyRevealed(MinesweeperServiceError):
 
 class CellFlagged(MinesweeperServiceError):
     """A flagged cell cannot be revealed."""
+
+
+class CannotFlagRevealed(MinesweeperServiceError):
+    """A revealed cell cannot be flagged or unflagged."""
