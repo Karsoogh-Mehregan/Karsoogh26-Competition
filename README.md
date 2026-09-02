@@ -61,6 +61,7 @@ reachable from other devices on your network.
 
 ```bash
 uv run manage.py seed_demo --teams 8 --password demo1234 --csv demo-logins.csv # seeds a demo contest with 8 teams, password `demo1234`, and writes the team logins to `demo-logins.csv` (in backend/)
+uv run manage.py shell -c "from django.utils import timezone; from game.models import GameSettings; s=GameSettings.load(); s.started_at=timezone.now(); s.save(update_fields=['started_at']); print('grace ends', s.entry_grace_ends_at)" # sets the contest start time to now, and prints the grace period end time (in backend/)
 uv run pytest        # backend tests        (in backend/)
 uv run ruff check .  # backend lint         (in backend/)
 npm run build        # type-check + bundle  (in frontend/)
