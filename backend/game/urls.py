@@ -1,6 +1,6 @@
 from django.urls import path
 
-from game import views
+from game import sse, views
 
 app_name = "game"
 
@@ -39,4 +39,6 @@ urlpatterns = [
         views.QuestionMediaView.as_view(),
         name="question-media",
     ),
+    # Plain async view, not DRF: APIView.dispatch is sync-only in DRF 3.18.
+    path("realtime/stream/", sse.board_stream, name="board-stream"),
 ]

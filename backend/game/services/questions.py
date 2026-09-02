@@ -23,6 +23,7 @@ from game.models import (
     Submission,
     TeamQuestion,
 )
+from game.services.events import QUESTION_ASSIGNED, SUBMISSION_CREATED, publish_on_commit
 from game.services.mentor import grade_attempt, release_attempt
 
 
@@ -86,6 +87,10 @@ def assign_question(occupancy: Occupancy) -> Question:
         occupancy.save(
             update_fields=["question", "question_assigned_at", "expires_at"],
         )
+        publish_on_commit(
+            QUESTION_ASSIGNED,
+            {"occupancy": occupancy.pk, "team": occupancy.team.code},
+        )
 
     return question
 
@@ -127,12 +132,17 @@ def submit_answer(
 
     try:
         with transaction.atomic():
-            return Submission.objects.create(
+            submission = Submission.objects.create(
                 occupancy=occupancy,
                 body=body,
                 file=file or "",
                 submitted_by=user,
             )
+            publish_on_commit(
+                SUBMISSION_CREATED,
+                {"submission": submission.pk, "team": occupancy.team.code},
+            )
+            return submission
     except IntegrityError as exc:
         if Submission.objects.filter(occupancy=occupancy).exists():
             raise AlreadySubmitted("A submission already exists for this occupancy.") from exc
