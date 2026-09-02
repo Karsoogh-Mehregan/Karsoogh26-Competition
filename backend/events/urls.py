@@ -1,6 +1,9 @@
 from django.urls import path
 
 from .views import (
+    CentipedeActionView,
+    CentipedeGameDetailView,
+    CentipedeGameListCreateView,
     CharityBagDetailView,
     CharityBagListCreateView,
     CharityBagParticipationView,
@@ -13,6 +16,17 @@ from .views import (
 app_name = "events"
 
 urlpatterns = [
+    path("centipede/games/", CentipedeGameListCreateView.as_view(), name="centipede-list"),
+    path(
+        "centipede/games/<int:pk>/",
+        CentipedeGameDetailView.as_view(),
+        name="centipede-detail",
+    ),
+    path(
+        "centipede/games/<int:pk>/actions/",
+        CentipedeActionView.as_view(),
+        name="centipede-action",
+    ),
     path("charity-bag/instances/", CharityBagListCreateView.as_view(), name="charity-list"),
     path(
         "charity-bag/instances/<int:pk>/",

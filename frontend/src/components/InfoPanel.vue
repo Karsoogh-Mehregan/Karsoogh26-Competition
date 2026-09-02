@@ -5,6 +5,7 @@ import {
   CoinsIcon,
   HourglassIcon,
   HandHeartIcon,
+  RouteIcon,
   SearchIcon,
   SwordsIcon,
 } from '@lucide/vue'
@@ -95,6 +96,19 @@ function isNoneSelected() {
         <Button as-child size="sm" :variant="route.path === '/' ? 'default' : 'outline'">
           <RouterLink to="/" :aria-current="route.path === '/' ? 'page' : undefined">
             نقشه
+          </RouterLink>
+        </Button>
+        <Button
+          as-child
+          size="sm"
+          :variant="route.path.startsWith('/events/centipede-game') ? 'default' : 'outline'"
+        >
+          <RouterLink
+            to="/events/centipede-game"
+            :aria-current="route.path.startsWith('/events/centipede-game') ? 'page' : undefined"
+          >
+            <RouteIcon class="size-3.5" />
+            بازی هزارپا
           </RouterLink>
         </Button>
         <Button

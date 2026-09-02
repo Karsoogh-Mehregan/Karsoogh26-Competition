@@ -1,9 +1,12 @@
 import { get, post } from '@/lib/http'
 import type {
+  CentipedeGame,
   CharityBagEvent,
+  CreateCentipedeGameInput,
   CreateCharityBagInput,
   CreateTerritoryGameInput,
   EnterCharityBagInput,
+  PlayCentipedeActionInput,
   PlayTerritoryTurnInput,
   TerritoryGame,
 } from '@/types/api'
@@ -48,4 +51,25 @@ export function enterCharityBag(
   input: EnterCharityBagInput,
 ): Promise<CharityBagEvent> {
   return post<CharityBagEvent>(`${CHARITY_PATH}${eventId}/participate/`, input)
+}
+
+const CENTIPEDE_PATH = '/events/centipede/games/'
+
+export function listCentipedeGames(signal?: AbortSignal): Promise<CentipedeGame[]> {
+  return get<CentipedeGame[]>(CENTIPEDE_PATH, signal)
+}
+
+export function getCentipedeGame(gameId: number, signal?: AbortSignal): Promise<CentipedeGame> {
+  return get<CentipedeGame>(`${CENTIPEDE_PATH}${gameId}/`, signal)
+}
+
+export function createCentipedeGame(input: CreateCentipedeGameInput): Promise<CentipedeGame> {
+  return post<CentipedeGame>(CENTIPEDE_PATH, input)
+}
+
+export function playCentipedeAction(
+  gameId: number,
+  input: PlayCentipedeActionInput,
+): Promise<CentipedeGame> {
+  return post<CentipedeGame>(`${CENTIPEDE_PATH}${gameId}/actions/`, input)
 }

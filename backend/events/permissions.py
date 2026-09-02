@@ -16,3 +16,18 @@ class IsTerritoryParticipant(BasePermission):
         if request.method in SAFE_METHODS and user.has_perm(MENTOR_PERM):
             return True
         return user.team_id in (obj.player_one_id, obj.player_two_id)
+
+
+class IsCentipedeParticipant(BasePermission):
+    """Centipede players may read and act; mentors may only read."""
+
+    message = "شما به این بازی هزارپا دسترسی ندارید."
+
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated)
+
+    def has_object_permission(self, request, view, obj):
+        user = request.user
+        if request.method in SAFE_METHODS and user.has_perm(MENTOR_PERM):
+            return True
+        return user.team_id in (obj.player_one_id, obj.player_two_id)

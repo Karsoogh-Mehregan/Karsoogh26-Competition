@@ -199,3 +199,47 @@ export interface CreateCharityBagInput {
   ends_at?: string
   duration_seconds?: number
 }
+
+export type CentipedeStatus = 'waiting_for_players' | 'active' | 'finished'
+export type CentipedeAction = 'take' | 'continue'
+
+export interface CentipedePlayer {
+  code: string
+  name: string
+  color: string | null
+  position: 1 | 2
+  current_reward: number
+  final_payout: number
+}
+
+export interface CentipedeDecision {
+  sequence: number
+  round_number: number
+  actor: { code: string; name: string; color: string | null }
+  action: CentipedeAction
+  displayed_reward: number
+  created_at: string
+}
+
+export interface CentipedeGame {
+  id: number
+  players: [CentipedePlayer, CentipedePlayer]
+  round_number: number
+  active_player: { code: string; name: string; color: string | null } | null
+  actions_completed: number
+  status: CentipedeStatus
+  winner: { code: string; name: string; color: string | null } | null
+  history: CentipedeDecision[]
+  finished_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateCentipedeGameInput {
+  player_one: string
+  player_two: string
+}
+
+export interface PlayCentipedeActionInput {
+  action: CentipedeAction
+}

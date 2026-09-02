@@ -1,21 +1,28 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, type Ref } from 'vue'
 import {
+  createCentipedeGame,
   createCharityBag,
   createTerritoryGame,
   enterCharityBag,
   getCharityBag,
+  getCentipedeGame,
   getTerritoryGame,
   listCharityBags,
+  listCentipedeGames,
   listTerritoryGames,
   playTerritoryTurn,
+  playCentipedeAction,
 } from '@/services/events'
 import type {
+  CentipedeGame,
   CharityBagEvent,
   CreateCharityBagInput,
+  CreateCentipedeGameInput,
   CreateTerritoryGameInput,
   EnterCharityBagInput,
   PlayTerritoryTurnInput,
+  PlayCentipedeActionInput,
   TerritoryGame,
 } from '@/types/api'
 import { queryKeys } from './keys'
@@ -120,6 +127,56 @@ export function useCreateCharityBagMutation() {
     onSuccess: (event) => {
       queryClient.setQueryData(queryKeys.charityBag(event.id), event)
       return queryClient.invalidateQueries({ queryKey: queryKeys.charityBags() })
+    },
+  })
+}
+
+export function useCentipedeGamesQuery(enabled: () => boolean) {
+  return useQuery({
+    queryKey: queryKeys.centipedeGames(),
+    queryFn: ({ signal }) => listCentipedeGames(signal),
+    enabled,
+    refetchInterval: (query) =>
+      query.state.data?.some((game) => game.status === 'active') ? 3000 : false,
+  })
+}
+
+export function useCentipedeGameQuery(gameId: Ref<number | null>, enabled: () => boolean) {
+  return useQuery({
+    queryKey: computed(() => queryKeys.centipedeGame(gameId.value ?? 'none')),
+    queryFn: ({ signal }) => {
+      if (gameId.value == null) throw new Error('No Centipede game selected.')
+      return getCentipedeGame(gameId.value, signal)
+    },
+    enabled: computed(() => enabled() && gameId.value != null),
+    refetchInterval: (query) => (query.state.data?.status === 'active' ? 2000 : false),
+  })
+}
+
+interface CentipedeActionVariables extends PlayCentipedeActionInput {
+  gameId: number
+}
+
+export function usePlayCentipedeActionMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ gameId, action }: CentipedeActionVariables) =>
+      playCentipedeAction(gameId, { action }),
+    onSuccess: (game: CentipedeGame) => {
+      queryClient.setQueryData(queryKeys.centipedeGame(game.id), game)
+      queryClient.invalidateQueries({ queryKey: queryKeys.teams() })
+      return queryClient.invalidateQueries({ queryKey: queryKeys.centipedeGames() })
+    },
+  })
+}
+
+export function useCreateCentipedeGameMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: CreateCentipedeGameInput) => createCentipedeGame(input),
+    onSuccess: (game) => {
+      queryClient.setQueryData(queryKeys.centipedeGame(game.id), game)
+      return queryClient.invalidateQueries({ queryKey: queryKeys.centipedeGames() })
     },
   })
 }

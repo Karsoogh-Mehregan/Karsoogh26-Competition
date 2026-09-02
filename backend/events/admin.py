@@ -1,6 +1,8 @@
 from django.contrib import admin
 
 from .models import (
+    CentipedeDecision,
+    CentipedeGame,
     CharityBagEvent,
     CharityBagParticipation,
     TerritoryCell,
@@ -69,4 +71,38 @@ class CharityBagEventAdmin(admin.ModelAdmin):
 @admin.register(CharityBagParticipation)
 class CharityBagParticipationAdmin(admin.ModelAdmin):
     list_display = ("event", "team", "action", "amount", "final_payout", "submitted_at")
+    list_filter = ("action",)
+
+
+class CentipedeDecisionInline(admin.TabularInline):
+    model = CentipedeDecision
+    extra = 0
+    readonly_fields = (
+        "sequence",
+        "round_number",
+        "actor",
+        "action",
+        "displayed_reward",
+        "created_at",
+    )
+
+
+@admin.register(CentipedeGame)
+class CentipedeGameAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "player_one",
+        "player_two",
+        "round_number",
+        "active_player",
+        "status",
+        "winner",
+    )
+    list_filter = ("status",)
+    inlines = (CentipedeDecisionInline,)
+
+
+@admin.register(CentipedeDecision)
+class CentipedeDecisionAdmin(admin.ModelAdmin):
+    list_display = ("game", "sequence", "round_number", "actor", "action", "displayed_reward")
     list_filter = ("action",)

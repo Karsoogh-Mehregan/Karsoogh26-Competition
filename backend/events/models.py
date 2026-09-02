@@ -313,3 +313,167 @@ class CharityBagParticipation(models.Model):
 
     def __str__(self):
         return f"{self.team} / {self.event_id} / {self.action}"
+
+
+class CentipedeStatus(models.TextChoices):
+    WAITING_FOR_PLAYERS = "waiting_for_players", "در انتظار بازیکنان"
+    ACTIVE = "active", "فعال"
+    FINISHED = "finished", "تمام شده"
+
+
+class CentipedeAction(models.TextChoices):
+    TAKE = "take", "بردار"
+    CONTINUE = "continue", "ادامه بده"
+
+
+class CentipedeGame(models.Model):
+    player_one = models.ForeignKey(
+        "teams.Team",
+        on_delete=models.PROTECT,
+        related_name="centipede_games_as_player_one",
+    )
+    player_two = models.ForeignKey(
+        "teams.Team",
+        on_delete=models.PROTECT,
+        related_name="centipede_games_as_player_two",
+    )
+    active_player = models.ForeignKey(
+        "teams.Team",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="active_centipede_games",
+    )
+    winner = models.ForeignKey(
+        "teams.Team",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="won_centipede_games",
+    )
+    round_number = models.PositiveIntegerField(default=1)
+    player_one_reward = models.PositiveBigIntegerField(default=50)
+    player_two_reward = models.PositiveBigIntegerField(default=200)
+    actions_completed = models.PositiveIntegerField(default=0)
+    player_one_final_payout = models.PositiveBigIntegerField(default=0)
+    player_two_final_payout = models.PositiveBigIntegerField(default=0)
+    status = models.CharField(
+        max_length=19,
+        choices=CentipedeStatus.choices,
+        default=CentipedeStatus.ACTIVE,
+    )
+    finished_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            CheckConstraint(
+                condition=~Q(player_one=F("player_two")),
+                name="centipede_two_distinct_players",
+            ),
+            CheckConstraint(
+                condition=Q(round_number__gte=1),
+                name="centipede_round_positive",
+            ),
+            CheckConstraint(
+                condition=Q(player_one_reward__gte=50, player_two_reward__gte=200),
+                name="centipede_rewards_minimum",
+            ),
+            CheckConstraint(
+                condition=(
+                    Q(active_player=F("player_one"))
+                    | Q(active_player=F("player_two"))
+                    | Q(active_player__isnull=True)
+                ),
+                name="centipede_active_is_player",
+            ),
+            CheckConstraint(
+                condition=(
+                    Q(winner=F("player_one")) | Q(winner=F("player_two")) | Q(winner__isnull=True)
+                ),
+                name="centipede_winner_is_player",
+            ),
+            CheckConstraint(
+                condition=(
+                    Q(
+                        status=CentipedeStatus.WAITING_FOR_PLAYERS,
+                        active_player__isnull=True,
+                        winner__isnull=True,
+                        finished_at__isnull=True,
+                        player_one_final_payout=0,
+                        player_two_final_payout=0,
+                    )
+                    | Q(
+                        status=CentipedeStatus.ACTIVE,
+                        active_player__isnull=False,
+                        winner__isnull=True,
+                        finished_at__isnull=True,
+                        player_one_final_payout=0,
+                        player_two_final_payout=0,
+                    )
+                    | Q(
+                        status=CentipedeStatus.FINISHED,
+                        active_player__isnull=True,
+                        winner__isnull=False,
+                        finished_at__isnull=False,
+                    )
+                ),
+                name="centipede_status_consistent",
+            ),
+            CheckConstraint(
+                condition=(
+                    Q(
+                        winner=F("player_one"),
+                        player_one_final_payout__gt=0,
+                        player_two_final_payout=0,
+                    )
+                    | Q(
+                        winner=F("player_two"),
+                        player_one_final_payout=0,
+                        player_two_final_payout__gt=0,
+                    )
+                    | Q(winner__isnull=True)
+                ),
+                name="centipede_payout_matches_winner",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Centipede {self.player_one} vs {self.player_two} ({self.pk})"
+
+
+class CentipedeDecision(models.Model):
+    game = models.ForeignKey(
+        CentipedeGame,
+        on_delete=models.CASCADE,
+        related_name="decisions",
+    )
+    sequence = models.PositiveIntegerField()
+    round_number = models.PositiveIntegerField()
+    actor = models.ForeignKey(
+        "teams.Team",
+        on_delete=models.PROTECT,
+        related_name="centipede_decisions",
+    )
+    action = models.CharField(max_length=8, choices=CentipedeAction.choices)
+    displayed_reward = models.PositiveBigIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["sequence"]
+        constraints = [
+            UniqueConstraint(fields=["game", "sequence"], name="centipede_decision_sequence"),
+            UniqueConstraint(
+                fields=["game", "round_number", "actor"],
+                name="centipede_one_decision_per_player_round",
+            ),
+            CheckConstraint(
+                condition=Q(sequence__gte=1, round_number__gte=1, displayed_reward__gt=0),
+                name="centipede_decision_values_positive",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Centipede {self.game_id}, decision {self.sequence}"

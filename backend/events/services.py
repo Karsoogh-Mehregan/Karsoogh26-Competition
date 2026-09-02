@@ -8,6 +8,11 @@ from django.utils import timezone
 from teams.models import Team
 
 from .exceptions import (
+    CentipedeInvalidAction,
+    CentipedeNotActive,
+    CentipedeNotParticipant,
+    CentipedeNotPlayersTurn,
+    CentipedeSamePlayer,
     CharityBagAlreadyEntered,
     CharityBagInsufficientBalance,
     CharityBagInvalidWindow,
@@ -22,6 +27,10 @@ from .exceptions import (
 from .models import (
     BOARD_SIZE,
     TOTAL_TURNS,
+    CentipedeAction,
+    CentipedeDecision,
+    CentipedeGame,
+    CentipedeStatus,
     CharityBagAction,
     CharityBagEvent,
     CharityBagParticipation,
@@ -372,5 +381,75 @@ def play_territory_turn(
         defender_score_change=defender_delta,
         previous_owner_id=previous_owner_id,
         new_owner_id=cell.owner_id,
+    )
+    return game
+
+
+@transaction.atomic
+def create_centipede_game(player_one: Team, player_two: Team) -> CentipedeGame:
+    """Create an active game after the physical RPS ordering is finalized."""
+    if player_one.pk == player_two.pk:
+        raise CentipedeSamePlayer("دو بازیکن بازی هزارپا باید دو تیم متفاوت باشند.")
+    return CentipedeGame.objects.create(
+        player_one=player_one,
+        player_two=player_two,
+        active_player=player_one,
+    )
+
+
+@transaction.atomic
+def play_centipede_action(
+    game_id: int,
+    acting_team: Team,
+    action: str,
+) -> CentipedeGame:
+    if action not in CentipedeAction.values:
+        raise CentipedeInvalidAction("تصمیم بازی باید TAKE یا CONTINUE باشد.")
+
+    game = (
+        CentipedeGame.objects.select_for_update(of=("self",))
+        .select_related("player_one", "player_two", "active_player")
+        .get(pk=game_id)
+    )
+    if acting_team.pk not in (game.player_one_id, game.player_two_id):
+        raise CentipedeNotParticipant("این تیم بازیکن این بازی هزارپا نیست.")
+    if game.status != CentipedeStatus.ACTIVE:
+        raise CentipedeNotActive("این بازی هزارپا فعال نیست.")
+    if game.active_player_id != acting_team.pk:
+        raise CentipedeNotPlayersTurn("اکنون نوبت این تیم نیست.")
+
+    is_player_one = acting_team.pk == game.player_one_id
+    displayed_reward = game.player_one_reward if is_player_one else game.player_two_reward
+    action_round = game.round_number
+    game.actions_completed += 1
+
+    if action == CentipedeAction.TAKE:
+        now = timezone.now()
+        locked_team = Team.objects.select_for_update(of=("self",)).get(pk=acting_team.pk)
+        Team.objects.filter(pk=locked_team.pk).update(balance=F("balance") + displayed_reward)
+        game.status = CentipedeStatus.FINISHED
+        game.active_player = None
+        game.winner = acting_team
+        game.finished_at = now
+        if is_player_one:
+            game.player_one_final_payout = displayed_reward
+        else:
+            game.player_two_final_payout = displayed_reward
+    elif is_player_one:
+        game.active_player_id = game.player_two_id
+    else:
+        game.player_one_reward *= 2
+        game.player_two_reward *= 2
+        game.round_number += 1
+        game.active_player_id = game.player_one_id
+
+    game.save()
+    CentipedeDecision.objects.create(
+        game=game,
+        sequence=game.actions_completed,
+        round_number=action_round,
+        actor=acting_team,
+        action=action,
+        displayed_reward=displayed_reward,
     )
     return game

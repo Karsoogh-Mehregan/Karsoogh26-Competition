@@ -5,6 +5,8 @@ from teams.models import Team
 
 from .models import (
     BOARD_SIZE,
+    CentipedeDecision,
+    CentipedeGame,
     CharityBagEvent,
     CharityBagParticipation,
     CharityBagStatus,
@@ -254,3 +256,87 @@ class CreateCharityBagSerializer(serializers.Serializer):
         if attrs.get("ends_at") and attrs.get("duration_seconds"):
             raise serializers.ValidationError("Send either ends_at or duration_seconds, not both.")
         return attrs
+
+
+class CentipedeDecisionSerializer(serializers.ModelSerializer):
+    actor = TeamIdentitySerializer(read_only=True)
+
+    class Meta:
+        model = CentipedeDecision
+        fields = (
+            "sequence",
+            "round_number",
+            "actor",
+            "action",
+            "displayed_reward",
+            "created_at",
+        )
+        read_only_fields = fields
+
+
+class CentipedeGameSerializer(serializers.ModelSerializer):
+    players = serializers.SerializerMethodField()
+    active_player = TeamIdentitySerializer(read_only=True, allow_null=True)
+    winner = TeamIdentitySerializer(read_only=True, allow_null=True)
+    history = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CentipedeGame
+        fields = (
+            "id",
+            "players",
+            "round_number",
+            "active_player",
+            "actions_completed",
+            "status",
+            "winner",
+            "history",
+            "finished_at",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+    def get_players(self, game: CentipedeGame) -> list[dict]:
+        return [
+            {
+                **TeamIdentitySerializer(game.player_one).data,
+                "position": 1,
+                "current_reward": game.player_one_reward,
+                "final_payout": game.player_one_final_payout,
+            },
+            {
+                **TeamIdentitySerializer(game.player_two).data,
+                "position": 2,
+                "current_reward": game.player_two_reward,
+                "final_payout": game.player_two_final_payout,
+            },
+        ]
+
+    def get_history(self, game: CentipedeGame) -> list[dict]:
+        return CentipedeDecisionSerializer(game.decisions.all(), many=True).data
+
+
+class CreateCentipedeGameSerializer(serializers.Serializer):
+    player_one = serializers.SlugField(max_length=32)
+    player_two = serializers.SlugField(max_length=32)
+
+    def validate(self, attrs):
+        if attrs["player_one"] == attrs["player_two"]:
+            raise serializers.ValidationError("Two different teams are required.")
+        return attrs
+
+
+class PlayCentipedeActionSerializer(serializers.Serializer):
+    action = serializers.ChoiceField(choices=("take", "continue"))
+
+    def to_internal_value(self, data):
+        unexpected = set(data) - {"action"}
+        if unexpected:
+            raise serializers.ValidationError(
+                {
+                    field: "Reward and balance values are calculated by the backend."
+                    for field in unexpected
+                }
+            )
+        return super().to_internal_value(data)

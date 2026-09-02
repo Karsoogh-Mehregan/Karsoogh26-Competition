@@ -15,27 +15,40 @@ from core.openapi import OpenApiExample, OpenApiParameter, extend_schema
 from game.api_exceptions import Conflict
 from teams.models import Team
 
-from .exceptions import CharityBagError, NotParticipant, TerritoryEventError
+from .exceptions import (
+    CentipedeError,
+    CentipedeNotParticipant,
+    CharityBagError,
+    NotParticipant,
+    TerritoryEventError,
+)
 from .models import (
+    CentipedeDecision,
+    CentipedeGame,
     CharityBagEvent,
     CharityBagParticipation,
     TerritoryCell,
     TerritoryGame,
     TerritoryTurn,
 )
-from .permissions import IsTerritoryParticipant
+from .permissions import IsCentipedeParticipant, IsTerritoryParticipant
 from .serializers import (
+    CentipedeGameSerializer,
     CharityBagEventSerializer,
+    CreateCentipedeGameSerializer,
     CreateCharityBagSerializer,
     CreateTerritoryGameSerializer,
     EnterCharityBagSerializer,
+    PlayCentipedeActionSerializer,
     PlayTerritoryTurnSerializer,
     TerritoryGameStateSerializer,
 )
 from .services import (
+    create_centipede_game,
     create_charity_bag,
     create_territory_game,
     enter_charity_bag,
+    play_centipede_action,
     play_territory_turn,
     sync_charity_bag,
     sync_due_charity_bags,
@@ -252,3 +265,81 @@ class CharityBagResolveView(APIView):
         get_object_or_404(CharityBagEvent, pk=pk)
         event = sync_charity_bag(pk)
         return _charity_response(event, request)
+
+
+def centipede_games():
+    return CentipedeGame.objects.select_related(
+        "player_one", "player_two", "active_player", "winner"
+    ).prefetch_related(
+        Prefetch("decisions", queryset=CentipedeDecision.objects.select_related("actor"))
+    )
+
+
+def _centipede_response(game, *, response_status=status.HTTP_200_OK):
+    game = centipede_games().get(pk=game.pk)
+    return Response(CentipedeGameSerializer(game).data, status=response_status)
+
+
+def _map_centipede_error(exc: CentipedeError):
+    if isinstance(exc, CentipedeNotParticipant):
+        raise PermissionDenied(str(exc)) from exc
+    raise Conflict(str(exc)) from exc
+
+
+class CentipedeGameListCreateView(APIView):
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsMentor()]
+        return [IsAuthenticated()]
+
+    def get(self, request):
+        queryset = centipede_games()
+        if not request.user.has_perm(MENTOR_PERM):
+            if request.user.team_id is None:
+                queryset = queryset.none()
+            else:
+                queryset = queryset.filter(
+                    Q(player_one_id=request.user.team_id) | Q(player_two_id=request.user.team_id)
+                )
+        return Response(CentipedeGameSerializer(queryset, many=True).data)
+
+    def post(self, request):
+        payload = CreateCentipedeGameSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        player_one = get_object_or_404(Team, code=payload.validated_data["player_one"])
+        player_two = get_object_or_404(Team, code=payload.validated_data["player_two"])
+        try:
+            game = create_centipede_game(player_one, player_two)
+        except CentipedeError as exc:
+            _map_centipede_error(exc)
+        return _centipede_response(game, response_status=status.HTTP_201_CREATED)
+
+
+class CentipedeGameDetailView(APIView):
+    permission_classes = [IsAuthenticated, IsCentipedeParticipant]
+
+    def get(self, request, pk: int):
+        game = get_object_or_404(centipede_games(), pk=pk)
+        self.check_object_permissions(request, game)
+        return Response(CentipedeGameSerializer(game).data)
+
+
+class CentipedeActionView(APIView):
+    permission_classes = [IsAuthenticated, IsCentipedeParticipant]
+
+    def post(self, request, pk: int):
+        game = get_object_or_404(centipede_games(), pk=pk)
+        self.check_object_permissions(request, game)
+        if request.user.team_id is None:
+            raise PermissionDenied("فقط یکی از دو تیم می‌تواند تصمیم ثبت کند.")
+        payload = PlayCentipedeActionSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            game = play_centipede_action(
+                game.pk,
+                request.user.team,
+                payload.validated_data["action"],
+            )
+        except CentipedeError as exc:
+            _map_centipede_error(exc)
+        return _centipede_response(game)

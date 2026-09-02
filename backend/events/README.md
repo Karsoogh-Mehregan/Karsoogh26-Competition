@@ -3,10 +3,12 @@
 This document describes only the competition event subsystem. The Django app lives in
 `backend/events/`; its Vue pages and client data layer live under `frontend/src/`.
 
-The app currently contains two independent events:
+The app currently contains three independent events:
 
 - **Territory Control** — a two-team, 20-turn board game.
 - **Charity Bag** — a timed, shared risk/reward event using team Glorium balances.
+- **Centipede Game** — a two-player, alternating risk/reward game with an unbounded number of
+  rounds.
 
 Both events reuse the existing `teams.Team` model and session authentication. Domain mutations
 belong in `events/services.py`; API views validate input and translate domain errors, but do not
@@ -22,8 +24,9 @@ implement game rules themselves.
   changes, and settlement.
 - `serializers.py` — public API shapes and Charity Bag visibility filtering.
 - `views.py` / `urls.py` — authenticated REST endpoints.
-- `permissions.py` — Territory Control participant access.
-- `admin.py` — staff inspection of matches, cells, turns, Charity Bag instances, and entries.
+- `permissions.py` — Territory Control and Centipede participant access.
+- `admin.py` — staff inspection of matches, cells, turns, Charity Bag instances, entries, and
+  Centipede decisions.
 - `management/commands/` — Charity Bag scheduling and lifecycle resolution.
 - `migrations/` — both event schemas.
 
@@ -32,6 +35,7 @@ implement game rules themselves.
 - `frontend/src/pages/TerritoryEventPage.vue`
 - `frontend/src/components/territory/TerritoryBoard.vue`
 - `frontend/src/pages/CharityBagPage.vue`
+- `frontend/src/pages/CentipedeGamePage.vue`
 - `frontend/src/services/events.ts` — all event API paths.
 - `frontend/src/queries/events.ts` — TanStack Query polling, mutations, and cache updates.
 - `frontend/src/queries/keys.ts` — event query keys.
@@ -43,6 +47,7 @@ The SPA routes are:
 
 - `/events/territory-control`
 - `/events/charity-bag`
+- `/events/centipede-game`
 
 Both routes require an authenticated session. Navigation is exposed through `InfoPanel.vue`.
 
@@ -53,8 +58,10 @@ team. Client-selected team state is never accepted as permission to act.
 
 - Team accounts may play only as their own team.
 - Mentors may create Territory matches and Charity Bag instances.
+- Mentors may create Centipede matches after the physical rock-paper-scissors ordering is known.
 - Mentors can inspect Territory matches but cannot take a team's turn.
 - Mentors cannot participate in Charity Bag unless they are using a real team account.
+- Mentors can inspect Centipede matches but cannot decide for a player.
 - Dice results, legal moves, timing, balance checks, deductions, and payouts are always decided by
   the backend.
 
@@ -238,6 +245,66 @@ invalidates the team query so the displayed Glorium balance refreshes. Active de
 finished events show the totals and per-team payout ledger. Coin and outcome effects use generated
 Web Audio tones, so sound files are not required.
 
+## Centipede Game
+
+### Model and lifecycle
+
+`CentipedeGame` stores the ordered players, round, both displayed rewards, active player, action
+count, lifecycle status, winner, final payouts, and finish timestamp. `CentipedeDecision` is the
+immutable audit row for every choice, including its global sequence, round, actor, action, and the
+reward visible to that actor at that moment.
+
+The available statuses are `waiting_for_players`, `active`, and `finished`. The current creation API
+receives both already-ordered players and therefore creates an active match immediately. The waiting
+status is retained for a future registration or software-based rock-paper-scissors flow.
+
+Database constraints enforce distinct participants, positive round/reward values, participant-only
+active players and winners, consistent finished state, and final payouts that agree with the winner.
+Each player can have at most one decision in a round, and every sequence number is unique per game.
+
+### Rules
+
+The physical rock-paper-scissors result determines player order before match creation. Player 1
+always starts each round.
+
+```text
+round n player 1 reward = 50  × 2^(n - 1)
+round n player 2 reward = 200 × 2^(n - 1)
+```
+
+- `TAKE` ends the game immediately. Only the acting player's displayed reward is added to their
+  existing team balance; the other displayed reward is discarded.
+- `CONTINUE` from player 1 passes the turn to player 2 without paying anything.
+- `CONTINUE` from player 2 completes the round, doubles both rewards, increments the round, and
+  returns the turn to player 1.
+- There is no fixed final round. The match ends only with `TAKE`.
+
+`play_centipede_action()` locks the game row before validating status, membership, and turn order.
+Settlement locks the winner's team row and updates the balance in the same transaction as the game
+finish and decision record. A retry after completion is rejected before any balance write, so the
+reward cannot be paid twice. Reward and balance fields are never accepted from the client.
+
+### Centipede API
+
+- `GET /api/events/centipede/games/` — mentors see all games; teams see only their own games.
+- `POST /api/events/centipede/games/` — mentor-only creation with finalized order. Body:
+  `{"player_one": "alpha", "player_two": "beta"}`.
+- `GET /api/events/centipede/games/<id>/` — current rewards, active player, result, and full history.
+- `POST /api/events/centipede/games/<id>/actions/` — active participant only. Body is exactly
+  `{"action": "take"}` or `{"action": "continue"}`; unknown or client-calculated reward fields are
+  rejected.
+
+### Centipede frontend behavior
+
+The Persian RTL page presents both live rewards, active-player highlighting, an animated route,
+round state, confirmation before `TAKE`, and a complete reverse-chronological decision history. An
+active match polls for the other physical participant's move. The layout uses the same project
+cards, typography, colors, responsive drawer, and generated Web Audio effects as the other events;
+it stacks the action and history panels on smaller screens.
+
+Mentor creation explicitly records Player 1 and Player 2 after the external rock-paper-scissors
+result. Team users can see the game but action controls appear only for the currently active player.
+
 ## Continuing development
 
 When changing an event:
@@ -261,6 +328,7 @@ Relevant focused tests are:
 ```bash
 uv run pytest tests/test_territory_event.py
 uv run pytest tests/test_charity_bag_event.py
+uv run pytest tests/test_centipede_event.py
 ```
 
 SQLite does not enforce `select_for_update()`. Concurrency confidence therefore depends on the row

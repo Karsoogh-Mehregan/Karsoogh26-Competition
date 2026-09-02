@@ -44,3 +44,27 @@ class CharityBagInsufficientBalance(CharityBagError):
 
 class CharityBagInvalidWindow(CharityBagError):
     pass
+
+
+class CentipedeError(Exception):
+    """Base class for Centipede Game domain errors."""
+
+
+class CentipedeSamePlayer(CentipedeError):
+    pass
+
+
+class CentipedeNotParticipant(CentipedeError):
+    pass
+
+
+class CentipedeNotActive(CentipedeError):
+    pass
+
+
+class CentipedeNotPlayersTurn(CentipedeError):
+    pass
+
+
+class CentipedeInvalidAction(CentipedeError):
+    pass
