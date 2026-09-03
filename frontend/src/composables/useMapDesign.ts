@@ -75,9 +75,17 @@ export function useMapDesign() {
 
   /** code → the server's row, when it has one. */
   const nodeRows = computed(() => {
-    const map = new Map<string, { level: Level; capacity: 1 | 2 | 3; archetype: string }>()
+    const map = new Map<
+      string,
+      { level: Level; capacity: 1 | 2 | 3; archetype: string; minesweeper: boolean }
+    >()
     for (const row of design.value?.nodes ?? []) {
-      map.set(row.code, { level: row.level, capacity: row.capacity, archetype: row.archetype })
+      map.set(row.code, {
+        level: row.level,
+        capacity: row.capacity,
+        archetype: row.archetype,
+        minesweeper: row.minesweeper,
+      })
     }
     return map
   })
@@ -118,6 +126,15 @@ export function useMapDesign() {
 
   function capacityOf(code: string, fallbackType: string): 1 | 2 | 3 {
     return nodeRows.value.get(code)?.capacity ?? LEVEL_CAPACITY[levelForType(fallbackType)]
+  }
+
+  /**
+   * Whether a minesweeper board is actually playable here. False until the
+   * query lands: the map JSON cannot know, and offering a board the API would
+   * refuse is worse than offering it a moment late.
+   */
+  function hasMinesweeper(code: string): boolean {
+    return nodeRows.value.get(code)?.minesweeper ?? false
   }
 
   function neighborhoodOf(node: PolarNode): Neighborhood {
@@ -165,6 +182,7 @@ export function useMapDesign() {
     sectorOf,
     levelOf,
     capacityOf,
+    hasMinesweeper,
     neighborhoodOf,
     themeOf,
     pinOf,

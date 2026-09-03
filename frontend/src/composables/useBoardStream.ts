@@ -20,6 +20,9 @@ const ROUTES: Record<string, () => QueryKey[]> = {
   'mentor.submission.created': () => [queryKeys.submissions()],
   // An admin flipped the game state; everyone's clock and stage bar are stale.
   'game.state': () => [queryKeys.gameState(), queryKeys.gameSettings()],
+  // The frame is a hint, as ever: the inbox itself is refetched, and
+  // useNotifications decides whether that counts as news worth a toast.
+  'notification.created': () => [queryKeys.inbox()],
   // A Designer repainted something; every open map is stale.
   'map.design': () => [queryKeys.mapDesign()],
 }
@@ -30,6 +33,7 @@ const RESYNC_KEYS: QueryKey[] = [
   queryKeys.submissions(),
   queryKeys.gameState(),
   queryKeys.attemptsRoot(),
+  queryKeys.inbox(),
   queryKeys.mapDesign(),
 ]
 

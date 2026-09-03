@@ -73,6 +73,8 @@ INSTALLED_APPS = [
     "teams",
     "accounts",
     "game",
+    "minesweeper",
+    "notifications",
 ]
 
 AUTH_USER_MODEL = "accounts.User"

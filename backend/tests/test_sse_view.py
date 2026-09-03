@@ -156,6 +156,27 @@ def test_mentor_only_frames_are_withheld_from_players(stream_enabled, fake_hub):
     assert async_to_sync(scenario)(True) == private.payload
 
 
+def test_addressed_frames_reach_only_the_users_they_name(stream_enabled, fake_hub):
+    """A notification hint must not tell the whole hall that somebody got mail."""
+    addressed = sse.build_frame(
+        b"7-0", {b"t": events.NOTIFICATION_CREATED.encode(), b"d": b"{}", b"u": b"42"}
+    )
+    everyone = sse.build_frame(b"8-0", {b"t": b"board.graded", b"d": b"{}"})
+
+    async def scenario(user_id):
+        queue = fake_hub.subscribe()
+        queue.put_nowait(addressed)
+        queue.put_nowait(everyone)
+        generator = sse._stream(queue, is_mentor=False, replayed=[], user_id=user_id)
+        seen = [await anext(generator) for _ in range(3)]
+        await generator.aclose()
+        return seen[2]
+
+    # The addressed user sees it first; anyone else falls through to the public one.
+    assert async_to_sync(scenario)(42) == addressed.payload
+    assert async_to_sync(scenario)(7) == everyone.payload
+
+
 def test_replayed_ids_are_not_delivered_twice(stream_enabled, fake_hub):
     replayed = sse.build_frame(b"7-0", {b"t": b"board.graded", b"d": b'{"n":1}'})
     stale = sse.build_frame(b"7-0", {b"t": b"board.graded", b"d": b'{"n":1}'})

@@ -309,10 +309,20 @@ function nodeLabel(n) {
   return n.id
 }
 
+function isGatewayNode(n) {
+  return design.levelOf(n.id, n.type) === 'toll'
+}
+
 function inspectIntent(n) {
   const holding = answerableHolding(n.id)
   if (holding) return { intent: 'solve', occupancyId: holding.id }
   if (isEntryGate(n)) return { intent: 'entry_gate', occupancyId: null }
+  // A gateway is played, not answered: it never offers a question, and only
+  // offers a board where the server actually has one configured.
+  if (isGatewayNode(n)) {
+    const playable = canAct.value && design.hasMinesweeper(n.id)
+    return { intent: playable ? 'minesweeper' : 'view', occupancyId: null }
+  }
   if (isNodeSelectable(n.id)) {
     const claimingStart = isStartNode(n) && actingHeldIds.value.size === 0
     return { intent: claimingStart ? 'claim_start' : 'reserve', occupancyId: null }
