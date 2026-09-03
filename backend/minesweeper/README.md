@@ -168,7 +168,7 @@ Revealed: `{ "revealed": true, "flagged": false, "adjacent_mines": 2 }` (still n
 
 ### `status === "won"` or `"lost"`
 
-Every cell includes `revealed`, `flagged`, `adjacent_mines`, and `mine`.
+Every cell includes `revealed`, `flagged`, `adjacent_mines`, and `mine`. The SPA renders this as a read-only result board (all mines and numbers visible). Active games never include `mine`.
 
 Public fields: `game_id`, `attempt_id`, `node`, `difficulty`, `width`, `height`, `mine_count`, `status`, `score`, `started_at`, `finished_at`, `board`. **No `team`.**
 
@@ -214,7 +214,7 @@ GraphView click (type c34 / c45)
 
 `start_play` still resumes an `in_progress` attempt for `(team, node)`, or creates a new `MinesweeperGame` + `MinesweeperAttempt`. Finished attempts stay as history. Different teams on the same node get independent games.
 
-When the attempt becomes `won` or `lost`, the SPA navigates to `/` (the map). Leaving the page while `in_progress` does not finish the attempt; clicking the same node again issues a new entry token and resumes.
+When the attempt becomes `won` or `lost`, the SPA stays on the Minesweeper page, shows the final board (mines included), and the player returns to `/` with **بازگشت به نقشه**. Leaving the page while `in_progress` does not finish the attempt; clicking the same node again issues a new entry token and resumes.
 
 This entry token proves that this **authenticated session** requested entry for an **enabled Minesweeper node**. It does **not** prove a physical SVG click, and it does **not** check occupancy or reachability (those come later).
 
@@ -364,8 +364,12 @@ GraphView.vue  (c34/c45 click → POST enter)
     ↓
 MinesweeperPage.vue  consumes entry via POST start, then board
     ↓
-won/lost → router.push({ name: 'map' })  → /
+won/lost → stay on the page, show the final board
+    ↓
+بازگشت به نقشه → router.push({ name: 'map' })  → /
 ```
+
+Mines stay hidden while `in_progress`. After win/loss the sanitized response includes the full layout so the result board can be shown. The player leaves with the return button, not an automatic redirect.
 
 The SPA does **not** send difficulty. Frontend `type === "c34"|"c45"` only chooses the click branch; the server decides whether the node is Minesweeper-enabled.
 
@@ -379,7 +383,7 @@ The SPA does **not** send difficulty. Frontend `type === "c34"|"c45"` only choos
 - **Map entry is server-authorized.** A session-bound one-time token is required to start. The Vue route is not the security mechanism.
 - **`node` is association only.** Win/loss do not modify `Node`, occupancy, or `Team.balance`. Reachability/occupancy are intentionally not checked in this phase.
 - **404 for foreign GET/reveal/flag.** Same body as missing.
-- **Completing Minesweeper returns to the map.** `/` via `name: 'map'`.
+- **Completing Minesweeper shows the result, then the player returns to the map.** `/` via `name: 'map'`, only after **بازگشت به نقشه**.
 
 ---
 

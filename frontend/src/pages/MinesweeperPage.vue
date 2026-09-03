@@ -81,15 +81,9 @@ watch(
   { immediate: true },
 )
 
-watch(
-  () => game.value?.status,
-  (status) => {
-    if (!sessionReady.value) return
-    if (status === 'won' || status === 'lost') {
-      router.push({ name: 'map' })
-    }
-  },
-)
+function returnToMap(): void {
+  router.push({ name: 'map' })
+}
 
 async function onReveal(row: number, col: number): Promise<void> {
   if (busy.value || !inProgress.value) return
@@ -143,6 +137,7 @@ async function onFlag(row: number, col: number): Promise<void> {
             امتیاز نهایی:
             <span class="font-bold tabular-nums">{{ formatBalance(game.score) }}</span>
           </p>
+          <Button class="mt-1 self-start" @click="returnToMap">بازگشت به نقشه</Button>
         </div>
 
         <div
@@ -158,6 +153,7 @@ async function onFlag(row: number, col: number): Promise<void> {
             امتیاز:
             <span class="font-bold tabular-nums">{{ formatBalance(game.score) }}</span>
           </p>
+          <Button class="mt-1 self-start" @click="returnToMap">بازگشت به نقشه</Button>
         </div>
 
         <Card class="min-w-0 gap-4 py-4">
@@ -227,6 +223,7 @@ async function onFlag(row: number, col: number): Promise<void> {
               @reveal="onReveal"
               @flag="onFlag"
             />
+            <Button v-if="!inProgress" class="mt-4" @click="returnToMap">بازگشت به نقشه</Button>
           </CardContent>
         </Card>
       </template>

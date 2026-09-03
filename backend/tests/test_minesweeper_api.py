@@ -203,6 +203,16 @@ def _assert_no_hidden_mines(board):
                 assert set(cell) == {"revealed", "flagged"}
 
 
+def _assert_finished_layout(board, *, mine_count: int):
+    mines = 0
+    for row in board["cells"]:
+        for cell in row:
+            assert set(cell) == {"revealed", "flagged", "adjacent_mines", "mine"}
+            if cell["mine"]:
+                mines += 1
+    assert mines == mine_count
+
+
 class TestAuthentication:
     @pytest.mark.parametrize(
         "method,url_builder,payload",
@@ -458,6 +468,17 @@ class TestAttemptDetail:
         assert body["board"]["cells"][0][0] == {"revealed": False, "flagged": False}
         assert body["board"]["cells"][8][8] == {"revealed": False, "flagged": False}
 
+    def test_in_progress_detail_does_not_expose_mines(
+        self, alpha, node, alpha_client, running_contest
+    ):
+        attempt = _split_attempt(alpha, node)
+        response = alpha_client.get(_detail(attempt.pk))
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == MinesweeperStatus.IN_PROGRESS
+        assert body["score"] == 0
+        _assert_no_hidden_mines(body["board"])
+
     def test_missing_attempt_is_404(self, alpha_client, running_contest):
         response = alpha_client.get(_detail(999_999))
         assert response.status_code == 404
@@ -491,12 +512,26 @@ class TestAttemptDetail:
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == MinesweeperStatus.LOST
+        assert body["score"] == 0
+        _assert_finished_layout(body["board"], mine_count=attempt.game.mine_count)
         mine = body["board"]["cells"][0][4]
         assert mine["mine"] is True
         assert mine["revealed"] is True
         hidden_mine = body["board"]["cells"][8][8]
         assert hidden_mine["mine"] is True
         assert hidden_mine["revealed"] is False
+
+    def test_won_attempt_exposes_mines(self, alpha, node, alpha_client, running_contest):
+        attempt = _split_attempt(alpha, node)
+        _reveal_all_safe_except(attempt, {(0, 3)})
+        reveal_cell(attempt.pk, 0, 3)
+        response = alpha_client.get(_detail(attempt.pk))
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == MinesweeperStatus.WON
+        assert body["score"] > 0
+        _assert_finished_layout(body["board"], mine_count=attempt.game.mine_count)
+        assert body["board"]["cells"][0][4]["mine"] is True
 
     def test_get_allowed_when_contest_is_not_running(
         self, alpha, node, alpha_client, running_contest
@@ -595,6 +630,7 @@ class TestRevealApi:
         assert body["status"] == MinesweeperStatus.LOST
         assert body["score"] == 0
         assert body["finished_at"] is not None
+        _assert_finished_layout(body["board"], mine_count=attempt.game.mine_count)
         assert body["board"]["cells"][0][4]["mine"] is True
 
     def test_win_after_final_safe_cell(self, alpha, node, alpha_client, running_contest):
@@ -606,6 +642,7 @@ class TestRevealApi:
         assert body["status"] == MinesweeperStatus.WON
         assert body["score"] > 0
         assert body["finished_at"] is not None
+        _assert_finished_layout(body["board"], mine_count=attempt.game.mine_count)
         assert body["board"]["cells"][0][4]["mine"] is True
 
     def test_flood_fill_response(self, alpha, node, alpha_client, running_contest):

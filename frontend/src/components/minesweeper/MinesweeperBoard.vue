@@ -29,10 +29,7 @@ function cellView(row: number, col: number): MinesweeperCellView {
   if (cell.flagged) {
     return { kind: 'wrong-flag' }
   }
-  if (cell.revealed) {
-    return { kind: 'revealed', adjacent: cell.adjacent_mines }
-  }
-  return { kind: 'hidden', flagged: false }
+  return { kind: 'revealed', adjacent: cell.adjacent_mines }
 }
 
 function cellSize(): string {
