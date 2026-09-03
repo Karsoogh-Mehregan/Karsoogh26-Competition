@@ -8,6 +8,7 @@ import LeaderboardPage from '@/pages/LeaderboardPage.vue'
 import MessagePage from '@/pages/MessagePage.vue'
 import MessagesPage from '@/pages/MessagesPage.vue'
 import SentMessagePage from '@/pages/SentMessagePage.vue'
+import BackpackPage from '@/pages/BackpackPage.vue'
 import MapPage from '@/pages/MapPage.vue'
 import MinesweeperPage from '@/pages/MinesweeperPage.vue'
 import SolvePage from '@/pages/SolvePage.vue'
@@ -18,6 +19,7 @@ export const router = createRouter({
     { path: '/', name: 'map', component: MapPage },
     { path: '/grading', name: 'grading', component: GradingPage, meta: { requiresMentor: true } },
     { path: '/solve', name: 'solve', component: SolvePage, meta: { requiresPlayer: true } },
+    { path: '/backpack', name: 'backpack', component: BackpackPage, meta: { requiresPlayer: true } },
     {
       path: '/minesweeper/node/:id',
       name: 'minesweeper-node',

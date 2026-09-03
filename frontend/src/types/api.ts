@@ -305,6 +305,14 @@ export type RoadStyle = 'straight' | 'curved' | 'dashed'
 
 export type NodeLevel = 'spawn' | 'easy' | 'medium' | 'hard' | 'toll'
 
+export type ItemType = 'fake_document' | 'gel' | 'gilari_100'
+
+export interface TeamItem {
+  item_type: ItemType
+  quantity: number
+  display_name: string
+}
+
 export interface BalanceEvent {
   id: number
   delta: number
