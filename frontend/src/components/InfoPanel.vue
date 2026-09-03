@@ -233,7 +233,7 @@ const showTeamPicker = computed(() => isMentor.value || isPlayer.value)
           <div class="rounded-xl border px-4 py-3">
             <div class="flex items-center gap-2">
               <CoinsIcon class="text-muted-foreground size-4 shrink-0" />
-              <span class="font-semibold">گیلاریوم</span>
+              <span class="font-semibold">گیلریوم</span>
               <span class="ms-auto text-xl leading-none font-bold tabular-nums">
                 {{ formatBalance(actingTeam?.balance) }}
               </span>
