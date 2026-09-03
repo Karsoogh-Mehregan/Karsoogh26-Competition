@@ -14,7 +14,6 @@ from minesweeper.exceptions import (
     CannotFlagRevealed,
     CellAlreadyRevealed,
     CellFlagged,
-    GameAlreadyClaimed,
     GameFinished,
     InvalidCell,
     InvalidDifficulty,
@@ -22,6 +21,7 @@ from minesweeper.exceptions import (
 from minesweeper.models import (
     DIFFICULTY_BASE_SCORES,
     DIFFICULTY_LAYOUTS,
+    MinesweeperAttempt,
     MinesweeperGame,
     MinesweeperStatus,
 )
@@ -60,16 +60,14 @@ def _adjacent_count(
     )
 
 
-def _generate_board(width: int, height: int, mine_count: int) -> dict:
-    """Build a full server-side grid with ``mine_count`` mines placed at random."""
+def _generate_layout(width: int, height: int, mine_count: int) -> dict:
+    """Build a mine layout with ``mine_count`` mines placed at random."""
     positions = [(row, col) for row in range(height) for col in range(width)]
     mines = set(random.sample(positions, mine_count))
     cells = [
         [
             {
                 "mine": (row, col) in mines,
-                "revealed": False,
-                "flagged": False,
                 "adjacent_mines": _adjacent_count(mines, row, col, width=width, height=height),
             }
             for col in range(width)
@@ -79,35 +77,51 @@ def _generate_board(width: int, height: int, mine_count: int) -> dict:
     return {"cells": cells}
 
 
-def _reveal_from(board: dict, row: int, col: int, *, width: int, height: int) -> None:
-    """Reveal ``(row, col)`` and flood-fill through connected zero cells.
+def _empty_progress_board(width: int, height: int) -> dict:
+    return {
+        "cells": [
+            [{"revealed": False, "flagged": False} for _ in range(width)] for _ in range(height)
+        ]
+    }
 
-    Mines and flagged cells are never opened by expansion. Numbered safe cells
-    are opened as the boundary and do not propagate.
+
+def _reveal_from(
+    layout: dict, progress: dict, row: int, col: int, *, width: int, height: int
+) -> None:
+    """Reveal ``(row, col)`` on ``progress`` and flood-fill through connected zeros.
+
+    Mines (from ``layout``) and flagged cells are never opened by expansion.
+    Numbered safe cells are opened as the boundary and do not propagate.
     """
-    cells = board["cells"]
-    start = cells[row][col]
-    start["revealed"] = True
-    if start["mine"] or start["adjacent_mines"] != 0:
+    progress["cells"][row][col]["revealed"] = True
+    start_layout = layout["cells"][row][col]
+    if start_layout["mine"] or start_layout["adjacent_mines"] != 0:
         return
 
     queue = deque([(row, col)])
     while queue:
         cur_row, cur_col = queue.popleft()
         for n_row, n_col in _iter_neighbors(cur_row, cur_col, width=width, height=height):
-            neighbor = cells[n_row][n_col]
-            if neighbor["revealed"] or neighbor["flagged"] or neighbor["mine"]:
+            neighbor_progress = progress["cells"][n_row][n_col]
+            neighbor_layout = layout["cells"][n_row][n_col]
+            if (
+                neighbor_progress["revealed"]
+                or neighbor_progress["flagged"]
+                or neighbor_layout["mine"]
+            ):
                 continue
-            neighbor["revealed"] = True
-            if neighbor["adjacent_mines"] == 0:
+            neighbor_progress["revealed"] = True
+            if neighbor_layout["adjacent_mines"] == 0:
                 queue.append((n_row, n_col))
 
 
-def _locked_in_progress(game_id: int) -> MinesweeperGame:
-    game = MinesweeperGame.objects.select_for_update().get(pk=game_id)
-    if game.status != MinesweeperStatus.IN_PROGRESS:
-        raise GameFinished("This game is already finished.")
-    return game
+def _locked_in_progress_attempt(attempt_id: int) -> MinesweeperAttempt:
+    attempt = (
+        MinesweeperAttempt.objects.select_for_update().select_related("game").get(pk=attempt_id)
+    )
+    if attempt.status != MinesweeperStatus.IN_PROGRESS:
+        raise GameFinished("This attempt is already finished.")
+    return attempt
 
 
 def _require_in_bounds(game: MinesweeperGame, row: int, col: int) -> None:
@@ -115,8 +129,13 @@ def _require_in_bounds(game: MinesweeperGame, row: int, col: int) -> None:
         raise InvalidCell(f"Cell ({row}, {col}) is outside the board.")
 
 
-def _all_safe_cells_revealed(board: dict) -> bool:
-    return all(cell["revealed"] for row in board["cells"] for cell in row if not cell["mine"])
+def _all_safe_cells_revealed(layout: dict, progress: dict) -> bool:
+    return all(
+        progress_cell["revealed"]
+        for layout_row, progress_row in zip(layout["cells"], progress["cells"], strict=True)
+        for layout_cell, progress_cell in zip(layout_row, progress_row, strict=True)
+        if not layout_cell["mine"]
+    )
 
 
 def _win_score(difficulty: str, started_at: datetime, finished_at: datetime) -> int:
@@ -125,29 +144,36 @@ def _win_score(difficulty: str, started_at: datetime, finished_at: datetime) -> 
     return base + max(0, base - elapsed_seconds)
 
 
-def _finish(game: MinesweeperGame, board: dict, *, won: bool) -> None:
+def _finish(attempt: MinesweeperAttempt, progress: dict, *, won: bool) -> None:
     now = _now()
-    game.board = board
-    game.finished_at = now
+    attempt.board = progress
+    attempt.finished_at = now
     if won:
-        game.status = MinesweeperStatus.WON
-        game.score = _win_score(game.difficulty, game.started_at, now)
+        attempt.status = MinesweeperStatus.WON
+        attempt.score = _win_score(attempt.game.difficulty, attempt.started_at, now)
     else:
-        game.status = MinesweeperStatus.LOST
-        game.score = 0
-    game.save(update_fields=["board", "status", "score", "finished_at"])
+        attempt.status = MinesweeperStatus.LOST
+        attempt.score = 0
+    attempt.save(update_fields=["board", "status", "score", "finished_at"])
+
+
+def _create_attempt_for(game: MinesweeperGame, team: Team) -> MinesweeperAttempt:
+    return MinesweeperAttempt.objects.create(
+        game=game,
+        team=team,
+        board=_empty_progress_board(game.width, game.height),
+    )
 
 
 @transaction.atomic
 def create_game(node: Node, difficulty: str) -> MinesweeperGame:
-    """Create one unclaimed in-progress game with a newly generated board.
+    """Create one reusable game definition with a newly generated mine layout.
 
     ``difficulty`` must be a key of ``DIFFICULTY_LAYOUTS``. Width, height, and
     mine count come from that mapping — they are not caller-supplied.
 
-    ``node`` is stored as association only. ``team`` stays null until
-    ``assign_game_to_team``. This service does not check who holds the node
-    and does not change map occupancy.
+    ``node`` is stored as association only. This service does not check who
+    holds the node and does not change map occupancy.
     """
     try:
         layout = DIFFICULTY_LAYOUTS[difficulty]
@@ -158,80 +184,94 @@ def create_game(node: Node, difficulty: str) -> MinesweeperGame:
     height = layout["height"]
     mine_count = layout["mine_count"]
     return MinesweeperGame.objects.create(
-        team=None,
         node=node,
         difficulty=difficulty,
         width=width,
         height=height,
         mine_count=mine_count,
-        board=_generate_board(width, height, mine_count),
+        board=_generate_layout(width, height, mine_count),
     )
 
 
 @transaction.atomic
-def assign_game_to_team(game_id: int, team: Team) -> MinesweeperGame:
-    """Claim an unclaimed game for ``team``. Idempotent for the same team.
+def create_attempt(game_id: int, team: Team) -> MinesweeperAttempt:
+    """Start a new in-progress attempt for ``team`` on ``game_id``.
 
-    Locks the row so two simultaneous joins cannot both win. Does not touch
-    occupancy, economy, or the Node. A missing pk raises
+    Always inserts. A missing game pk raises ``MinesweeperGame.DoesNotExist``.
+    """
+    game = MinesweeperGame.objects.select_for_update().get(pk=game_id)
+    return _create_attempt_for(game, team)
+
+
+@transaction.atomic
+def get_or_create_attempt(game_id: int, team: Team) -> MinesweeperAttempt:
+    """Return the team's active attempt, or create one.
+
+    Locks the game row so two simultaneous joins cannot insert two in-progress
+    rows for the same team. A missing game pk raises
     ``MinesweeperGame.DoesNotExist``.
     """
     game = MinesweeperGame.objects.select_for_update().get(pk=game_id)
-    if game.team_id is None:
-        game.team = team
-        game.save(update_fields=["team"])
-        return game
-    if game.team_id != team.pk:
-        raise GameAlreadyClaimed("This game is already claimed.")
-    return game
+    existing = (
+        MinesweeperAttempt.objects.filter(
+            game=game,
+            team=team,
+            status=MinesweeperStatus.IN_PROGRESS,
+        )
+        .order_by("-started_at")
+        .first()
+    )
+    if existing is not None:
+        return existing
+    return _create_attempt_for(game, team)
 
 
 @transaction.atomic
-def reveal_cell(game_id: int, row: int, col: int) -> MinesweeperGame:
-    """Reveal one cell, flood-filling through connected zeros, then win/loss.
+def reveal_cell(attempt_id: int, row: int, col: int) -> MinesweeperAttempt:
+    """Reveal one cell on an attempt, flood-filling zeros, then win/loss.
 
-    Locks the game row for the read-modify-write so concurrent reveals cannot
-    clobber each other's board. A missing pk raises ``MinesweeperGame.DoesNotExist``
-    — the same shape as other services that ``.get()``; views map that to 404.
+    Locks the attempt row. The game layout is not written. A missing pk raises
+    ``MinesweeperAttempt.DoesNotExist``.
     """
-    game = _locked_in_progress(game_id)
+    attempt = _locked_in_progress_attempt(attempt_id)
+    game = attempt.game
     _require_in_bounds(game, row, col)
 
-    cell = game.board["cells"][row][col]
-    if cell["revealed"]:
+    progress_cell = attempt.board["cells"][row][col]
+    if progress_cell["revealed"]:
         raise CellAlreadyRevealed("This cell is already revealed.")
-    if cell["flagged"]:
+    if progress_cell["flagged"]:
         raise CellFlagged("A flagged cell cannot be revealed.")
 
-    clicked_mine = cell["mine"]
-    board = copy.deepcopy(game.board)
-    _reveal_from(board, row, col, width=game.width, height=game.height)
+    clicked_mine = game.board["cells"][row][col]["mine"]
+    progress = copy.deepcopy(attempt.board)
+    _reveal_from(game.board, progress, row, col, width=game.width, height=game.height)
 
     if clicked_mine:
-        _finish(game, board, won=False)
-        return game
-    if _all_safe_cells_revealed(board):
-        _finish(game, board, won=True)
-        return game
+        _finish(attempt, progress, won=False)
+        return attempt
+    if _all_safe_cells_revealed(game.board, progress):
+        _finish(attempt, progress, won=True)
+        return attempt
 
-    game.board = board
-    game.save(update_fields=["board"])
-    return game
+    attempt.board = progress
+    attempt.save(update_fields=["board"])
+    return attempt
 
 
 @transaction.atomic
-def toggle_flag(game_id: int, row: int, col: int) -> MinesweeperGame:
+def toggle_flag(attempt_id: int, row: int, col: int) -> MinesweeperAttempt:
     """Toggle the flag on one unrevealed cell. Never reveals, never scores."""
-    game = _locked_in_progress(game_id)
+    attempt = _locked_in_progress_attempt(attempt_id)
+    game = attempt.game
     _require_in_bounds(game, row, col)
 
-    cell = game.board["cells"][row][col]
-    if cell["revealed"]:
+    if attempt.board["cells"][row][col]["revealed"]:
         raise CannotFlagRevealed("A revealed cell cannot be flagged.")
 
-    board = copy.deepcopy(game.board)
-    target = board["cells"][row][col]
+    progress = copy.deepcopy(attempt.board)
+    target = progress["cells"][row][col]
     target["flagged"] = not target["flagged"]
-    game.board = board
-    game.save(update_fields=["board"])
-    return game
+    attempt.board = progress
+    attempt.save(update_fields=["board"])
+    return attempt

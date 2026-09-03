@@ -7,7 +7,7 @@ class InvalidDifficulty(MinesweeperServiceError):
 
 
 class GameFinished(MinesweeperServiceError):
-    """The game is won or lost and no longer accepts moves."""
+    """The attempt is won or lost and no longer accepts moves."""
 
 
 class InvalidCell(MinesweeperServiceError):
@@ -24,7 +24,3 @@ class CellFlagged(MinesweeperServiceError):
 
 class CannotFlagRevealed(MinesweeperServiceError):
     """A revealed cell cannot be flagged or unflagged."""
-
-
-class GameAlreadyClaimed(MinesweeperServiceError):
-    """Another team already claimed this game."""

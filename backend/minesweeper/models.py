@@ -29,15 +29,26 @@ DIFFICULTY_BASE_SCORES = {
 }
 
 
-def empty_board():
-    """Unpopulated server-side board. Services fill `cells` when generating a game.
+def empty_layout_board():
+    """Unpopulated mine layout. Services fill `cells` when generating a game.
 
-    Populated shape (``height`` rows of ``width`` cells, top-to-bottom, left-to-right)::
+    Populated shape (``height`` rows of ``width`` cells)::
 
-        {"cells": [[{"mine": bool, "revealed": bool, "flagged": bool,
-                     "adjacent_mines": int}, ...], ...]}
+        {"cells": [[{"mine": bool, "adjacent_mines": int}, ...], ...]}
+    """
+    return {"cells": []}
 
-    ``mine`` on an unrevealed cell is server-only — never serialise it to a team.
+
+# Historical alias: migration 0001 references this name as the JSONField default.
+empty_board = empty_layout_board
+
+
+def empty_progress_board():
+    """Unpopulated per-attempt progress. Services fill `cells` on join.
+
+    Populated shape (``height`` rows of ``width`` cells)::
+
+        {"cells": [[{"revealed": bool, "flagged": bool}, ...], ...]}
     """
     return {"cells": []}
 
@@ -49,19 +60,12 @@ def _layout_matches_difficulty() -> Q:
     return condition
 
 
-class MinesweeperGameQuerySet(models.QuerySet):
-    def in_progress(self):
-        return self.filter(status=MinesweeperStatus.IN_PROGRESS)
-
-
 class MinesweeperGame(models.Model):
-    team = models.ForeignKey(
-        "teams.Team",
-        on_delete=models.PROTECT,
-        related_name="minesweeper_games",
-        null=True,
-        blank=True,
-    )
+    """Reusable Minesweeper definition placed on one map node.
+
+    Holds the mine layout. Runtime progress lives on ``MinesweeperAttempt``.
+    """
+
     node = models.ForeignKey(
         "game.Node",
         on_delete=models.PROTECT,
@@ -72,31 +76,67 @@ class MinesweeperGame(models.Model):
     height = models.PositiveSmallIntegerField()
     mine_count = models.PositiveSmallIntegerField()
     board = models.JSONField(
-        default=empty_board,
+        default=empty_layout_board,
         help_text=(
-            "Server-side grid: {cells: [[{mine, revealed, flagged, adjacent_mines}, ...], ...]}. "
-            "Do not expose unrevealed mines to teams."
+            "Mine layout only: {cells: [[{mine, adjacent_mines}, ...], ...]}. "
+            "Do not expose this JSON to teams while an attempt is in progress."
         ),
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            CheckConstraint(
+                condition=_layout_matches_difficulty(),
+                name="minesweepergame_layout_matches_difficulty",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.node} {self.get_difficulty_display()}"
+
+
+class MinesweeperAttemptQuerySet(models.QuerySet):
+    def in_progress(self):
+        return self.filter(status=MinesweeperStatus.IN_PROGRESS)
+
+
+class MinesweeperAttempt(models.Model):
+    """One team's play session on a MinesweeperGame."""
+
+    game = models.ForeignKey(
+        MinesweeperGame,
+        on_delete=models.CASCADE,
+        related_name="attempts",
+    )
+    team = models.ForeignKey(
+        "teams.Team",
+        on_delete=models.PROTECT,
+        related_name="minesweeper_attempts",
     )
     status = models.CharField(
         max_length=12,
         choices=MinesweeperStatus.choices,
         default=MinesweeperStatus.IN_PROGRESS,
     )
+    board = models.JSONField(
+        default=empty_progress_board,
+        help_text=(
+            "Per-attempt progress: {cells: [[{revealed, flagged}, ...], ...]}. "
+            "Mine locations stay on the game layout."
+        ),
+    )
     score = models.PositiveIntegerField(default=0)
     started_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
-    objects = MinesweeperGameQuerySet.as_manager()
+    objects = MinesweeperAttemptQuerySet.as_manager()
 
     class Meta:
         ordering = ["-started_at"]
         constraints = [
-            CheckConstraint(
-                condition=_layout_matches_difficulty(),
-                name="minesweepergame_layout_matches_difficulty",
-            ),
             CheckConstraint(
                 condition=(
                     Q(status=MinesweeperStatus.IN_PROGRESS, finished_at__isnull=True)
@@ -105,13 +145,13 @@ class MinesweeperGame(models.Model):
                         finished_at__isnull=False,
                     )
                 ),
-                name="minesweepergame_finished_at_matches_status",
+                name="minesweeperattempt_finished_at_matches_status",
             ),
         ]
         indexes = [
-            models.Index(fields=["team", "status"], name="msweeper_team_status_idx"),
+            models.Index(fields=["team", "status"], name="msweeper_att_team_status_idx"),
+            models.Index(fields=["game", "team"], name="msweeper_att_game_team_idx"),
         ]
 
     def __str__(self):
-        owner = self.team or "unclaimed"
-        return f"{owner} {self.get_difficulty_display()} ({self.get_status_display()})"
+        return f"{self.team} game {self.game_id} ({self.get_status_display()})"

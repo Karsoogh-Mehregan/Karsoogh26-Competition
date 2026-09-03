@@ -27,6 +27,7 @@ export function useMinesweeper(gameId: Ref<number | null> | ComputedRef<number |
   const isPlayer = computed(() => meQuery.data.value?.team != null)
 
   const hasJoined = ref(false)
+  const attemptId = ref<number | null>(null)
   const gameQuery = useMinesweeperGameQuery(
     gameId,
     () => isPlayer.value && hasJoined.value,
@@ -57,6 +58,7 @@ export function useMinesweeper(gameId: Ref<number | null> | ComputedRef<number |
   async function join(): Promise<MinesweeperGame | null> {
     const id = gameId.value
     hasJoined.value = false
+    attemptId.value = null
     if (id == null) {
       actionError.value = 'بازی پیدا نشد.'
       return null
@@ -67,6 +69,7 @@ export function useMinesweeper(gameId: Ref<number | null> | ComputedRef<number |
       if (gameId.value !== id) {
         return result
       }
+      attemptId.value = result.attempt_id
       hasJoined.value = true
       return result
     } catch (err) {
@@ -113,6 +116,7 @@ export function useMinesweeper(gameId: Ref<number | null> | ComputedRef<number |
     flagging,
     error,
     isPlayer,
+    attemptId,
     join,
     reveal,
     toggleFlag,

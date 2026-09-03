@@ -12,24 +12,25 @@ from minesweeper.exceptions import (
     CannotFlagRevealed,
     CellAlreadyRevealed,
     CellFlagged,
-    GameAlreadyClaimed,
     GameFinished,
     InvalidCell,
     InvalidDifficulty,
     MinesweeperServiceError,
 )
-from minesweeper.models import MinesweeperGame
+from minesweeper.models import MinesweeperAttempt, MinesweeperGame, MinesweeperStatus
 from minesweeper.serializers import (
     CellActionSerializer,
     CreateGameSerializer,
+    GameDefinitionSerializer,
     PublicGameSerializer,
 )
-from minesweeper.services import assign_game_to_team, create_game, reveal_cell, toggle_flag
+from minesweeper.services import create_game, get_or_create_attempt, reveal_cell, toggle_flag
 
 _GAME_PK = OpenApiParameter("pk", int, OpenApiParameter.PATH, description="Minesweeper game id")
 
 _PUBLIC_IN_PROGRESS = {
     "id": 1,
+    "attempt_id": 10,
     "node": 25,
     "difficulty": "easy",
     "width": 9,
@@ -51,12 +52,10 @@ _PUBLIC_IN_PROGRESS = {
 
 
 def _map_service_error(exc: Exception):
-    if isinstance(exc, MinesweeperGame.DoesNotExist):
+    if isinstance(exc, (MinesweeperGame.DoesNotExist, MinesweeperAttempt.DoesNotExist)):
         raise NotFound("بازی پیدا نشد.") from exc
     if isinstance(exc, GameFinished):
         raise Conflict("این بازی تمام شده است.") from exc
-    if isinstance(exc, GameAlreadyClaimed):
-        raise Conflict("این بازی قبلاً گرفته شده است.") from exc
     if isinstance(exc, InvalidCell):
         raise Unprocessable("این خانه روی صفحه نیست.") from exc
     if isinstance(exc, CellAlreadyRevealed):
@@ -72,12 +71,23 @@ def _map_service_error(exc: Exception):
     raise exc
 
 
-def _own_game(request, pk: int) -> MinesweeperGame:
-    """404 for both missing and other-team games so existence does not leak."""
-    game = MinesweeperGame.objects.filter(pk=pk, team_id=request.user.team_id).first()
-    if game is None:
+def _own_attempt(request, game_id: int, *, require_in_progress: bool) -> MinesweeperAttempt:
+    """The caller's attempt for this game. Other teams' rows are invisible (404)."""
+    qs = MinesweeperAttempt.objects.select_related("game").filter(
+        game_id=game_id,
+        team_id=request.user.team_id,
+    )
+    active = qs.filter(status=MinesweeperStatus.IN_PROGRESS).order_by("-started_at").first()
+    if active is not None:
+        return active
+    if require_in_progress:
+        if qs.exists():
+            raise GameFinished("This attempt is already finished.")
         raise NotFound("بازی پیدا نشد.")
-    return game
+    latest = qs.order_by("-started_at").first()
+    if latest is None:
+        raise NotFound("بازی پیدا نشد.")
+    return latest
 
 
 class CreateGameView(APIView):
@@ -86,20 +96,31 @@ class CreateGameView(APIView):
 
     @extend_schema(
         tags=["minesweeper"],
-        summary="Create an unclaimed Minesweeper game",
+        summary="Create a Minesweeper game definition",
         description=(
-            "Staff only. Creates a prepared game with no team. The SPA does not call this; "
+            "Staff only. Creates a reusable mine layout on a node. The SPA does not call this; "
             "Django admin is the intended create path."
         ),
         request=CreateGameSerializer,
-        responses={201: PublicGameSerializer},
+        responses={201: GameDefinitionSerializer},
         examples=[
             OpenApiExample(
                 "request",
                 value={"node": 25, "difficulty": "medium"},
                 request_only=True,
             ),
-            OpenApiExample("created", value=_PUBLIC_IN_PROGRESS, response_only=True),
+            OpenApiExample(
+                "created",
+                value={
+                    "id": 1,
+                    "node": 25,
+                    "difficulty": "medium",
+                    "width": 16,
+                    "height": 16,
+                    "mine_count": 40,
+                },
+                response_only=True,
+            ),
         ],
     )
     def post(self, request):
@@ -112,7 +133,7 @@ class CreateGameView(APIView):
             )
         except MinesweeperServiceError as exc:
             _map_service_error(exc)
-        return Response(PublicGameSerializer(game).data, status=status.HTTP_201_CREATED)
+        return Response(GameDefinitionSerializer(game).data, status=status.HTTP_201_CREATED)
 
 
 class JoinGameView(APIView):
@@ -123,8 +144,8 @@ class JoinGameView(APIView):
         tags=["minesweeper"],
         summary="Join a Minesweeper game",
         description=(
-            "Claims the game for the caller's team if it is still unclaimed. "
-            "The same team may join again; another team gets 409."
+            "Opens or resumes the caller's in-progress attempt on this game. "
+            "A second team joining the same game gets its own attempt."
         ),
         parameters=[_GAME_PK],
         request=None,
@@ -133,10 +154,10 @@ class JoinGameView(APIView):
     )
     def post(self, request, pk: int):
         try:
-            game = assign_game_to_team(pk, request.user.team)
+            attempt = get_or_create_attempt(pk, request.user.team)
         except (MinesweeperServiceError, MinesweeperGame.DoesNotExist) as exc:
             _map_service_error(exc)
-        return Response(PublicGameSerializer(game).data)
+        return Response(PublicGameSerializer(attempt).data)
 
 
 class GameDetailView(APIView):
@@ -145,15 +166,18 @@ class GameDetailView(APIView):
 
     @extend_schema(
         tags=["minesweeper"],
-        summary="Read a Minesweeper game",
-        description="Owning team only. Hidden mines are omitted while the game is in progress.",
+        summary="Read the caller's Minesweeper attempt",
+        description="Current team's attempt only. Hidden mines are omitted while in progress.",
         parameters=[_GAME_PK],
         responses=PublicGameSerializer,
         examples=[OpenApiExample("in progress", value=_PUBLIC_IN_PROGRESS, response_only=True)],
     )
     def get(self, request, pk: int):
-        game = _own_game(request, pk)
-        return Response(PublicGameSerializer(game).data)
+        try:
+            attempt = _own_attempt(request, pk, require_in_progress=False)
+        except GameFinished as exc:
+            _map_service_error(exc)
+        return Response(PublicGameSerializer(attempt).data)
 
 
 class RevealCellView(APIView):
@@ -163,7 +187,7 @@ class RevealCellView(APIView):
     @extend_schema(
         tags=["minesweeper"],
         summary="Reveal a cell",
-        description="Opens one cell and flood-fills zeros. May win or lose the game.",
+        description="Opens one cell on the caller's attempt and flood-fills zeros.",
         parameters=[_GAME_PK],
         request=CellActionSerializer,
         responses=PublicGameSerializer,
@@ -173,14 +197,21 @@ class RevealCellView(APIView):
         ],
     )
     def post(self, request, pk: int):
-        _own_game(request, pk)
+        try:
+            attempt = _own_attempt(request, pk, require_in_progress=True)
+        except GameFinished as exc:
+            _map_service_error(exc)
         payload = CellActionSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         try:
-            game = reveal_cell(pk, payload.validated_data["row"], payload.validated_data["col"])
-        except (MinesweeperServiceError, MinesweeperGame.DoesNotExist) as exc:
+            attempt = reveal_cell(
+                attempt.pk,
+                payload.validated_data["row"],
+                payload.validated_data["col"],
+            )
+        except (MinesweeperServiceError, MinesweeperAttempt.DoesNotExist) as exc:
             _map_service_error(exc)
-        return Response(PublicGameSerializer(game).data)
+        return Response(PublicGameSerializer(attempt).data)
 
 
 class FlagCellView(APIView):
@@ -190,7 +221,7 @@ class FlagCellView(APIView):
     @extend_schema(
         tags=["minesweeper"],
         summary="Toggle a flag",
-        description="Flags or unflags an unrevealed cell. Does not reveal or score.",
+        description="Flags or unflags an unrevealed cell on the caller's attempt.",
         parameters=[_GAME_PK],
         request=CellActionSerializer,
         responses=PublicGameSerializer,
@@ -199,11 +230,18 @@ class FlagCellView(APIView):
         ],
     )
     def post(self, request, pk: int):
-        _own_game(request, pk)
+        try:
+            attempt = _own_attempt(request, pk, require_in_progress=True)
+        except GameFinished as exc:
+            _map_service_error(exc)
         payload = CellActionSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         try:
-            game = toggle_flag(pk, payload.validated_data["row"], payload.validated_data["col"])
-        except (MinesweeperServiceError, MinesweeperGame.DoesNotExist) as exc:
+            attempt = toggle_flag(
+                attempt.pk,
+                payload.validated_data["row"],
+                payload.validated_data["col"],
+            )
+        except (MinesweeperServiceError, MinesweeperAttempt.DoesNotExist) as exc:
             _map_service_error(exc)
-        return Response(PublicGameSerializer(game).data)
+        return Response(PublicGameSerializer(attempt).data)
