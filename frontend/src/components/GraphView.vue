@@ -267,7 +267,6 @@ function isEdgeTraversed(e) {
 // ---- node helpers ----
 function nodeState(n) {
   if (isNodeAnswerable(n.id)) return 'answerable'
-  if (isMinesweeperEntry(n)) return 'selectable'
   if (isNodeSelected(n.id)) return 'visited'
   if (isNodeSelectable(n.id)) return 'selectable'
   if (isEntryGate(n)) return 'gated'
