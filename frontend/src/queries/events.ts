@@ -18,6 +18,7 @@ import {
   listOlympicsMatches,
   recordOlympicsResult,
   startOlympicsMatch,
+  submitOlympicsPlayerRun,
   createAuctionEvent,
   createPigEvent,
   createWheelEvent,
@@ -33,6 +34,12 @@ import {
   startPigGame,
   startWheelEvent,
   stopWheelEvent,
+  cancelMatchmaking,
+  dismissMatchmaking,
+  joinMatchmaking,
+  listEventConfigurations,
+  listMatchmakingTickets,
+  updateEventConfiguration,
 } from '@/services/events'
 import type {
   CentipedeGame,
@@ -43,10 +50,11 @@ import type {
   EnterCharityBagInput,
   PlayTerritoryTurnInput,
   PlayCentipedeActionInput,
-  TerritoryGame,
   CreateOlympicsMatchInput,
   RecordOlympicsResultInput,
   WheelPrizeInput,
+  EventCode,
+  EventConfiguration,
 } from '@/types/api'
 import { queryKeys } from './keys'
 
@@ -88,16 +96,9 @@ interface PlayTurnVariables extends PlayTerritoryTurnInput {
 }
 
 export function usePlayTerritoryTurnMutation() {
-  const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ gameId, row, column }: PlayTurnVariables) =>
       playTerritoryTurn(gameId, { row, column }),
-    onSuccess: (game: TerritoryGame) => {
-      queryClient.setQueryData(queryKeys.territoryGame(game.id), game)
-      queryClient.setQueryData<TerritoryGame[]>(queryKeys.territoryGames(), (games) =>
-        games?.map((item) => (item.id === game.id ? game : item)),
-      )
-    },
   })
 }
 
@@ -183,8 +184,8 @@ interface CentipedeActionVariables extends PlayCentipedeActionInput {
 export function usePlayCentipedeActionMutation() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ gameId, action }: CentipedeActionVariables) =>
-      playCentipedeAction(gameId, { action }),
+    mutationFn: ({ gameId, action, round_number }: CentipedeActionVariables) =>
+      playCentipedeAction(gameId, { action, round_number }),
     onSuccess: (game: CentipedeGame) => {
       queryClient.setQueryData(queryKeys.centipedeGame(game.id), game)
       queryClient.invalidateQueries({ queryKey: queryKeys.teams() })
@@ -198,6 +199,7 @@ export function useCreateCentipedeGameMutation() {
   return useMutation({
     mutationFn: (input: CreateCentipedeGameInput) => createCentipedeGame(input),
     onSuccess: (game) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.teams() })
       queryClient.setQueryData(queryKeys.centipedeGame(game.id), game)
       return queryClient.invalidateQueries({ queryKey: queryKeys.centipedeGames() })
     },
@@ -260,6 +262,18 @@ export function useRecordOlympicsResultMutation() {
     onSuccess: (match) => {
       queryClient.setQueryData(queryKeys.olympicsMatch(match.id), match)
       return queryClient.invalidateQueries({ queryKey: queryKeys.olympicsMatches() })
+    },
+  })
+}
+
+export function useSubmitOlympicsPlayerRunMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ matchId, roundNumber, attempts, bestDistance }: { matchId: number; roundNumber: number; attempts?: number[]; bestDistance?: string }) =>
+      submitOlympicsPlayerRun(matchId, { round_number: roundNumber, attempts, best_distance: bestDistance }),
+    onSuccess: (match) => {
+      queryClient.setQueryData(queryKeys.olympicsMatch(match.id), match)
+      return refresh(queryClient, queryKeys.olympicsMatches())
     },
   })
 }
@@ -403,6 +417,56 @@ export function usePigActionMutation() {
     onSuccess: () => Promise.all([
       refresh(queryClient, queryKeys.pigEvents()),
       refresh(queryClient, queryKeys.teams()),
+    ]),
+  })
+}
+
+export const eventCatalogQueryOptions = {
+  queryKey: queryKeys.eventCatalog(),
+  queryFn: ({ signal }: { signal: AbortSignal }) => listEventConfigurations(signal),
+}
+
+export function useEventCatalogQuery(enabled: () => boolean) {
+  return useQuery({
+    ...eventCatalogQueryOptions,
+    enabled,
+    refetchInterval: 5000,
+  })
+}
+
+export function useUpdateEventConfigurationMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ code, input }: { code: EventCode; input: Partial<Pick<EventConfiguration, 'enabled' | 'duration_seconds' | 'settings'>> }) =>
+      updateEventConfiguration(code, input),
+    onSuccess: () => refresh(queryClient, queryKeys.eventCatalog()),
+  })
+}
+
+export function useMatchmakingQuery(enabled: () => boolean) {
+  return useQuery({
+    queryKey: queryKeys.matchmaking(),
+    queryFn: ({ signal }) => listMatchmakingTickets(signal),
+    enabled,
+    refetchInterval: (query) =>
+      query.state.data?.some((ticket) => ticket.status === 'waiting') ? 2000 : false,
+  })
+}
+
+export function useMatchmakingMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ code, action, ticketId }: { code: EventCode; action: 'join' | 'cancel' | 'dismiss'; ticketId?: number }) => {
+      if (action === 'join') return joinMatchmaking(code)
+      if (action === 'cancel') return cancelMatchmaking(code)
+      if (ticketId == null) throw new Error('شناسه مسابقه موجود نیست.')
+      return dismissMatchmaking(ticketId)
+    },
+    onSuccess: () => Promise.all([
+      refresh(queryClient, queryKeys.matchmaking()),
+      refresh(queryClient, queryKeys.territoryGames()),
+      refresh(queryClient, queryKeys.centipedeGames()),
+      refresh(queryClient, queryKeys.olympicsMatches()),
     ]),
   })
 }

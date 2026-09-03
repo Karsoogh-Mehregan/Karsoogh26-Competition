@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import {
   CircleAlertIcon,
-  CircleDotIcon,
   FlagIcon,
   HistoryIcon,
   MedalIcon,
@@ -15,7 +14,9 @@ import {
   XIcon,
 } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { toast } from 'vue-sonner'
+import ThrowArena from '@/components/olympics/ThrowArena.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -32,12 +33,14 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useActing } from '@/composables/useActing'
 import { ApiError } from '@/lib/http'
+import { createRequestId } from '@/lib/uuid'
 import {
   useCreateOlympicsMatchMutation,
   useOlympicsMatchQuery,
   useOlympicsMatchesQuery,
   useRecordOlympicsResultMutation,
   useStartOlympicsMatchMutation,
+  useSubmitOlympicsPlayerRunMutation,
 } from '@/queries/events'
 import type {
   OlympicsMatch,
@@ -47,14 +50,17 @@ import type {
 } from '@/types/api'
 
 const { me, teams, isMentor } = useActing()
+const route = useRoute()
+const pageMiniGame = computed<OlympicsMiniGame>(() => route.path.endsWith('/marble-target') ? 'marble_target' : 'coin_near_wall')
 const enabled = () => me.value != null
 const matchesQuery = useOlympicsMatchesQuery(enabled)
-const matches = computed(() => matchesQuery.data.value ?? [])
-const selectedMatchId = ref<number | null>(null)
+const matches = computed(() => (matchesQuery.data.value ?? []).filter((item) => item.mini_game === pageMiniGame.value))
+const selectedMatchId = ref<number | null>(Number(route.query.match) || null)
 const matchQuery = useOlympicsMatchQuery(selectedMatchId, enabled)
 const createMutation = useCreateOlympicsMatchMutation()
 const startMutation = useStartOlympicsMatchMutation()
 const resultMutation = useRecordOlympicsResultMutation()
+const playerRunMutation = useSubmitOlympicsPlayerRunMutation()
 
 const createOpen = ref(false)
 const resultOpen = ref(false)
@@ -68,6 +74,15 @@ const secondDistance = ref('')
 const firstAttempts = ref<Array<string | number | null>>([])
 const secondAttempts = ref<Array<string | number | null>>([])
 const resultRequestId = ref('')
+
+interface PhysicsResult {
+  mode: OlympicsMiniGame
+  outcome?: 'player_one' | 'player_two' | 'tie'
+  distances?: [number, number]
+  attempts?: [number[], number[]]
+  playerDistance?: number
+  playerAttempts?: number[]
+}
 
 watch(
   matches,
@@ -105,6 +120,16 @@ const errorMessage = computed(() => {
 })
 const canRecord = computed(
   () => isMentor.value && match.value && ['active', 'waiting_for_result', 'tiebreak'].includes(match.value.status),
+)
+const myPlayerIndex = computed<0 | 1 | null>(() => {
+  const code = me.value?.team?.code
+  if (!match.value || !code) return null
+  const index = match.value.players.findIndex((player) => player.code === code)
+  return index === 0 || index === 1 ? index : null
+})
+const currentRound = computed(() => (match.value?.results.length ?? 0) + 1)
+const currentPlayerRuns = computed(() =>
+  match.value?.player_runs.filter((run) => run.round_number === currentRound.value) ?? [],
 )
 const marbleTotals = computed<[number, number]>(() => {
   if (!match.value) return [0, 0]
@@ -167,7 +192,7 @@ async function refresh(): Promise<void> {
 }
 
 function openCreateDialog(): void {
-  miniGame.value = 'coin_near_wall'
+  miniGame.value = pageMiniGame.value
   firstTeamCode.value = teams.value[0]?.code ?? ''
   secondTeamCode.value = teams.value.find((team) => team.code !== firstTeamCode.value)?.code ?? ''
   zones.value = [{ code: 'zone-1', label: 'منطقه ۱', score: 1 }]
@@ -177,7 +202,7 @@ function openCreateDialog(): void {
 function addZone(): void {
   const number = zones.value.length + 1
   zones.value.push({
-    code: `zone-${crypto.randomUUID().slice(0, 8)}`,
+    code: `zone-${createRequestId().slice(0, 8)}`,
     label: `منطقه ${number.toLocaleString('fa-IR')}`,
     score: number,
   })
@@ -218,8 +243,54 @@ function openResultDialog(): void {
   const attemptCount = match.value.status === 'tiebreak' ? 1 : 4
   firstAttempts.value = Array.from({ length: attemptCount }, () => null)
   secondAttempts.value = Array.from({ length: attemptCount }, () => null)
-  resultRequestId.value = crypto.randomUUID()
+  resultRequestId.value = createRequestId()
+  const firstRun = match.value.player_runs.find((run) => run.round_number === currentRound.value && run.team.code === match.value?.players[0].code)
+  const secondRun = match.value.player_runs.find((run) => run.round_number === currentRound.value && run.team.code === match.value?.players[1].code)
+  if (firstRun && secondRun) {
+    if (match.value.mini_game === 'coin_near_wall') {
+      firstDistance.value = firstRun.best_distance ?? ''
+      secondDistance.value = secondRun.best_distance ?? ''
+      const first = Number(firstDistance.value)
+      const second = Number(secondDistance.value)
+      coinOutcome.value = first === second ? 'tie' : first < second ? match.value.players[0].code : match.value.players[1].code
+    } else {
+      firstAttempts.value = firstRun.attempts
+      secondAttempts.value = secondRun.attempts
+    }
+  }
   resultOpen.value = true
+}
+
+async function acceptPhysicsResult(result: PhysicsResult): Promise<void> {
+  if (!match.value) return
+  if (!isMentor.value && myPlayerIndex.value != null) {
+    try {
+      await playerRunMutation.mutateAsync({
+        matchId: match.value.id,
+        roundNumber: currentRound.value,
+        attempts: result.playerAttempts,
+        bestDistance: result.playerDistance?.toFixed(2),
+      })
+      toast.success('پرتاب‌های شما ثبت شد؛ منتظر نتیجه حریف بمانید.')
+    } catch (error) {
+      toast.error(messageOf(error))
+    }
+    return
+  }
+  openResultDialog()
+  if (result.mode === 'coin_near_wall' && result.outcome && result.distances) {
+    coinOutcome.value = result.outcome === 'player_one'
+      ? match.value.players[0].code
+      : result.outcome === 'player_two'
+        ? match.value.players[1].code
+        : 'tie'
+    firstDistance.value = result.distances[0].toFixed(2)
+    secondDistance.value = result.distances[1].toFixed(2)
+  } else if (result.attempts) {
+    firstAttempts.value = result.attempts[0]
+    secondAttempts.value = result.attempts[1]
+  }
+  toast.success('پرتاب‌ها کامل شد؛ نتیجه را بررسی و ثبت کنید.')
 }
 
 function addTiebreakAttempt(): void {
@@ -275,11 +346,11 @@ function resultSummary(result: OlympicsResult): string {
           <div class="event-emblem"><MedalIcon class="size-6" /></div>
           <div class="min-w-0">
             <div class="flex flex-wrap items-center gap-2">
-              <h1 class="text-xl font-black sm:text-2xl">گیلیمپیک</h1>
+              <h1 class="text-xl font-black sm:text-2xl">{{ miniGameLabel(pageMiniGame) }}</h1>
               <Badge variant="outline">رویداد فیزیکی</Badge>
             </div>
             <p class="text-muted-foreground mt-1 text-xs sm:text-sm">
-              اجرای بازی روی زمین؛ ثبت دقیق و قابل پیگیری نتیجه در سامانه.
+              هر بازیکن روی دستگاه خودش پرتاب می‌کند؛ نتیجه برای هر دو نمایش داده می‌شود.
             </p>
           </div>
         </div>
@@ -368,22 +439,40 @@ function resultSummary(result: OlympicsResult): string {
                 </div>
               </div>
 
-              <div class="physical-stage my-6 flex min-h-40 flex-1 items-center justify-center">
-                <div v-if="match.mini_game === 'coin_near_wall'" class="coin-lane" aria-hidden="true">
-                  <div class="wall" />
-                  <span v-for="n in 3" :key="`a-${n}`" class="coin coin-a" :style="{ '--n': n }">{{ n.toLocaleString('fa-IR') }}</span>
-                  <span v-for="n in 3" :key="`b-${n}`" class="coin coin-b" :style="{ '--n': n }">{{ n.toLocaleString('fa-IR') }}</span>
-                </div>
-                <div v-else class="target-stage" aria-hidden="true">
-                  <div class="target-ring ring-outer">
-                    <div class="target-ring ring-middle">
-                      <div class="target-ring ring-center"><CircleDotIcon class="size-6" /></div>
-                    </div>
+              <ThrowArena
+                v-if="['active', 'waiting_for_result', 'tiebreak'].includes(match.status) && !isMentor && myPlayerIndex != null"
+                :key="`${match.id}-${match.results.length}`"
+                class="my-5"
+                :mode="match.mini_game"
+                :player-names="[match.players[0].name, match.players[1].name]"
+                :player-colors="[playerColor(0), playerColor(1)]"
+                :scoring-zones="match.scoring_zones"
+                :attempts-per-player="currentRound > 1 ? 1 : 0"
+                :player-only-index="myPlayerIndex"
+                :disabled="playerRunMutation.isPending.value || currentPlayerRuns.some((run) => run.team.code === me?.team?.code)"
+                @complete="acceptPhysicsResult"
+              />
+              <div v-else-if="['active', 'waiting_for_result', 'tiebreak'].includes(match.status)" class="physical-stage my-6 flex min-h-40 flex-1 items-center justify-center">
+                <div class="grid w-full max-w-lg gap-3 sm:grid-cols-2">
+                  <div v-for="player in match.players" :key="player.code" class="rounded-xl border bg-card p-4 text-center">
+                    <p class="font-bold">{{ player.name }}</p>
+                    <Badge class="mt-2" :variant="currentPlayerRuns.some((run) => run.team.code === player.code) ? 'secondary' : 'outline'">{{ currentPlayerRuns.some((run) => run.team.code === player.code) ? 'پرتاب‌ها ثبت شد' : 'در انتظار بازیکن' }}</Badge>
                   </div>
-                  <span class="marble marble-a" /><span class="marble marble-b" />
+                </div>
+              </div>
+              <div v-else class="physical-stage my-6 flex min-h-40 flex-1 items-center justify-center">
+                <div class="text-center">
+                  <MedalIcon class="text-muted-foreground mx-auto size-10" />
+                  <p class="mt-3 text-sm font-bold">{{ match.status === 'created' ? 'زمین پس از شروع فعال می‌شود' : 'این مسابقه پایان یافته است' }}</p>
                 </div>
               </div>
 
+              <div v-if="currentPlayerRuns.length" class="mb-4 grid gap-2 sm:grid-cols-2">
+                <div v-for="run in currentPlayerRuns" :key="run.team.code" class="rounded-lg border bg-muted/40 p-3 text-sm">
+                  <strong>{{ run.team.name }}</strong>
+                  <p class="text-muted-foreground mt-1 text-xs">{{ run.best_distance != null ? `فاصله: ${run.best_distance}` : `امتیاز: ${run.attempts.reduce((sum, value) => sum + value, 0).toLocaleString('fa-IR')}` }} · ثبت شد</p>
+                </div>
+              </div>
               <div v-if="match.mini_game === 'marble_target'" class="mb-5 flex flex-wrap justify-center gap-2">
                 <Badge variant="outline"><span class="size-2 rounded-full bg-muted-foreground" /> بیرون هدف: ۰</Badge>
                 <Badge v-for="zone in match.scoring_zones" :key="zone.code" variant="outline">{{ zone.label }}: {{ zone.score.toLocaleString('fa-IR') }}</Badge>
@@ -403,7 +492,7 @@ function resultSummary(result: OlympicsResult): string {
                   <Button v-if="isMentor" :disabled="resultMutation.isPending.value" @click="openResultDialog"><SparklesIcon class="size-4" /> ثبت تساوی‌شکن</Button>
                 </template>
                 <template v-else>
-                  <div><p class="font-bold">اجرای فیزیکی در جریان است</p><p class="text-muted-foreground mt-1 text-xs">سامانه حرکت سکه یا تیله را شبیه‌سازی نمی‌کند.</p></div>
+                  <div><p class="font-bold">پرتاب تعاملی در جریان است</p><p class="text-muted-foreground mt-1 text-xs">مهره را در یک‌چهارم پایین زمین بکشید و برای پرتاب رها کنید.</p></div>
                   <Button v-if="isMentor" :disabled="!canRecord" @click="openResultDialog"><FlagIcon class="size-4" /> ثبت نتیجه</Button>
                 </template>
               </div>
@@ -455,10 +544,7 @@ function resultSummary(result: OlympicsResult): string {
           <DialogTitle>ساخت مسابقه گیلیمپیک</DialogTitle>
           <DialogDescription>نوع بازی، دو شرکت‌کننده و در صورت نیاز مناطق امتیازی را مشخص کنید.</DialogDescription>
         </DialogHeader>
-        <div class="grid grid-cols-2 gap-2">
-          <Button class="h-auto min-h-16 flex-col" :variant="miniGame === 'coin_near_wall' ? 'default' : 'outline'" @click="miniGame = 'coin_near_wall'"><RulerIcon class="size-5" /> سکه نزدیک دیوار</Button>
-          <Button class="h-auto min-h-16 flex-col" :variant="miniGame === 'marble_target' ? 'default' : 'outline'" @click="miniGame = 'marble_target'"><TargetIcon class="size-5" /> تیله هدف</Button>
-        </div>
+        <Badge variant="outline">{{ miniGameLabel(pageMiniGame) }}</Badge>
         <div class="grid grid-cols-2 gap-3">
           <section class="flex min-w-0 flex-col gap-2">
             <Label>شرکت‌کننده اول</Label>

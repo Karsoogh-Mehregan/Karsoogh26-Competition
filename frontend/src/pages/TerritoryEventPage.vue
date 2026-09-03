@@ -38,16 +38,16 @@ import {
 import type { TerritoryCell, TerritoryGame, TerritoryPlayer, TerritoryTurn } from '@/types/api'
 
 const { me, teams, isMentor } = useActing()
+const rollingDie = ref(false)
+const rollingFace = ref(1)
+let rollingTimer: number | null = null
 const enabled = () => me.value != null
 const gamesQuery = useTerritoryGamesQuery(enabled)
 const games = computed(() => gamesQuery.data.value ?? [])
 const selectedGameId = ref<number | null>(null)
-const gameQuery = useTerritoryGameQuery(selectedGameId, enabled)
+const gameQuery = useTerritoryGameQuery(selectedGameId, () => enabled() && !rollingDie.value)
 const playMutation = usePlayTerritoryTurnMutation()
 const createMutation = useCreateTerritoryGameMutation()
-const rollingDie = ref(false)
-const rollingFace = ref(1)
-let rollingTimer: number | null = null
 
 const selectedCell = ref<TerritoryCell | null>(null)
 const createOpen = ref(false)
@@ -212,6 +212,7 @@ async function confirmTurn(): Promise<void> {
     ])
     stopRolling()
     if (updated.previous_turn?.dice_result) rollingFace.value = updated.previous_turn.dice_result
+    await Promise.all([gameQuery.refetch(), gamesQuery.refetch()])
     selectedCell.value = null
     announceTurn(updated.previous_turn)
     if (needsRoll && updated.previous_turn) playResultSound(updated.previous_turn.success)

@@ -86,7 +86,7 @@ class TerritoryGame(models.Model):
                     | Q(
                         status=TerritoryGameStatus.FINISHED,
                         active_player__isnull=True,
-                        turns_completed=TOTAL_TURNS,
+                        turns_completed__lte=TOTAL_TURNS,
                     )
                 ),
                 name="territory_status_consistent",
@@ -324,9 +324,16 @@ class CentipedeStatus(models.TextChoices):
 class CentipedeAction(models.TextChoices):
     TAKE = "take", "بردار"
     CONTINUE = "continue", "ادامه بده"
+    PRODUCE = "produce", "تولید"
+    SPLIT = "split", "توافق"
+    STEAL = "steal", "دزدی"
+    PRESERVE = "preserve", "قناعت"
 
 
 class CentipedeGame(models.Model):
+    rules_version = models.PositiveSmallIntegerField(default=2)
+    pot = models.PositiveIntegerField(default=200)
+    production_rounds = models.PositiveSmallIntegerField(default=0)
     player_one = models.ForeignKey(
         "teams.Team",
         on_delete=models.PROTECT,
@@ -407,7 +414,6 @@ class CentipedeGame(models.Model):
                     )
                     | Q(
                         status=CentipedeStatus.ACTIVE,
-                        active_player__isnull=False,
                         winner__isnull=True,
                         finished_at__isnull=True,
                         player_one_final_payout=0,
@@ -416,7 +422,6 @@ class CentipedeGame(models.Model):
                     | Q(
                         status=CentipedeStatus.FINISHED,
                         active_player__isnull=True,
-                        winner__isnull=False,
                         finished_at__isnull=False,
                     )
                 ),
@@ -435,8 +440,19 @@ class CentipedeGame(models.Model):
                         player_two_final_payout__gt=0,
                     )
                     | Q(winner__isnull=True)
+                    | Q(rules_version=2)
                 ),
                 name="centipede_payout_matches_winner",
+            ),
+            CheckConstraint(
+                condition=Q(rules_version=1)
+                | Q(
+                    production_rounds__lte=4,
+                    pot=200 + F("production_rounds") * 200,
+                    round_number=F("production_rounds") + 1,
+                    pot__gte=F("player_one_final_payout") + F("player_two_final_payout"),
+                ),
+                name="centipede_pool_consistent",
             ),
         ]
 
@@ -635,6 +651,29 @@ class OlympicsResult(models.Model):
 
     def __str__(self):
         return f"Olympics {self.match_id}, round {self.round_number}"
+
+
+class OlympicsPlayerRun(models.Model):
+    match = models.ForeignKey(OlympicsMatch, on_delete=models.CASCADE, related_name="player_runs")
+    team = models.ForeignKey(
+        "teams.Team", on_delete=models.PROTECT, related_name="olympics_player_runs"
+    )
+    round_number = models.PositiveIntegerField()
+    attempts = models.JSONField(default=list, blank=True)
+    best_distance = models.DecimalField(max_digits=9, decimal_places=2, null=True, blank=True)
+    completed_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["round_number", "team_id"]
+        constraints = [
+            UniqueConstraint(
+                fields=["match", "team", "round_number"],
+                name="olympics_one_player_run_per_round",
+            ),
+            CheckConstraint(
+                condition=Q(round_number__gte=1), name="olympics_player_run_round_positive"
+            ),
+        ]
 
 
 class AuctionStatus(models.TextChoices):
@@ -898,3 +937,74 @@ class PigActionReceipt(models.Model):
     request_id = models.UUIDField(unique=True)
     action = models.CharField(max_length=8)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class EventCode(models.TextChoices):
+    TERRITORY_CONTROL = "territory_control", "نبرد قلمرو"
+    CHARITY_BAG = "charity_bag", "کیسه خیریه"
+    CENTIPEDE = "centipede", "بازی هزارپا"
+    OLYMPICS_COIN = "olympics_coin", "سکه نزدیک دیوار"
+    OLYMPICS_MARBLE = "olympics_marble", "تیله هدف"
+    LIMITED_AUCTION = "limited_auction", "حراج محدود"
+    PRIZE_WHEEL = "prize_wheel", "گردونه شانس"
+    PIG = "pig", "بازی خوک"
+
+
+class EventConfiguration(models.Model):
+    code = models.CharField(max_length=32, choices=EventCode.choices, unique=True)
+    enabled = models.BooleanField(default=True)
+    duration_seconds = models.PositiveIntegerField(null=True, blank=True)
+    settings = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["code"]
+        constraints = [
+            CheckConstraint(
+                condition=Q(duration_seconds__isnull=True) | Q(duration_seconds__gt=0),
+                name="event_configuration_duration_positive",
+            )
+        ]
+
+    def __str__(self):
+        return self.get_code_display()
+
+
+class MatchmakingStatus(models.TextChoices):
+    WAITING = "waiting", "در انتظار"
+    MATCHED = "matched", "جفت‌شده"
+    CANCELLED = "cancelled", "لغوشده"
+
+
+class MatchmakingTicket(models.Model):
+    event_code = models.CharField(max_length=32, choices=EventCode.choices)
+    team = models.ForeignKey(
+        "teams.Team", on_delete=models.PROTECT, related_name="matchmaking_tickets"
+    )
+    status = models.CharField(
+        max_length=10, choices=MatchmakingStatus.choices, default=MatchmakingStatus.WAITING
+    )
+    matched_team = models.ForeignKey(
+        "teams.Team",
+        on_delete=models.PROTECT,
+        related_name="matched_against_tickets",
+        null=True,
+        blank=True,
+    )
+    match_id = models.PositiveIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    matched_at = models.DateTimeField(null=True, blank=True)
+    dismissed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            UniqueConstraint(
+                fields=["event_code", "team"],
+                condition=Q(status=MatchmakingStatus.WAITING),
+                name="one_waiting_ticket_per_team_event",
+            ),
+            CheckConstraint(
+                condition=~Q(team=F("matched_team")), name="matchmaking_distinct_teams"
+            ),
+        ]

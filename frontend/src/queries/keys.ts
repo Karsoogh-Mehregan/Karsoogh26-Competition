@@ -17,4 +17,6 @@ export const queryKeys = {
   auctionEvents: () => ['events', 'limited-auction'] as const,
   wheelEvents: () => ['events', 'prize-wheel'] as const,
   pigEvents: () => ['events', 'pig'] as const,
+  eventCatalog: () => ['events', 'catalog'] as const,
+  matchmaking: () => ['events', 'matchmaking'] as const,
 }

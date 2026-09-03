@@ -19,9 +19,11 @@ from .exceptions import (
     CharityBagInsufficientBalance,
     CharityBagInvalidWindow,
     CharityBagNotActive,
+    EventUnavailable,
     GameAlreadyFinished,
     InvalidStartingCell,
     InvalidTarget,
+    MatchmakingError,
     NotParticipant,
     NotPlayersTurn,
     OlympicsInvalidConfiguration,
@@ -48,9 +50,14 @@ from .models import (
     CharityBagEvent,
     CharityBagParticipation,
     CharityBagStatus,
+    EventCode,
+    EventConfiguration,
+    MatchmakingStatus,
+    MatchmakingTicket,
     OlympicsMatch,
     OlympicsMiniGame,
     OlympicsOutcome,
+    OlympicsPlayerRun,
     OlympicsResult,
     OlympicsStatus,
     PigActionReceipt,
@@ -71,6 +78,167 @@ from .models import (
     WheelSpin,
     WheelStatus,
 )
+
+MATCHMAKING_EVENT_CODES = {
+    EventCode.TERRITORY_CONTROL,
+    EventCode.CENTIPEDE,
+    EventCode.OLYMPICS_COIN,
+    EventCode.OLYMPICS_MARBLE,
+}
+
+TIMED_EVENT_DEFAULTS = {
+    EventCode.CHARITY_BAG: 1800,
+    EventCode.LIMITED_AUCTION: 1800,
+}
+
+
+def ensure_event_configurations() -> list[EventConfiguration]:
+    existing = {item.code: item for item in EventConfiguration.objects.all()}
+    missing = [
+        EventConfiguration(
+            code=code,
+            duration_seconds=TIMED_EVENT_DEFAULTS.get(code),
+        )
+        for code, _label in EventCode.choices
+        if code not in existing
+    ]
+    if missing:
+        EventConfiguration.objects.bulk_create(missing, ignore_conflicts=True)
+    return list(EventConfiguration.objects.order_by("code"))
+
+
+def require_event_enabled(code: str) -> EventConfiguration:
+    configuration, _ = EventConfiguration.objects.get_or_create(
+        code=code,
+        defaults={"duration_seconds": TIMED_EVENT_DEFAULTS.get(code)},
+    )
+    if not configuration.enabled:
+        raise EventUnavailable("این رویداد توسط مدیر غیرفعال شده است.")
+    return configuration
+
+
+def _create_matchmaking_game(
+    event_code: str, player_one: Team, player_two: Team, configuration: EventConfiguration
+) -> int:
+    if event_code == EventCode.TERRITORY_CONTROL:
+        return create_territory_game(player_one, player_two).pk
+    if event_code == EventCode.CENTIPEDE:
+        try:
+            return create_centipede_game(player_one, player_two).pk
+        except CentipedeInvalidAction as exc:
+            raise MatchmakingError(str(exc)) from exc
+    if event_code == EventCode.OLYMPICS_COIN:
+        return create_olympics_match(OlympicsMiniGame.COIN_NEAR_WALL, player_one, player_two).pk
+    if event_code == EventCode.OLYMPICS_MARBLE:
+        scoring_zones = configuration.settings.get("scoring_zones")
+        if not scoring_zones:
+            raise MatchmakingError("مناطق امتیازی تیله هنوز توسط مدیر تنظیم نشده‌اند.")
+        return create_olympics_match(
+            OlympicsMiniGame.MARBLE_TARGET,
+            player_one,
+            player_two,
+            scoring_zones,
+        ).pk
+    raise MatchmakingError("این رویداد مسابقه دونفره خودکار ندارد.")
+
+
+@transaction.atomic
+def join_matchmaking(event_code: str, team: Team) -> MatchmakingTicket:
+    if event_code not in MATCHMAKING_EVENT_CODES:
+        raise MatchmakingError("این رویداد از صف همتایابی پشتیبانی نمی‌کند.")
+    configuration = require_event_enabled(event_code)
+    if event_code == EventCode.CENTIPEDE and Team.objects.get(pk=team.pk).balance < 100:
+        raise MatchmakingError("برای ورود به هزارپا به ۱۰۰ گلوریوم نیاز دارید.")
+    active_match = (
+        MatchmakingTicket.objects.select_for_update()
+        .filter(
+            event_code=event_code,
+            team=team,
+            status=MatchmakingStatus.MATCHED,
+            dismissed_at__isnull=True,
+        )
+        .first()
+    )
+    if active_match:
+        raise MatchmakingError("ابتدا از مسابقه قبلی خارج شوید، سپس دوباره وارد صف شوید.")
+    current = (
+        MatchmakingTicket.objects.select_for_update()
+        .filter(event_code=event_code, team=team, status=MatchmakingStatus.WAITING)
+        .first()
+    )
+    if current:
+        return current
+    opponent = (
+        MatchmakingTicket.objects.select_for_update()
+        .filter(event_code=event_code, status=MatchmakingStatus.WAITING)
+        .exclude(team=team)
+        .order_by("created_at")
+        .first()
+    )
+    if opponent is None:
+        return MatchmakingTicket.objects.create(event_code=event_code, team=team)
+
+    match_id = _create_matchmaking_game(event_code, opponent.team, team, configuration)
+    now = timezone.now()
+    opponent.status = MatchmakingStatus.MATCHED
+    opponent.matched_team = team
+    opponent.match_id = match_id
+    opponent.matched_at = now
+    opponent.save(update_fields=["status", "matched_team", "match_id", "matched_at"])
+    return MatchmakingTicket.objects.create(
+        event_code=event_code,
+        team=team,
+        status=MatchmakingStatus.MATCHED,
+        matched_team=opponent.team,
+        match_id=match_id,
+        matched_at=now,
+    )
+
+
+@transaction.atomic
+def cancel_matchmaking(event_code: str, team: Team) -> MatchmakingTicket:
+    ticket = (
+        MatchmakingTicket.objects.select_for_update()
+        .filter(event_code=event_code, team=team, status=MatchmakingStatus.WAITING)
+        .first()
+    )
+    if ticket is None:
+        raise MatchmakingError("صف فعالی برای لغو وجود ندارد.")
+    ticket.status = MatchmakingStatus.CANCELLED
+    ticket.save(update_fields=["status"])
+    return ticket
+
+
+def _match_is_finished(ticket: MatchmakingTicket) -> bool:
+    if ticket.match_id is None:
+        return False
+    if ticket.event_code == EventCode.TERRITORY_CONTROL:
+        return TerritoryGame.objects.filter(
+            pk=ticket.match_id, status=TerritoryGameStatus.FINISHED
+        ).exists()
+    if ticket.event_code == EventCode.CENTIPEDE:
+        return CentipedeGame.objects.filter(
+            pk=ticket.match_id, status=CentipedeStatus.FINISHED
+        ).exists()
+    if ticket.event_code in {EventCode.OLYMPICS_COIN, EventCode.OLYMPICS_MARBLE}:
+        return OlympicsMatch.objects.filter(
+            pk=ticket.match_id, status=OlympicsStatus.FINISHED
+        ).exists()
+    return False
+
+
+@transaction.atomic
+def dismiss_matchmaking(ticket_id: int, team: Team) -> MatchmakingTicket:
+    ticket = MatchmakingTicket.objects.select_for_update().get(pk=ticket_id, team=team)
+    if ticket.status != MatchmakingStatus.MATCHED:
+        raise MatchmakingError("این بلیت به مسابقه فعالی متصل نیست.")
+    if ticket.dismissed_at is not None:
+        return ticket
+    if not _match_is_finished(ticket):
+        raise MatchmakingError("تا پایان مسابقه نمی‌توانید از آن خارج شوید.")
+    ticket.dismissed_at = timezone.now()
+    ticket.save(update_fields=["dismissed_at"])
+    return ticket
 
 
 def _random_cell_value() -> int:
@@ -384,7 +552,16 @@ def play_territory_turn(
         cell.save(update_fields=["owner"])
 
     game.turns_completed += 1
-    if game.turns_completed == TOTAL_TURNS:
+    opponent_has_no_territory = (
+        game.player_one_started
+        and game.player_two_started
+        and not TerritoryCell.objects.filter(game=game, owner_id=other_player_id).exists()
+    )
+    if opponent_has_no_territory:
+        game.status = TerritoryGameStatus.FINISHED
+        game.active_player = None
+        game.winner = acting_team
+    elif game.turns_completed == TOTAL_TURNS:
         game.status = TerritoryGameStatus.FINISHED
         game.active_player = None
         if game.player_one_score > game.player_two_score:
@@ -417,13 +594,21 @@ def play_territory_turn(
 
 @transaction.atomic
 def create_centipede_game(player_one: Team, player_two: Team) -> CentipedeGame:
-    """Create an active game after the physical RPS ordering is finalized."""
+    """Fund a shared pot atomically, locking both balances in a stable order."""
     if player_one.pk == player_two.pk:
         raise CentipedeSamePlayer("دو بازیکن بازی هزارپا باید دو تیم متفاوت باشند.")
+    players = list(
+        Team.objects.select_for_update()
+        .filter(pk__in=[player_one.pk, player_two.pk])
+        .order_by("pk")
+    )
+    if len(players) != 2 or any(player.balance < 100 for player in players):
+        raise CentipedeInvalidAction("هر بازیکن برای ورود به هزارپا به ۱۰۰ گلوریوم نیاز دارد.")
+    Team.objects.filter(pk__in=[player.pk for player in players]).update(balance=F("balance") - 100)
     return CentipedeGame.objects.create(
         player_one=player_one,
         player_two=player_two,
-        active_player=player_one,
+        active_player=None,
     )
 
 
@@ -432,8 +617,88 @@ def play_centipede_action(
     game_id: int,
     acting_team: Team,
     action: str,
+    round_number: int,
 ) -> CentipedeGame:
-    if action not in CentipedeAction.values:
+    game = CentipedeGame.objects.select_for_update().get(pk=game_id)
+    if acting_team.pk not in (game.player_one_id, game.player_two_id):
+        raise CentipedeNotParticipant("این تیم بازیکن این بازی نیست.")
+    if game.status != CentipedeStatus.ACTIVE:
+        raise CentipedeNotActive("این بازی تمام شده است.")
+    if round_number != game.round_number:
+        raise CentipedeInvalidAction("این تصمیم مربوط به دور قبلی است؛ صفحه را تازه کنید.")
+    if game.rules_version == 1:
+        return _play_legacy_centipede_action(game_id, acting_team, action)
+    if action not in ("produce", "split", "steal", "preserve"):
+        raise CentipedeInvalidAction("تصمیم معتبر نیست.")
+    if action == "produce" and game.production_rounds >= 4:
+        raise CentipedeInvalidAction("چهار مرحله تولید انجام شده؛ گزینه دیگری انتخاب کنید.")
+    if game.decisions.filter(round_number=round_number, actor=acting_team).exists():
+        raise CentipedeInvalidAction("تصمیم این دور قبلاً ثبت شده است.")
+    game.actions_completed += 1
+    CentipedeDecision.objects.create(
+        game=game,
+        actor=acting_team,
+        action=action,
+        sequence=game.actions_completed,
+        round_number=round_number,
+        displayed_reward=game.pot,
+    )
+    choices = dict(
+        game.decisions.filter(round_number=round_number).values_list("actor_id", "action")
+    )
+    if len(choices) == 2:
+        first, second = choices[game.player_one_id], choices[game.player_two_id]
+        if first == second == "produce":
+            game.production_rounds += 1
+            game.round_number += 1
+            game.pot += 200
+        else:
+
+            def share(own, other):
+                if own == "preserve":
+                    return game.pot // 5
+                if own == "steal":
+                    return (
+                        0
+                        if other == "steal"
+                        else game.pot - (game.pot // 5 if other == "preserve" else 0)
+                    )
+                if own == "split" and other != "steal":
+                    return game.pot // 2
+                return 0
+
+            game.player_one_final_payout = share(first, second)
+            game.player_two_final_payout = share(second, first)
+            players = list(
+                Team.objects.select_for_update()
+                .filter(pk__in=[game.player_one_id, game.player_two_id])
+                .order_by("pk")
+            )
+            payouts = {
+                game.player_one_id: game.player_one_final_payout,
+                game.player_two_id: game.player_two_final_payout,
+            }
+            for player in players:
+                Team.objects.filter(pk=player.pk).update(balance=F("balance") + payouts[player.pk])
+            game.status = CentipedeStatus.FINISHED
+            game.finished_at = timezone.now()
+            if game.player_one_final_payout != game.player_two_final_payout:
+                game.winner_id = (
+                    game.player_one_id
+                    if game.player_one_final_payout > game.player_two_final_payout
+                    else game.player_two_id
+                )
+    game.save()
+    return game
+
+
+@transaction.atomic
+def _play_legacy_centipede_action(
+    game_id: int,
+    acting_team: Team,
+    action: str,
+) -> CentipedeGame:
+    if action not in (CentipedeAction.TAKE, CentipedeAction.CONTINUE):
         raise CentipedeInvalidAction("تصمیم بازی باید TAKE یا CONTINUE باشد.")
 
     game = (
@@ -677,6 +942,64 @@ def record_olympics_result(
         recorded_by=recorded_by,
     )
     match.save(update_fields=["status", "winner", "finished_at", "updated_at"])
+    return match
+
+
+@transaction.atomic
+def submit_olympics_player_run(
+    match_id: int,
+    team: Team,
+    *,
+    round_number: int,
+    attempts: list | None = None,
+    best_distance=None,
+) -> OlympicsMatch:
+    match = OlympicsMatch.objects.select_for_update(of=("self",)).get(pk=match_id)
+    if match.status not in {
+        OlympicsStatus.ACTIVE,
+        OlympicsStatus.WAITING_FOR_RESULT,
+        OlympicsStatus.TIEBREAK,
+    }:
+        raise OlympicsInvalidState("این مسابقه آماده پرتاب نیست.")
+    if team.pk not in (match.player_one_id, match.player_two_id):
+        raise OlympicsInvalidResult("این تیم در مسابقه حضور ندارد.")
+
+    if round_number != match.results.count() + 1:
+        raise OlympicsInvalidState("این نتیجه متعلق به دور فعلی نیست.")
+    values = attempts or []
+    if match.mini_game == OlympicsMiniGame.COIN_NEAR_WALL:
+        if best_distance is None or best_distance < 0 or values:
+            raise OlympicsInvalidResult("نتیجه سکه باید فقط شامل فاصله بهترین سکه باشد.")
+    else:
+        required_count = 4 if round_number == 1 else None
+        if not values or (required_count and len(values) != required_count):
+            raise OlympicsInvalidResult("در دور اصلی هر بازیکن باید چهار تیله پرتاب کند.")
+        allowed_scores = {0, *(zone["score"] for zone in match.scoring_zones)}
+        if any(type(value) is not int or value not in allowed_scores for value in values):
+            raise OlympicsInvalidResult("امتیاز تیله با مناطق این مسابقه سازگار نیست.")
+        if best_distance is not None:
+            raise OlympicsInvalidResult("برای تیله فاصله ثبت نمی‌شود.")
+
+    existing = OlympicsPlayerRun.objects.filter(
+        match=match, team=team, round_number=round_number
+    ).first()
+    if existing:
+        if existing.attempts != values or existing.best_distance != best_distance:
+            raise OlympicsInvalidResult("پرتاب‌های ثبت‌شده قابل تغییر نیستند.")
+        return match
+    OlympicsPlayerRun.objects.create(
+        match=match,
+        team=team,
+        round_number=round_number,
+        attempts=values,
+        best_distance=best_distance,
+    )
+    if (
+        OlympicsPlayerRun.objects.filter(match=match, round_number=round_number).count() == 2
+        and match.status != OlympicsStatus.WAITING_FOR_RESULT
+    ):
+        match.status = OlympicsStatus.WAITING_FOR_RESULT
+        match.save(update_fields=["status", "updated_at"])
     return match
 
 

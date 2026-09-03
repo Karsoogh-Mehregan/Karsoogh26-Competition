@@ -115,6 +115,19 @@ def test_successful_attack_transfers_only_target_and_scores_both_players(game, p
     assert TerritoryCell.objects.get(game=game, row=4, column=4).owner == players[1]
 
 
+def test_player_loses_immediately_after_losing_last_territory(game, players):
+    _start_both(game, players)
+    TerritoryCell.objects.filter(game=game, row=4, column=3).update(owner=players[0])
+
+    play_territory_turn(game.pk, players[0], 4, 4, roll_die=lambda: 6)
+
+    game.refresh_from_db()
+    assert game.status == TerritoryGameStatus.FINISHED
+    assert game.turns_completed == 3
+    assert game.active_player is None
+    assert game.winner == players[0]
+
+
 def test_failed_attack_keeps_owner_and_only_penalizes_attacker(game, players):
     _start_both(game, players)
     target = TerritoryCell.objects.get(game=game, row=0, column=1)

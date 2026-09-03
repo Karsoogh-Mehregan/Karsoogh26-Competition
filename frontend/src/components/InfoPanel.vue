@@ -4,11 +4,7 @@ import {
   CircleCheckIcon,
   CoinsIcon,
   HourglassIcon,
-  HandHeartIcon,
-  RouteIcon,
-  MedalIcon,
   SearchIcon,
-  SwordsIcon,
   Gamepad2Icon,
 } from '@lucide/vue'
 import { computed, ref } from 'vue'
@@ -95,97 +91,14 @@ function isNoneSelected() {
         برای دیدن تیم‌ها وارد شوید
       </p>
       <nav v-if="me" class="mt-3 flex flex-wrap gap-2">
-        <Button as-child size="sm" :variant="route.path === '/' ? 'default' : 'outline'">
-          <RouterLink to="/" :aria-current="route.path === '/' ? 'page' : undefined">
-            نقشه
-          </RouterLink>
-        </Button>
         <Button
           as-child
           size="sm"
-          :variant="route.path.startsWith('/events/special-games') ? 'default' : 'outline'"
+          :variant="route.path === '/events' ? 'default' : 'outline'"
         >
-          <RouterLink
-            to="/events/special-games"
-            :aria-current="route.path.startsWith('/events/special-games') ? 'page' : undefined"
-          >
+          <RouterLink to="/events" :aria-current="route.path === '/events' ? 'page' : undefined">
             <Gamepad2Icon class="size-3.5" />
-            بازی‌های ویژه
-          </RouterLink>
-        </Button>
-        <Button
-          as-child
-          size="sm"
-          :variant="route.path.startsWith('/events/centipede-game') ? 'default' : 'outline'"
-        >
-          <RouterLink
-            to="/events/centipede-game"
-            :aria-current="route.path.startsWith('/events/centipede-game') ? 'page' : undefined"
-          >
-            <RouteIcon class="size-3.5" />
-            بازی هزارپا
-          </RouterLink>
-        </Button>
-        <Button
-          as-child
-          size="sm"
-          :variant="route.path.startsWith('/events/olympics') ? 'default' : 'outline'"
-        >
-          <RouterLink
-            to="/events/olympics"
-            :aria-current="route.path.startsWith('/events/olympics') ? 'page' : undefined"
-          >
-            <MedalIcon class="size-3.5" />
-            گیلیمپیک
-          </RouterLink>
-        </Button>
-        <Button
-          as-child
-          size="sm"
-          :variant="route.path.startsWith('/events/charity-bag') ? 'default' : 'outline'"
-        >
-          <RouterLink
-            to="/events/charity-bag"
-            :aria-current="route.path.startsWith('/events/charity-bag') ? 'page' : undefined"
-          >
-            <HandHeartIcon class="size-3.5" />
-            کیسه خیریه
-          </RouterLink>
-        </Button>
-        <Button
-          as-child
-          size="sm"
-          :variant="route.path.startsWith('/events/territory-control') ? 'default' : 'outline'"
-        >
-          <RouterLink
-            to="/events/territory-control"
-            :aria-current="
-              route.path.startsWith('/events/territory-control') ? 'page' : undefined
-            "
-          >
-            <SwordsIcon class="size-3.5" />
-            نبرد قلمرو
-          </RouterLink>
-        </Button>
-        <Button
-          v-if="isMentor"
-          as-child
-          size="sm"
-          :variant="route.path === '/grading' ? 'default' : 'outline'"
-        >
-          <RouterLink
-            to="/grading"
-            :aria-current="route.path === '/grading' ? 'page' : undefined"
-          >
-            نمره‌دهی
-          </RouterLink>
-        </Button>
-        <Button as-child size="sm" :variant="route.path === '/leaderboard' ? 'default' : 'outline'">
-          <RouterLink
-            to="/leaderboard"
-            :aria-current="route.path === '/leaderboard' ? 'page' : undefined"
-          >
-            جدول امتیازات
+            همه رویدادها
           </RouterLink>
         </Button>
       </nav>

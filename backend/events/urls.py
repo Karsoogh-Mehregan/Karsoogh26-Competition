@@ -12,9 +12,16 @@ from .views import (
     CharityBagListCreateView,
     CharityBagParticipationView,
     CharityBagResolveView,
+    EventConfigurationListView,
+    EventConfigurationUpdateView,
+    MatchmakingCancelView,
+    MatchmakingDismissView,
+    MatchmakingJoinView,
+    MatchmakingListView,
     OlympicsMatchDetailView,
     OlympicsMatchListCreateView,
     OlympicsMatchStartView,
+    OlympicsPlayerRunView,
     OlympicsResultView,
     PigActionView,
     PigEventFinishView,
@@ -34,6 +41,28 @@ from .views import (
 app_name = "events"
 
 urlpatterns = [
+    path("catalog/", EventConfigurationListView.as_view(), name="event-catalog"),
+    path(
+        "catalog/<str:code>/",
+        EventConfigurationUpdateView.as_view(),
+        name="event-configuration",
+    ),
+    path("matchmaking/", MatchmakingListView.as_view(), name="matchmaking-list"),
+    path(
+        "matchmaking/<str:code>/join/",
+        MatchmakingJoinView.as_view(),
+        name="matchmaking-join",
+    ),
+    path(
+        "matchmaking/<str:code>/cancel/",
+        MatchmakingCancelView.as_view(),
+        name="matchmaking-cancel",
+    ),
+    path(
+        "matchmaking/<int:pk>/dismiss/",
+        MatchmakingDismissView.as_view(),
+        name="matchmaking-dismiss",
+    ),
     path("limited-auction/events/", AuctionEventListCreateView.as_view(), name="auction-list"),
     path(
         "limited-auction/events/<int:pk>/", AuctionEventDetailView.as_view(), name="auction-detail"
@@ -69,6 +98,11 @@ urlpatterns = [
         "olympics/matches/<int:pk>/results/",
         OlympicsResultView.as_view(),
         name="olympics-result",
+    ),
+    path(
+        "olympics/matches/<int:pk>/player-run/",
+        OlympicsPlayerRunView.as_view(),
+        name="olympics-player-run",
     ),
     path("centipede/games/", CentipedeGameListCreateView.as_view(), name="centipede-list"),
     path(

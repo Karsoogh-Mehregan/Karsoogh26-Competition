@@ -1,4 +1,4 @@
-import { get, post } from '@/lib/http'
+import { get, patch, post } from '@/lib/http'
 import type {
   CentipedeGame,
   CharityBagEvent,
@@ -11,6 +11,7 @@ import type {
   CreateOlympicsMatchInput,
   OlympicsMatch,
   RecordOlympicsResultInput,
+  SubmitOlympicsPlayerRunInput,
   TerritoryGame,
   AuctionEvent,
   PigEvent,
@@ -18,6 +19,9 @@ import type {
   WheelEvent,
   WheelPrizeInput,
   WheelSpin,
+  EventCode,
+  EventConfiguration,
+  MatchmakingTicket,
 } from '@/types/api'
 
 const GAMES_PATH = '/events/territory-control/games/'
@@ -108,6 +112,13 @@ export function recordOlympicsResult(
   return post<OlympicsMatch>(`${OLYMPICS_PATH}${matchId}/results/`, input)
 }
 
+export function submitOlympicsPlayerRun(
+  matchId: number,
+  input: SubmitOlympicsPlayerRunInput,
+): Promise<OlympicsMatch> {
+  return post<OlympicsMatch>(`${OLYMPICS_PATH}${matchId}/player-run/`, input)
+}
+
 const AUCTION_PATH = '/events/limited-auction/events/'
 export const listAuctionEvents = (signal?: AbortSignal) => get<AuctionEvent[]>(AUCTION_PATH, signal)
 export const createAuctionEvent = (duration_seconds: number) => post<AuctionEvent>(AUCTION_PATH, { duration_seconds })
@@ -128,3 +139,11 @@ export const createPigEvent = (max_pot: number) => post<PigEvent>(PIG_PATH, { ma
 export const finishPigEvent = (eventId: number) => post<PigEvent>(`${PIG_PATH}${eventId}/finish/`, {})
 export const startPigGame = (eventId: number) => post<PigGame>(`${PIG_PATH}${eventId}/games/`, {})
 export const playPigAction = (gameId: number, action: 'roll' | 'cash_out', request_id: string) => post<PigGame>(`/events/pig/games/${gameId}/actions/`, { action, request_id })
+
+const CATALOG_PATH = '/events/catalog/'
+export const listEventConfigurations = (signal?: AbortSignal) => get<EventConfiguration[]>(CATALOG_PATH, signal)
+export const updateEventConfiguration = (code: EventCode, input: Partial<Pick<EventConfiguration, 'enabled' | 'duration_seconds' | 'settings'>>) => patch<EventConfiguration>(`${CATALOG_PATH}${code}/`, input)
+export const listMatchmakingTickets = (signal?: AbortSignal) => get<MatchmakingTicket[]>('/events/matchmaking/', signal)
+export const joinMatchmaking = (code: EventCode) => post<MatchmakingTicket>(`/events/matchmaking/${code}/join/`, {})
+export const cancelMatchmaking = (code: EventCode) => post<MatchmakingTicket>(`/events/matchmaking/${code}/cancel/`, {})
+export const dismissMatchmaking = (ticketId: number) => post<MatchmakingTicket>(`/events/matchmaking/${ticketId}/dismiss/`, {})

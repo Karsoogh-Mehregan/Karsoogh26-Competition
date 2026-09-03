@@ -8,6 +8,8 @@ from .models import (
     CentipedeGame,
     CharityBagEvent,
     CharityBagParticipation,
+    EventConfiguration,
+    MatchmakingTicket,
     OlympicsMatch,
     OlympicsResult,
     PigEvent,
@@ -88,6 +90,11 @@ class CharityBagParticipationAdmin(admin.ModelAdmin):
 class CentipedeDecisionInline(admin.TabularInline):
     model = CentipedeDecision
     extra = 0
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
     readonly_fields = (
         "sequence",
         "round_number",
@@ -100,6 +107,14 @@ class CentipedeDecisionInline(admin.TabularInline):
 
 @admin.register(CentipedeGame)
 class CentipedeGameAdmin(admin.ModelAdmin):
+    readonly_fields = tuple(field.name for field in CentipedeGame._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
     list_display = (
         "id",
         "player_one",
@@ -108,6 +123,8 @@ class CentipedeGameAdmin(admin.ModelAdmin):
         "active_player",
         "status",
         "winner",
+        "rules_version",
+        "pot",
     )
     list_filter = ("status",)
     inlines = (CentipedeDecisionInline,)
@@ -115,6 +132,14 @@ class CentipedeGameAdmin(admin.ModelAdmin):
 
 @admin.register(CentipedeDecision)
 class CentipedeDecisionAdmin(admin.ModelAdmin):
+    readonly_fields = tuple(field.name for field in CentipedeDecision._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
     list_display = ("game", "sequence", "round_number", "actor", "action", "displayed_reward")
     list_filter = ("action",)
 
@@ -150,7 +175,12 @@ class OlympicsResultAdmin(admin.ModelAdmin):
     list_filter = ("outcome",)
 
 
-admin.site.register(AuctionEvent)
+@admin.register(AuctionEvent)
+class AuctionEventAdmin(admin.ModelAdmin):
+    list_display = ("id", "status", "duration_seconds", "starts_at", "ends_at")
+    readonly_fields = ("ranking_snapshot", "starts_at", "ends_at", "settled_at")
+
+
 admin.site.register(AuctionPair)
 admin.site.register(AuctionBid)
 admin.site.register(WheelEvent)
@@ -159,3 +189,46 @@ admin.site.register(WheelSpin)
 admin.site.register(PigEvent)
 admin.site.register(PigGame)
 admin.site.register(PigRoll)
+
+
+@admin.register(EventConfiguration)
+class EventConfigurationAdmin(admin.ModelAdmin):
+    list_display = ("code", "enabled", "duration_seconds", "updated_at")
+    list_editable = ("enabled", "duration_seconds")
+    list_filter = ("enabled",)
+    actions = ("enable_events", "disable_events")
+
+    @admin.action(description="فعال‌کردن رویدادهای انتخاب‌شده")
+    def enable_events(self, request, queryset):
+        updated = queryset.update(enabled=True)
+        self.message_user(request, f"{updated} رویداد فعال شد.")
+
+    @admin.action(description="غیرفعال‌کردن رویدادهای انتخاب‌شده")
+    def disable_events(self, request, queryset):
+        updated = queryset.update(enabled=False)
+        self.message_user(request, f"{updated} رویداد غیرفعال شد.")
+
+
+@admin.register(MatchmakingTicket)
+class MatchmakingTicketAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "event_code",
+        "team",
+        "status",
+        "matched_team",
+        "match_id",
+        "dismissed_at",
+        "created_at",
+    )
+    list_filter = ("event_code", "status")
+    readonly_fields = (
+        "event_code",
+        "team",
+        "status",
+        "matched_team",
+        "match_id",
+        "created_at",
+        "matched_at",
+        "dismissed_at",
+    )

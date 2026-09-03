@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { CoinsIcon, DicesIcon, GavelIcon, GiftIcon, PlayIcon, RefreshCwIcon, SparklesIcon, TrophyIcon } from '@lucide/vue'
-import { computed, ref } from 'vue'
+import { CoinsIcon, DicesIcon, GavelIcon, GiftIcon, PlayIcon, RefreshCwIcon, TrophyIcon } from '@lucide/vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { toast } from 'vue-sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -11,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useActing } from '@/composables/useActing'
 import { playCoinDropSound, playDiceRollSound, playResultSound } from '@/lib/gameAudio'
 import { ApiError } from '@/lib/http'
+import { createRequestId } from '@/lib/uuid'
 import {
   useAuctionBidMutation,
   useAuctionEventsQuery,
@@ -30,13 +32,14 @@ import {
 import type { AuctionPair, WheelPrizeInput, WheelSpin } from '@/types/api'
 
 type Tab = 'auction' | 'wheel' | 'pig'
-const tab = ref<Tab>('auction')
+const route = useRoute()
+const tab = computed<Tab>(() => route.path.endsWith('/prize-wheel') ? 'wheel' : route.path.endsWith('/pig') ? 'pig' : 'auction')
 const { me, actingTeam, isMentor } = useActing()
 const enabled = () => me.value != null
 
-const auctionQuery = useAuctionEventsQuery(enabled)
-const wheelQuery = useWheelEventsQuery(enabled)
-const pigQuery = usePigEventsQuery(enabled)
+const auctionQuery = useAuctionEventsQuery(() => enabled() && tab.value === 'auction')
+const wheelQuery = useWheelEventsQuery(() => enabled() && tab.value === 'wheel')
+const pigQuery = usePigEventsQuery(() => enabled() && tab.value === 'pig')
 const createAuction = useCreateAuctionMutation()
 const bidMutation = useAuctionBidMutation()
 const resolveAuction = useResolveAuctionMutation()
@@ -54,10 +57,13 @@ const wheel = computed(() => wheelQuery.data.value?.find((item) => item.status =
 const pig = computed(() => pigQuery.data.value?.find((item) => item.status === 'active') ?? pigQuery.data.value?.[0] ?? null)
 const ownPair = computed(() => auction.value?.pairs.find((pair) => [pair.team_one.code, pair.team_two?.code].includes(actingTeam.value?.code)) ?? null)
 const ownGame = computed(() => pig.value?.games.find((game) => game.status === 'active') ?? pig.value?.games[0] ?? null)
-const loading = computed(() => auctionQuery.isPending.value || wheelQuery.isPending.value || pigQuery.isPending.value)
-const refreshing = computed(() => auctionQuery.isFetching.value || wheelQuery.isFetching.value || pigQuery.isFetching.value)
+const pageQuery = computed(() => tab.value === 'auction' ? auctionQuery : tab.value === 'wheel' ? wheelQuery : pigQuery)
+const loading = computed(() => pageQuery.value.isPending.value)
+const refreshing = computed(() => pageQuery.value.isFetching.value)
 
 const auctionMinutes = ref(10)
+const now = ref(Date.now())
+let clock: number | null = null
 const bidAmount = ref(10)
 const spinCost = ref(10)
 const wheelPrizes = ref<WheelPrizeInput[]>([
@@ -79,15 +85,15 @@ function messageOf(error: unknown): string {
 
 function money(value: number): string { return value.toLocaleString('fa-IR') }
 function teamName(pair: AuctionPair, side: 'one' | 'two'): string { return side === 'one' ? pair.team_one.name : pair.team_two?.name ?? 'استراحت' }
-function uuid(): string { return crypto.randomUUID() }
+function uuid(): string { return createRequestId() }
 
 async function refresh(): Promise<void> {
-  await Promise.all([auctionQuery.refetch(), wheelQuery.refetch(), pigQuery.refetch()])
+  await pageQuery.value.refetch()
 }
 
 async function makeAuction(): Promise<void> {
   try {
-    await createAuction.mutateAsync(Math.max(1, auctionMinutes.value) * 60)
+    await createAuction.mutateAsync(Math.max(1, Math.floor(auctionMinutes.value)) * 60)
     toast.success('حراج بر اساس رتبه فعلی تیم‌ها آغاز شد.')
   } catch (error) { toast.error(messageOf(error)) }
 }
@@ -174,24 +180,18 @@ async function actPig(action: 'roll' | 'cash_out'): Promise<void> {
 }
 
 const pendingDeliveries = computed(() => wheel.value?.spins.filter((item) => item.delivery_status === 'pending') ?? [])
-const tabs = [
-  { id: 'auction' as const, label: 'حراج محدود', icon: GavelIcon },
-  { id: 'wheel' as const, label: 'گردونه شانس', icon: GiftIcon },
-  { id: 'pig' as const, label: 'بازی خوک', icon: DicesIcon },
-]
+const auctionRemaining = computed(() => auction.value?.status === 'active' ? Math.max(0, Math.ceil((new Date(auction.value.ends_at).getTime() - now.value) / 1000)) : 0)
+onMounted(() => { clock = window.setInterval(() => { now.value = Date.now() }, 1000) })
+onBeforeUnmount(() => { if (clock != null) window.clearInterval(clock) })
 </script>
 
 <template>
   <main class="club h-full min-h-0 overflow-y-auto" dir="rtl">
     <div class="mx-auto flex min-h-full w-full max-w-7xl flex-col gap-4 p-4 sm:p-6">
       <header class="flex items-center justify-between gap-3">
-        <div><div class="flex items-center gap-2"><SparklesIcon class="text-amber-600 size-6" /><h1 class="text-xl font-black sm:text-2xl">باشگاه بازی‌های ویژه</h1></div><p class="text-muted-foreground mt-1 text-xs sm:text-sm">ریسک، شانس و تصمیم؛ با ثبت امن همه نتایج در سرور.</p></div>
+        <div><div class="flex items-center gap-2"><component :is="tab === 'auction' ? GavelIcon : tab === 'wheel' ? GiftIcon : DicesIcon" class="text-amber-600 size-6" /><h1 class="text-xl font-black sm:text-2xl">{{ tab === 'auction' ? 'حراج محدود' : tab === 'wheel' ? 'گردونه شانس' : 'بازی خوک' }}</h1></div><p class="text-muted-foreground mt-1 text-xs sm:text-sm">رویداد مستقل با ثبت امن همه نتایج در سرور.</p></div>
         <Button size="icon" variant="outline" :disabled="refreshing" aria-label="تازه‌سازی" @click="refresh"><RefreshCwIcon class="size-4" :class="refreshing && 'animate-spin'" /></Button>
       </header>
-
-      <nav class="tab-bar" aria-label="انتخاب بازی">
-        <Button v-for="item in tabs" :key="item.id" class="min-w-0 flex-1" :variant="tab === item.id ? 'default' : 'ghost'" @click="tab = item.id"><component :is="item.icon" class="size-4" /><span>{{ item.label }}</span></Button>
-      </nav>
 
       <div v-if="loading" class="grid flex-1 gap-4 lg:grid-cols-3"><Skeleton v-for="n in 3" :key="n" class="min-h-64 rounded-2xl" /></div>
 
@@ -199,7 +199,7 @@ const tabs = [
         <Card class="hero-card auction-hero">
           <CardHeader><div class="flex items-center justify-between"><div><Badge variant="outline">رتبه‌بندی زنده</Badge><CardTitle class="mt-3 text-2xl">حراج محدود</CardTitle></div><div class="emblem amber"><GavelIcon class="size-7" /></div></div></CardHeader>
           <CardContent v-if="auction" class="flex flex-col gap-4">
-            <div class="stat-row"><div><span>جایزه هر نبرد</span><strong>{{ money(auction.reward) }}</strong></div><div><span>زمان باقی‌مانده</span><strong>{{ money(auction.remaining_seconds) }} ثانیه</strong></div><div><span>شروع پیشنهاد</span><strong>{{ money(auction.opening_bid) }}</strong></div></div>
+            <div class="stat-row"><div><span>جایزه هر نبرد</span><strong>{{ money(auction.reward) }}</strong></div><div><span>زمان باقی‌مانده</span><strong>{{ money(auctionRemaining) }} ثانیه</strong></div><div><span>شروع پیشنهاد</span><strong>{{ money(auction.opening_bid) }}</strong></div></div>
             <article v-if="ownPair" class="duel">
               <div><b>{{ teamName(ownPair, 'one') }}</b><span>{{ money(ownPair.team_one_bid) }}</span></div><div class="versus">VS</div><div><b>{{ teamName(ownPair, 'two') }}</b><span>{{ money(ownPair.team_two_bid) }}</span></div>
             </article>
@@ -209,7 +209,7 @@ const tabs = [
           <CardContent v-else class="empty">هنوز حراج فعالی وجود ندارد.</CardContent>
         </Card>
         <Card class="side-card"><CardHeader><CardTitle class="text-sm">{{ isMentor ? 'مدیریت حراج' : 'قانون کوتاه' }}</CardTitle></CardHeader><CardContent class="space-y-3">
-          <template v-if="isMentor"><Label>مدت حراج (دقیقه)</Label><Input v-model.number="auctionMinutes" type="number" min="1" /><Button class="w-full" :disabled="!!auction && auction.status === 'active'" @click="makeAuction"><PlayIcon class="size-4" /> ساخت و شروع</Button><Button v-if="auction?.status === 'active'" class="w-full" variant="outline" @click="settleAuction">پایان و تسویه</Button></template>
+          <template v-if="isMentor"><Label>مدت حراج (دقیقه)</Label><Input v-model.number="auctionMinutes" type="number" min="1" inputmode="numeric" /><Button class="w-full" :disabled="!!auction && auction.status === 'active'" @click="makeAuction"><PlayIcon class="size-4" /> ساخت و شروع</Button><p class="text-muted-foreground text-xs">رتبه‌بندی هنگام شروع به‌صورت خودکار ثبت می‌شود.</p><Button v-if="auction?.status === 'active'" class="w-full" variant="outline" @click="settleAuction">پایان و تسویه</Button></template>
           <p v-else class="text-muted-foreground text-sm leading-7">پیشنهاد باید از رکورد فعلی بیشتر باشد. فقط اختلاف پیشنهاد جدید شما از موجودی کم می‌شود و همه پیشنهادها نهایی‌اند.</p>
         </CardContent></Card>
         <Card v-if="isMentor && auction" class="wide-card"><CardHeader><CardTitle class="text-sm">جفت‌های حراج</CardTitle></CardHeader><CardContent class="pair-list"><div v-for="pair in auction.pairs" :key="pair.id"><span>{{ teamName(pair, 'one') }} × {{ teamName(pair, 'two') }}</span><b>{{ money(pair.highest_bid) }}</b><Badge variant="secondary">{{ pair.winner?.name ?? pair.highest_bidder?.name ?? 'بدون پیشنهاد' }}</Badge></div></CardContent></Card>

@@ -4,6 +4,7 @@ from uuid import uuid4
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.test import Client
 
 from events.exceptions import (
     OlympicsInvalidConfiguration,
@@ -22,6 +23,7 @@ from events.services import (
     create_olympics_match,
     record_olympics_result,
     start_olympics_match,
+    submit_olympics_player_run,
 )
 from teams.models import Team
 
@@ -322,3 +324,67 @@ def test_team_list_contains_only_its_physical_matches(client, players):
 
     assert response.status_code == 200
     assert [row["id"] for row in response.json()] == [own.pk]
+
+
+@pytest.mark.parametrize("mini_game", ["coin_near_wall", "marble_target"])
+def test_players_submit_on_independent_devices(players, mentor, zones, mini_game):
+    match = active_match(mini_game, players, zones if mini_game == "marble_target" else None)
+    for index, team in enumerate(players):
+        device = Client()
+        device.force_login(User.objects.create_user(team.code, team=team))
+        payload = {"round_number": 1}
+        if mini_game == "coin_near_wall":
+            payload["best_distance"] = str(8 + index)
+        else:
+            payload["attempts"] = [1, 3, 5, index]
+        response = device.post(
+            f"/api/events/olympics/matches/{match.pk}/player-run/",
+            payload,
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        assert len(response.json()["player_runs"]) == index + 1
+
+    match.refresh_from_db()
+    assert match.status == OlympicsStatus.WAITING_FOR_RESULT
+    assert match.winner is None
+    assert list(Team.objects.order_by("code").values_list("balance", flat=True)) == [500, 500]
+    observer = Client()
+    observer.force_login(mentor)
+    response = observer.get(f"/api/events/olympics/matches/{match.pk}/")
+    assert len(response.json()["player_runs"]) == 2
+
+
+def test_player_run_cannot_be_replaced_or_submitted_for_wrong_round(players):
+    match = active_match(OlympicsMiniGame.COIN_NEAR_WALL, players)
+    for _ in range(2):
+        submit_olympics_player_run(match.pk, players[0], round_number=1, best_distance=Decimal("8"))
+    assert match.player_runs.count() == 1
+    with pytest.raises(OlympicsInvalidResult):
+        submit_olympics_player_run(match.pk, players[0], round_number=1, best_distance=Decimal("3"))
+    with pytest.raises(OlympicsInvalidState):
+        submit_olympics_player_run(match.pk, players[0], round_number=2, best_distance=Decimal("8"))
+
+
+def test_player_run_rejects_outsider_and_invalid_scores(client, players, zones):
+    match = active_match(OlympicsMiniGame.MARBLE_TARGET, players, zones)
+    outsider = Team.objects.create(code="outsider", name="Outsider")
+    client.force_login(User.objects.create_user("outsider", team=outsider))
+    url = f"/api/events/olympics/matches/{match.pk}/player-run/"
+    response = client.post(
+        url, {"round_number": 1, "attempts": [1, 3, 5, 0]}, content_type="application/json"
+    )
+    assert response.status_code == 403
+    client.force_login(User.objects.create_user("alpha", team=players[0]))
+    response = client.post(
+        url, {"round_number": 1, "attempts": [100, 3, 5, 0]}, content_type="application/json"
+    )
+    assert response.status_code == 409
+    assert match.player_runs.count() == 0
+
+
+def test_finished_match_rejects_player_run(players, mentor):
+    match = active_match(OlympicsMiniGame.COIN_NEAR_WALL, players)
+    record_olympics_result(match.pk, request_id=uuid4(), recorded_by=mentor, winner=players[0])
+    with pytest.raises(OlympicsInvalidState):
+        submit_olympics_player_run(match.pk, players[0], round_number=1, best_distance=Decimal("8"))

@@ -40,6 +40,8 @@ export function useLoginMutation() {
         queryClient.invalidateQueries({ queryKey: queryKeys.auctionEvents() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.wheelEvents() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.pigEvents() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.eventCatalog() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.matchmaking() }),
       ])
     },
   })
@@ -60,6 +62,8 @@ export function useLogoutMutation() {
       queryClient.removeQueries({ queryKey: queryKeys.auctionEvents() })
       queryClient.removeQueries({ queryKey: queryKeys.wheelEvents() })
       queryClient.removeQueries({ queryKey: queryKeys.pigEvents() })
+      queryClient.removeQueries({ queryKey: queryKeys.eventCatalog() })
+      queryClient.removeQueries({ queryKey: queryKeys.matchmaking() })
       await ensureCsrf()
     },
   })

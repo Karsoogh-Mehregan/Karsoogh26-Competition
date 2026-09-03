@@ -7,8 +7,8 @@ The app currently contains seven independent events:
 
 - **Territory Control** — a two-team, 20-turn board game.
 - **Charity Bag** — a timed, shared risk/reward event using team Glorium balances.
-- **Centipede Game** — a two-player, alternating risk/reward game with an unbounded number of
-  rounds.
+- **Centipede Game** — a two-player shared-pot game with four secret choices and up to four
+  production rounds.
 - **Gillympics / Olympics** — supervisor-operated physical matches with pluggable mini-games.
 - **Limited Auction** — rank-seeded simultaneous two-team auctions with committed bids.
 - **Prize Wheel** — a configurable, server-selected weighted prize event.
@@ -51,13 +51,51 @@ implement game rules themselves.
 
 The SPA routes are:
 
+- `/events` — unified catalog, matchmaking, and mentor controls for every minigame.
 - `/events/territory-control`
 - `/events/charity-bag`
 - `/events/centipede-game`
-- `/events/olympics`
-- `/events/special-games`
+- `/events/coin-near-wall`
+- `/events/marble-target`
+- `/events/auction`
+- `/events/prize-wheel`
+- `/events/pig`
 
-Both routes require an authenticated session. Navigation is exposed through `InfoPanel.vue`.
+All event routes require an authenticated session. The sidebar exposes only the event catalog;
+each minigame has its own page without a multi-game tab selector.
+
+## Event catalog and matchmaking
+
+`EventConfiguration` is the authoritative availability record for all eight event choices. Mentors
+can enable or disable each event from the unified `/events` page or Django admin. Disabled events
+remain readable for audit/history but every mutation is rejected server-side. Charity Bag and
+Limited Auction also expose a configurable default duration; an explicit creation-time duration
+still takes precedence.
+
+The catalog's quick-start duration inputs are in minutes and are converted to seconds for the API.
+Auction and Charity countdowns render every second locally rather than stepping with polling.
+Disabled event cards and routes are hidden from players; mentors retain configuration access so
+they can re-enable them.
+
+Territory Control, Centipede, Coin Near the Wall, and Marble Target support team matchmaking.
+Joining is idempotent while waiting. The second team atomically claims the oldest compatible ticket
+and creates the match. Olympics matches remain in their operator-controlled created state so a
+mentor still starts physical play and records the result. Marble scoring zones come from the event
+configuration rather than the client.
+
+A matched ticket remains the team's active match until the underlying game is finished. The team
+can then dismiss it from the event catalog; dismissal hides only the active ticket, keeps the full
+game and decision history for audit, and allows the team to join matchmaking again. The backend
+rejects dismissal while the game is still running.
+
+APIs:
+
+- `GET /api/events/catalog/` — availability, timer, and capability metadata.
+- `PATCH /api/events/catalog/<code>/` — mentor-only enable/disable and configuration update.
+- `GET /api/events/matchmaking/` — the authenticated team's recent tickets.
+- `POST /api/events/matchmaking/<code>/join/` and `/cancel/` — enter or leave a queue.
+- `POST /api/events/matchmaking/<ticket-id>/dismiss/` — exit a finished match and free the team for
+  another opponent.
 
 ## Authentication and authority
 
@@ -76,6 +114,11 @@ team. Client-selected team state is never accepted as permission to act.
   the backend.
 
 ## Territory Control
+
+The turn response is resolved atomically by the backend, while the client keeps the previous active
+player visible until the dice animation reveals the server-generated result. Once both starting
+positions exist, capturing a participant's last territory ends the match immediately and awards the
+win to the attacker; the normal 20-turn score comparison remains the other finish condition.
 
 ### Model
 
@@ -257,63 +300,66 @@ Web Audio tones, so sound files are not required.
 
 ## Centipede Game
 
-### Model and lifecycle
+New matches use shared-pot rules (`rules_version=2`). Each team pays **100 Glorium**
+when a match is created; both balances are locked in primary-key order and charged in
+one transaction. If either cannot afford entry, no game is created and neither is charged.
+Matchmaking uses this same service. Entry is charged on matching, not while waiting.
 
-`CentipedeGame` stores the ordered players, round, both displayed rewards, active player, action
-count, lifecycle status, winner, final payouts, and finish timestamp. `CentipedeDecision` is the
-immutable audit row for every choice, including its global sequence, round, actor, action, and the
-reward visible to that actor at that moment.
+### Choices and payouts
 
-The available statuses are `waiting_for_players`, `active`, and `finished`. The current creation API
-receives both already-ordered players and therefore creates an active match immediately. The waiting
-status is retained for a future registration or software-based rock-paper-scissors flow.
+The pot starts at 200. Either player may submit first. Both choices are committed and
+hidden until the round resolves; there is no active-player ordering or RPS requirement.
 
-Database constraints enforce distinct participants, positive round/reward values, participant-only
-active players and winners, consistent finished state, and final payouts that agree with the winner.
-Each player can have at most one decision in a round, and every sequence number is unique per game.
+- Both `produce`: add **200 total**, advance the round, pay nothing.
+- Both `steal`: finish, both receive zero.
+- One `steal`: takes the whole pot unless the opponent chose `preserve`; then the
+  thief gets four-fifths and the preserving player gets one-fifth.
+- Without a thief: `split` receives half, `preserve` receives one-fifth, and
+  `produce` receives zero. Unallocated money is not paid to either team.
+- Every combination except two producers finishes the match.
+- Four successful production rounds reach a pot of **1000**. The match remains active
+  in decision round 5, but `produce` is rejected; both must choose another action.
 
-### Rules
+Payouts are gross distributions from the pot, not additional entry refunds.
+The winner field is the sole higher-payout participant, or null for equal payouts.
+Both final payout fields are authoritative, including split outcomes and zero/zero.
 
-The physical rock-paper-scissors result determines player order before match creation. Player 1
-always starts each round.
+### State, security, and API
 
-```text
-round n player 1 reward = 50  × 2^(n - 1)
-round n player 2 reward = 200 × 2^(n - 1)
-```
+`CentipedeGame` records the rules version, pot, production count, decision round,
+participants, status and final payouts. `CentipedeDecision` records every choice.
+For version 2, its legacy-named `displayed_reward` audit field stores the pot at the
+moment of submission. The legacy `current_reward` API field is zero in new matches.
 
-- `TAKE` ends the game immediately. Only the acting player's displayed reward is added to their
-  existing team balance; the other displayed reward is discarded.
-- `CONTINUE` from player 1 passes the turn to player 2 without paying anything.
-- `CONTINUE` from player 2 completes the round, doubles both rewards, increments the round, and
-  returns the turn to player 1.
-- There is no fixed final round. The match ends only with `TAKE`.
+- `GET /api/events/centipede/games/`: own games (all games for mentors).
+- `POST /api/events/centipede/games/`: mentor creates and charges entry with
+  `{"player_one":"alpha","player_two":"beta"}`.
+- `GET /api/events/centipede/games/<id>/`: state, submitted flags, revealed history.
+- `POST /api/events/centipede/games/<id>/actions/`:
+  `{"action":"produce","round_number":1}` (or split/steal/preserve).
 
-`play_centipede_action()` locks the game row before validating status, membership, and turn order.
-Settlement locks the winner's team row and updates the balance in the same transaction as the game
-finish and decision record. A retry after completion is rejected before any balance write, so the
-reward cannot be paid twice. Reward and balance fields are never accepted from the client.
+The server verifies membership, active status, exact round, valid action, production
+cap and one decision per participant per round. A round number is mandatory, preventing
+a delayed duplicate production request from entering the next round. Pending choices
+are omitted from history on **all** API surfaces, including mentor responses;
+only each player's `has_chosen` flag is public. Completed rounds reveal both choices.
 
-### Centipede API
+Settlement holds the match lock and locks both team balances in stable order. Decisions,
+payouts and finish state commit together; repeat finishing requests are rejected before
+any payout. Admin game/decision records are read-only to prevent bypassing these services.
+PostgreSQL concurrency coverage is marked `postgres_only`; SQLite cannot validate row locks.
 
-- `GET /api/events/centipede/games/` — mentors see all games; teams see only their own games.
-- `POST /api/events/centipede/games/` — mentor-only creation with finalized order. Body:
-  `{"player_one": "alpha", "player_two": "beta"}`.
-- `GET /api/events/centipede/games/<id>/` — current rewards, active player, result, and full history.
-- `POST /api/events/centipede/games/<id>/actions/` — active participant only. Body is exactly
-  `{"action": "take"}` or `{"action": "continue"}`; unknown or client-calculated reward fields are
-  rejected.
+### Compatibility and frontend
 
-### Centipede frontend behavior
+Migration 0009 marks existing games as version 1 without changing balances or decisions.
+They retain the original TAKE/CONTINUE service and UI. New games default to version 2.
+Do not retroactively charge existing matches or rewrite their histories.
 
-The Persian RTL page presents both live rewards, active-player highlighting, an animated route,
-round state, confirmation before `TAKE`, and a complete reverse-chronological decision history. An
-active match polls for the other physical participant's move. The layout uses the same project
-cards, typography, colors, responsive drawer, and generated Web Audio effects as the other events;
-it stacks the action and history panels on smaller screens.
-
-Mentor creation explicitly records Player 1 and Player 2 after the external rock-paper-scissors
-result. Team users can see the game but action controls appear only for the currently active player.
+The Persian RTL page uses the existing shadcn components and theme, with responsive
+four-choice cards, an animated shared pot, four production indicators, confirmation,
+locked/waiting states, per-player final payouts and revealed history. Each participant
+uses their own account/device. A finished match returns to the event hub for dismissal
+and another matchmaking entry.
 
 ## Gillympics / Olympics
 
@@ -369,15 +415,24 @@ is added.
   `player_two`, and configurable `scoring_zones` for Marble Target.
 - `GET /api/events/olympics/matches/<id>/` — current state and complete result history.
 - `POST /api/events/olympics/matches/<id>/start/` — mentor-only, single-use start.
+- `POST /api/events/olympics/matches/<id>/player-run/` — a participant submits their own run with
+  `round_number` and either `best_distance` or `attempts`. Identity comes from the session, not an
+  editable team field. Runs are immutable; identical retries are safe and stale rounds are rejected.
 - `POST /api/events/olympics/matches/<id>/results/` — mentor-only immutable result submission. A
   stable `request_id` UUID is required for retry safety.
 
 ### Gillympics frontend behavior
 
-The responsive Persian operator console creates either mini-game, selects the two teams, configures
-marble zones, starts physical play, records coin winners/distances or each marble's zone, and shows
-live server-calculated totals. Ties change the primary action into tiebreak recording. The side log
-shows every round and the operator username. Team accounts receive the same read-only match view.
+Each participant plays their own run on their own logged-in device. The local touch arena uses a
+fixed 600-by-600 simulation coordinate system, independent of display size. It derives launch
+velocity from the drag gesture, resolves collisions between that player's pieces and fall-off,
+and restricts pre-launch movement to the bottom quarter. Coin mode has a rebound wall; Marble
+mode has open edges and configurable scoring rings. Separate devices do not share a live physics
+board: their completed runs are stored as `OlympicsPlayerRun` and shown to both participants and
+the supervisor. These are participant-reported outcomes, not server-simulated trajectories.
+Once both runs arrive, the match waits for supervisor confirmation. The result dialog is prefilled
+with their submitted results; confirmation uses the existing server validation and auditing.
+Tiebreak runs use a new round number, leaving prior submissions intact. No Glorium is paid.
 
 ## Limited Auction
 

@@ -201,9 +201,10 @@ export interface CreateCharityBagInput {
 }
 
 export type CentipedeStatus = 'waiting_for_players' | 'active' | 'finished'
-export type CentipedeAction = 'take' | 'continue'
+export type CentipedeAction = 'produce' | 'split' | 'steal' | 'preserve' | 'take' | 'continue'
 
 export interface CentipedePlayer {
+  has_chosen: boolean
   code: string
   name: string
   color: string | null
@@ -222,6 +223,9 @@ export interface CentipedeDecision {
 }
 
 export interface CentipedeGame {
+  rules_version: number
+  pot: number
+  production_rounds: number
   id: number
   players: [CentipedePlayer, CentipedePlayer]
   round_number: number
@@ -241,6 +245,7 @@ export interface CreateCentipedeGameInput {
 }
 
 export interface PlayCentipedeActionInput {
+  round_number: number
   action: CentipedeAction
 }
 
@@ -280,6 +285,14 @@ export interface OlympicsResult {
   created_at: string
 }
 
+export interface OlympicsPlayerRun {
+  team: { code: string; name: string; color: string | null }
+  round_number: number
+  attempts: number[]
+  best_distance: string | null
+  completed_at: string
+}
+
 export interface OlympicsMatch {
   id: number
   mini_game: OlympicsMiniGame
@@ -289,6 +302,7 @@ export interface OlympicsMatch {
   tiebreak_occurred: boolean
   winner: { code: string; name: string; color: string | null } | null
   results: OlympicsResult[]
+  player_runs: OlympicsPlayerRun[]
   started_at: string | null
   finished_at: string | null
   created_at: string
@@ -312,6 +326,12 @@ export interface RecordOlympicsResultInput {
   player_two_attempts?: Array<string | number>
 }
 
+export interface SubmitOlympicsPlayerRunInput {
+  round_number: number
+  attempts?: number[]
+  best_distance?: string | null
+}
+
 export interface AuctionBid { sequence: number; team: TerritoryTeam; amount: number; created_at: string }
 export interface AuctionPair {
   id: number; team_one: TerritoryTeam; team_two: TerritoryTeam | null; rank_one: number; rank_two: number | null
@@ -333,3 +353,27 @@ export interface WheelPrizeInput { code: string; prize_type: WheelPrizeType; dis
 export interface PigRoll { number: number; dice_result: number; amount_added: number; pot_after: number; created_at: string }
 export interface PigGame { id: number; event_id: number; team: TerritoryTeam; entry_fee: number; max_pot: number; pot: number; rolls_count: number; status: 'active' | 'finished_cashed_out' | 'finished_rolled_one' | 'finished_max_pot'; final_payout: number; started_at: string; finished_at: string | null; rolls: PigRoll[] }
 export interface PigEvent { id: number; status: 'active' | 'finished'; entry_fee: number; max_pot: number; created_at: string; finished_at: string | null; games: PigGame[] }
+
+export type EventCode = 'territory_control' | 'charity_bag' | 'centipede' | 'olympics_coin' | 'olympics_marble' | 'limited_auction' | 'prize_wheel' | 'pig'
+export interface EventConfiguration {
+  code: EventCode
+  label: string
+  enabled: boolean
+  duration_seconds: number | null
+  settings: Record<string, unknown>
+  supports_matchmaking: boolean
+  has_time_limit: boolean
+  updated_at: string
+}
+export interface MatchmakingTicket {
+  id: number
+  event_code: EventCode
+  team: TerritoryTeam
+  status: 'waiting' | 'matched' | 'cancelled'
+  matched_team: TerritoryTeam | null
+  match_id: number | null
+  match_path: string | null
+  created_at: string
+  matched_at: string | null
+  dismissed_at: string | null
+}

@@ -14,8 +14,12 @@ from .models import (
     CharityBagEvent,
     CharityBagParticipation,
     CharityBagStatus,
+    EventCode,
+    EventConfiguration,
+    MatchmakingTicket,
     OlympicsMatch,
     OlympicsMiniGame,
+    OlympicsPlayerRun,
     OlympicsResult,
     PigEvent,
     PigGame,
@@ -297,6 +301,9 @@ class CentipedeGameSerializer(serializers.ModelSerializer):
         model = CentipedeGame
         fields = (
             "id",
+            "rules_version",
+            "pot",
+            "production_rounds",
             "players",
             "round_number",
             "active_player",
@@ -315,19 +322,35 @@ class CentipedeGameSerializer(serializers.ModelSerializer):
             {
                 **TeamIdentitySerializer(game.player_one).data,
                 "position": 1,
-                "current_reward": game.player_one_reward,
+                "current_reward": game.player_one_reward if game.rules_version == 1 else 0,
                 "final_payout": game.player_one_final_payout,
+                "has_chosen": any(
+                    d.actor_id == game.player_one_id and d.round_number == game.round_number
+                    for d in game.decisions.all()
+                ),
             },
             {
                 **TeamIdentitySerializer(game.player_two).data,
                 "position": 2,
-                "current_reward": game.player_two_reward,
+                "current_reward": game.player_two_reward if game.rules_version == 1 else 0,
                 "final_payout": game.player_two_final_payout,
+                "has_chosen": any(
+                    d.actor_id == game.player_two_id and d.round_number == game.round_number
+                    for d in game.decisions.all()
+                ),
             },
         ]
 
     def get_history(self, game: CentipedeGame) -> list[dict]:
-        return CentipedeDecisionSerializer(game.decisions.all(), many=True).data
+        # Pending choices must not leak through lists, details, or POST responses.
+        decisions = [
+            d
+            for d in game.decisions.all()
+            if game.rules_version == 1
+            or game.status == "finished"
+            or d.round_number < game.round_number
+        ]
+        return CentipedeDecisionSerializer(decisions, many=True).data
 
 
 class CreateCentipedeGameSerializer(serializers.Serializer):
@@ -341,10 +364,13 @@ class CreateCentipedeGameSerializer(serializers.Serializer):
 
 
 class PlayCentipedeActionSerializer(serializers.Serializer):
-    action = serializers.ChoiceField(choices=("take", "continue"))
+    action = serializers.ChoiceField(
+        choices=("produce", "split", "steal", "preserve", "take", "continue")
+    )
+    round_number = serializers.IntegerField(min_value=1)
 
     def to_internal_value(self, data):
-        unexpected = set(data) - {"action"}
+        unexpected = set(data) - {"action", "round_number"}
         if unexpected:
             raise serializers.ValidationError(
                 {
@@ -382,11 +408,21 @@ class OlympicsResultSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class OlympicsPlayerRunSerializer(serializers.ModelSerializer):
+    team = TeamIdentitySerializer(read_only=True)
+
+    class Meta:
+        model = OlympicsPlayerRun
+        fields = ("team", "round_number", "attempts", "best_distance", "completed_at")
+        read_only_fields = fields
+
+
 class OlympicsMatchSerializer(serializers.ModelSerializer):
     players = serializers.SerializerMethodField()
     winner = TeamIdentitySerializer(read_only=True, allow_null=True)
     results = OlympicsResultSerializer(many=True, read_only=True)
     tiebreak_occurred = serializers.SerializerMethodField()
+    player_runs = OlympicsPlayerRunSerializer(many=True, read_only=True)
 
     class Meta:
         model = OlympicsMatch
@@ -399,6 +435,7 @@ class OlympicsMatchSerializer(serializers.ModelSerializer):
             "tiebreak_occurred",
             "winner",
             "results",
+            "player_runs",
             "started_at",
             "finished_at",
             "created_at",
@@ -413,7 +450,7 @@ class OlympicsMatchSerializer(serializers.ModelSerializer):
         ]
 
     def get_tiebreak_occurred(self, match: OlympicsMatch) -> bool:
-        return match.results.count() > 1 or match.status == "tiebreak"
+        return any(result.outcome == "tie" for result in match.results.all())
 
 
 class CreateOlympicsMatchSerializer(serializers.Serializer):
@@ -451,6 +488,25 @@ class RecordOlympicsResultSerializer(serializers.Serializer):
     )
     player_two_attempts = serializers.ListField(
         child=serializers.JSONField(), required=False, default=list
+    )
+
+    def to_internal_value(self, data):
+        allowed = set(self.fields)
+        unexpected = set(data) - allowed
+        if unexpected:
+            raise serializers.ValidationError(
+                {field: "This physical result field is not accepted." for field in unexpected}
+            )
+        return super().to_internal_value(data)
+
+
+class SubmitOlympicsPlayerRunSerializer(serializers.Serializer):
+    round_number = serializers.IntegerField(min_value=1)
+    attempts = serializers.ListField(
+        child=serializers.IntegerField(min_value=0), required=False, default=list, max_length=64
+    )
+    best_distance = serializers.DecimalField(
+        max_digits=9, decimal_places=2, required=False, allow_null=True, min_value=0
     )
 
     def to_internal_value(self, data):
@@ -534,7 +590,7 @@ class AuctionEventSerializer(serializers.ModelSerializer):
 
 
 class CreateAuctionEventSerializer(serializers.Serializer):
-    duration_seconds = serializers.IntegerField(min_value=1, default=600)
+    duration_seconds = serializers.IntegerField(min_value=1, required=False)
 
 
 class PlaceAuctionBidSerializer(serializers.Serializer):
@@ -679,3 +735,73 @@ class CreatePigEventSerializer(serializers.Serializer):
 class PigActionSerializer(serializers.Serializer):
     request_id = serializers.UUIDField()
     action = serializers.ChoiceField(choices=("roll", "cash_out"))
+
+
+class EventConfigurationSerializer(serializers.ModelSerializer):
+    label = serializers.CharField(source="get_code_display", read_only=True)
+    supports_matchmaking = serializers.SerializerMethodField()
+    has_time_limit = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EventConfiguration
+        fields = (
+            "code",
+            "label",
+            "enabled",
+            "duration_seconds",
+            "settings",
+            "supports_matchmaking",
+            "has_time_limit",
+            "updated_at",
+        )
+        read_only_fields = ("code", "label", "supports_matchmaking", "has_time_limit", "updated_at")
+
+    def get_supports_matchmaking(self, configuration):
+        return configuration.code in {
+            EventCode.TERRITORY_CONTROL,
+            EventCode.CENTIPEDE,
+            EventCode.OLYMPICS_COIN,
+            EventCode.OLYMPICS_MARBLE,
+        }
+
+    def get_has_time_limit(self, configuration):
+        return configuration.code in {EventCode.CHARITY_BAG, EventCode.LIMITED_AUCTION}
+
+    def validate_duration_seconds(self, value):
+        if value is not None and value <= 0:
+            raise serializers.ValidationError("زمان باید مثبت باشد.")
+        return value
+
+
+class MatchmakingTicketSerializer(serializers.ModelSerializer):
+    team = TeamIdentitySerializer(read_only=True)
+    matched_team = TeamIdentitySerializer(read_only=True, allow_null=True)
+    match_path = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MatchmakingTicket
+        fields = (
+            "id",
+            "event_code",
+            "team",
+            "status",
+            "matched_team",
+            "match_id",
+            "match_path",
+            "created_at",
+            "matched_at",
+            "dismissed_at",
+        )
+        read_only_fields = fields
+
+    def get_match_path(self, ticket):
+        if ticket.match_id is None:
+            return None
+        if ticket.event_code == EventCode.TERRITORY_CONTROL:
+            return f"/events/territory-control?game={ticket.match_id}"
+        if ticket.event_code == EventCode.CENTIPEDE:
+            return f"/events/centipede-game?game={ticket.match_id}"
+        route = (
+            "coin-near-wall" if ticket.event_code == EventCode.OLYMPICS_COIN else "marble-target"
+        )
+        return f"/events/{route}?match={ticket.match_id}"

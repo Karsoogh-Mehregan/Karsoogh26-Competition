@@ -104,3 +104,11 @@ class WheelError(Exception):
 
 class PigError(Exception):
     pass
+
+
+class EventUnavailable(Exception):
+    pass
+
+
+class MatchmakingError(Exception):
+    pass

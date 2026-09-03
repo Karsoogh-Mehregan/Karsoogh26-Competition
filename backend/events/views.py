@@ -5,7 +5,7 @@ from django.db.models import Prefetch, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -20,6 +20,8 @@ from .exceptions import (
     CentipedeError,
     CentipedeNotParticipant,
     CharityBagError,
+    EventUnavailable,
+    MatchmakingError,
     NotParticipant,
     OlympicsError,
     PigError,
@@ -34,6 +36,10 @@ from .models import (
     CentipedeGame,
     CharityBagEvent,
     CharityBagParticipation,
+    EventCode,
+    EventConfiguration,
+    MatchmakingStatus,
+    MatchmakingTicket,
     OlympicsMatch,
     OlympicsResult,
     PigEvent,
@@ -59,6 +65,8 @@ from .serializers import (
     CreateTerritoryGameSerializer,
     CreateWheelEventSerializer,
     EnterCharityBagSerializer,
+    EventConfigurationSerializer,
+    MatchmakingTicketSerializer,
     OlympicsMatchSerializer,
     PigActionSerializer,
     PigEventSerializer,
@@ -68,11 +76,13 @@ from .serializers import (
     PlayTerritoryTurnSerializer,
     RecordOlympicsResultSerializer,
     SpinWheelSerializer,
+    SubmitOlympicsPlayerRunSerializer,
     TerritoryGameStateSerializer,
     WheelEventSerializer,
     WheelSpinSerializer,
 )
 from .services import (
+    cancel_matchmaking,
     create_auction_event,
     create_centipede_game,
     create_charity_bag,
@@ -81,22 +91,70 @@ from .services import (
     create_territory_game,
     create_wheel_event,
     deliver_wheel_prize,
+    dismiss_matchmaking,
+    ensure_event_configurations,
     enter_charity_bag,
     finish_pig_event,
+    join_matchmaking,
     place_auction_bid,
     play_centipede_action,
     play_pig_action,
     play_territory_turn,
     record_olympics_result,
+    require_event_enabled,
     settle_auction_event,
     spin_wheel,
     start_olympics_match,
     start_pig_game,
     start_wheel_event,
     stop_wheel_event,
+    submit_olympics_player_run,
     sync_charity_bag,
     sync_due_charity_bags,
 )
+
+
+def _event_code_for_request(request, kwargs):
+    path = request.path
+    if "territory-control" in path:
+        return EventCode.TERRITORY_CONTROL
+    if "charity-bag" in path:
+        return EventCode.CHARITY_BAG
+    if "centipede" in path:
+        return EventCode.CENTIPEDE
+    if "limited-auction" in path:
+        return EventCode.LIMITED_AUCTION
+    if "prize-wheel" in path:
+        return EventCode.PRIZE_WHEEL
+    if "/pig/" in path:
+        return EventCode.PIG
+    if "/olympics/" in path:
+        mini_game = request.data.get("mini_game")
+        if mini_game == "coin_near_wall":
+            return EventCode.OLYMPICS_COIN
+        if mini_game == "marble_target":
+            return EventCode.OLYMPICS_MARBLE
+        match = OlympicsMatch.objects.filter(pk=kwargs.get("pk")).only("mini_game").first()
+        if match:
+            return (
+                EventCode.OLYMPICS_COIN
+                if match.mini_game == "coin_near_wall"
+                else EventCode.OLYMPICS_MARBLE
+            )
+    return None
+
+
+class EventAvailabilityMixin:
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            code = _event_code_for_request(request, kwargs)
+            if code:
+                try:
+                    require_event_enabled(code)
+                except EventUnavailable as exc:
+                    raise PermissionDenied(str(exc)) from exc
+
 
 _GAME_PK = OpenApiParameter("pk", int, OpenApiParameter.PATH, description="Territory game id")
 
@@ -121,7 +179,7 @@ def _map_event_error(exc: TerritoryEventError):
     raise Conflict(str(exc)) from exc
 
 
-class TerritoryGameListCreateView(APIView):
+class TerritoryGameListCreateView(EventAvailabilityMixin, APIView):
     def get_permissions(self):
         if self.request.method == "POST":
             return [IsMentor()]
@@ -177,7 +235,7 @@ class TerritoryGameListCreateView(APIView):
     parameters=[_GAME_PK],
     responses=TerritoryGameStateSerializer,
 )
-class TerritoryGameDetailView(APIView):
+class TerritoryGameDetailView(EventAvailabilityMixin, APIView):
     permission_classes = [IsAuthenticated, IsTerritoryParticipant]
 
     def get(self, request, pk: int):
@@ -197,7 +255,7 @@ class TerritoryGameDetailView(APIView):
     request=PlayTerritoryTurnSerializer,
     responses=TerritoryGameStateSerializer,
 )
-class TerritoryTurnView(APIView):
+class TerritoryTurnView(EventAvailabilityMixin, APIView):
     permission_classes = [IsAuthenticated, IsTerritoryParticipant]
 
     def post(self, request, pk: int):
@@ -237,7 +295,7 @@ def _charity_response(event, request, *, response_status=status.HTTP_200_OK):
     return Response(serializer.data, status=response_status)
 
 
-class CharityBagListCreateView(APIView):
+class CharityBagListCreateView(EventAvailabilityMixin, APIView):
     def get_permissions(self):
         if self.request.method == "POST":
             return [IsMentor()]
@@ -256,8 +314,9 @@ class CharityBagListCreateView(APIView):
         payload = CreateCharityBagSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         starts_at = payload.validated_data.get("starts_at", timezone.now())
+        configured_duration = require_event_enabled(EventCode.CHARITY_BAG).duration_seconds
         duration = payload.validated_data.get(
-            "duration_seconds", settings.CHARITY_BAG_DURATION_SECONDS
+            "duration_seconds", configured_duration or settings.CHARITY_BAG_DURATION_SECONDS
         )
         ends_at = payload.validated_data.get("ends_at", starts_at + timedelta(seconds=duration))
         try:
@@ -271,7 +330,7 @@ class CharityBagListCreateView(APIView):
         )
 
 
-class CharityBagDetailView(APIView):
+class CharityBagDetailView(EventAvailabilityMixin, APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk: int):
@@ -280,7 +339,7 @@ class CharityBagDetailView(APIView):
         return _charity_response(event, request)
 
 
-class CharityBagParticipationView(APIView):
+class CharityBagParticipationView(EventAvailabilityMixin, APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, pk: int):
@@ -302,7 +361,7 @@ class CharityBagParticipationView(APIView):
         return _charity_response(event, request)
 
 
-class CharityBagResolveView(APIView):
+class CharityBagResolveView(EventAvailabilityMixin, APIView):
     permission_classes = [IsMentor]
 
     def post(self, request, pk: int):
@@ -330,7 +389,7 @@ def _map_centipede_error(exc: CentipedeError):
     raise Conflict(str(exc)) from exc
 
 
-class CentipedeGameListCreateView(APIView):
+class CentipedeGameListCreateView(EventAvailabilityMixin, APIView):
     def get_permissions(self):
         if self.request.method == "POST":
             return [IsMentor()]
@@ -359,7 +418,7 @@ class CentipedeGameListCreateView(APIView):
         return _centipede_response(game, response_status=status.HTTP_201_CREATED)
 
 
-class CentipedeGameDetailView(APIView):
+class CentipedeGameDetailView(EventAvailabilityMixin, APIView):
     permission_classes = [IsAuthenticated, IsCentipedeParticipant]
 
     def get(self, request, pk: int):
@@ -368,7 +427,7 @@ class CentipedeGameDetailView(APIView):
         return Response(CentipedeGameSerializer(game).data)
 
 
-class CentipedeActionView(APIView):
+class CentipedeActionView(EventAvailabilityMixin, APIView):
     permission_classes = [IsAuthenticated, IsCentipedeParticipant]
 
     def post(self, request, pk: int):
@@ -383,6 +442,7 @@ class CentipedeActionView(APIView):
                 game.pk,
                 request.user.team,
                 payload.validated_data["action"],
+                round_number=payload.validated_data["round_number"],
             )
         except CentipedeError as exc:
             _map_centipede_error(exc)
@@ -393,7 +453,8 @@ def olympics_matches():
     return OlympicsMatch.objects.select_related(
         "player_one", "player_two", "winner"
     ).prefetch_related(
-        Prefetch("results", queryset=OlympicsResult.objects.select_related("recorded_by"))
+        Prefetch("results", queryset=OlympicsResult.objects.select_related("recorded_by")),
+        "player_runs__team",
     )
 
 
@@ -402,7 +463,7 @@ def _olympics_response(match, *, response_status=status.HTTP_200_OK):
     return Response(OlympicsMatchSerializer(match).data, status=response_status)
 
 
-class OlympicsMatchListCreateView(APIView):
+class OlympicsMatchListCreateView(EventAvailabilityMixin, APIView):
     def get_permissions(self):
         if self.request.method == "POST":
             return [IsMentor()]
@@ -436,7 +497,7 @@ class OlympicsMatchListCreateView(APIView):
         return _olympics_response(match, response_status=status.HTTP_201_CREATED)
 
 
-class OlympicsMatchDetailView(APIView):
+class OlympicsMatchDetailView(EventAvailabilityMixin, APIView):
     permission_classes = [IsAuthenticated, IsOlympicsParticipant]
 
     def get(self, request, pk: int):
@@ -445,7 +506,7 @@ class OlympicsMatchDetailView(APIView):
         return Response(OlympicsMatchSerializer(match).data)
 
 
-class OlympicsMatchStartView(APIView):
+class OlympicsMatchStartView(EventAvailabilityMixin, APIView):
     permission_classes = [IsMentor]
 
     def post(self, request, pk: int):
@@ -457,7 +518,7 @@ class OlympicsMatchStartView(APIView):
         return _olympics_response(match)
 
 
-class OlympicsResultView(APIView):
+class OlympicsResultView(EventAvailabilityMixin, APIView):
     permission_classes = [IsMentor]
 
     def post(self, request, pk: int):
@@ -477,6 +538,28 @@ class OlympicsResultView(APIView):
                 player_two_best_distance=payload.validated_data.get("player_two_best_distance"),
                 player_one_attempts=payload.validated_data["player_one_attempts"],
                 player_two_attempts=payload.validated_data["player_two_attempts"],
+            )
+        except OlympicsError as exc:
+            raise Conflict(str(exc)) from exc
+        return _olympics_response(match)
+
+
+class OlympicsPlayerRunView(EventAvailabilityMixin, APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk: int):
+        match = get_object_or_404(OlympicsMatch, pk=pk)
+        if request.user.team_id not in (match.player_one_id, match.player_two_id):
+            raise PermissionDenied("فقط بازیکنان این مسابقه می‌توانند پرتاب کنند.")
+        payload = SubmitOlympicsPlayerRunSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            match = submit_olympics_player_run(
+                pk,
+                request.user.team,
+                round_number=payload.validated_data["round_number"],
+                attempts=payload.validated_data["attempts"],
+                best_distance=payload.validated_data.get("best_distance"),
             )
         except OlympicsError as exc:
             raise Conflict(str(exc)) from exc
@@ -512,7 +595,7 @@ def _sync_expired_auctions():
         settle_auction_event(event_id)
 
 
-class AuctionEventListCreateView(APIView):
+class AuctionEventListCreateView(EventAvailabilityMixin, APIView):
     def get_permissions(self):
         return [IsMentor()] if self.request.method == "POST" else [IsAuthenticated()]
 
@@ -526,15 +609,18 @@ class AuctionEventListCreateView(APIView):
         payload = CreateAuctionEventSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         try:
+            configuration = require_event_enabled(EventCode.LIMITED_AUCTION)
             event = create_auction_event(
-                duration_seconds=payload.validated_data["duration_seconds"]
+                duration_seconds=payload.validated_data.get("duration_seconds")
+                or configuration.duration_seconds
+                or 600
             )
         except AuctionError as exc:
             raise Conflict(str(exc)) from exc
         return _auction_response(event, request, response_status=status.HTTP_201_CREATED)
 
 
-class AuctionEventDetailView(APIView):
+class AuctionEventDetailView(EventAvailabilityMixin, APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk: int):
@@ -544,7 +630,7 @@ class AuctionEventDetailView(APIView):
         return _auction_response(event, request)
 
 
-class AuctionBidView(APIView):
+class AuctionBidView(EventAvailabilityMixin, APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, pk: int):
@@ -565,7 +651,7 @@ class AuctionBidView(APIView):
         return _auction_response(pair.event, request)
 
 
-class AuctionResolveView(APIView):
+class AuctionResolveView(EventAvailabilityMixin, APIView):
     permission_classes = [IsMentor]
 
     def post(self, request, pk: int):
@@ -592,7 +678,7 @@ def _wheel_response(event, request, *, response_status=status.HTTP_200_OK):
     )
 
 
-class WheelEventListCreateView(APIView):
+class WheelEventListCreateView(EventAvailabilityMixin, APIView):
     def get_permissions(self):
         return [IsMentor()] if self.request.method == "POST" else [IsAuthenticated()]
 
@@ -611,14 +697,14 @@ class WheelEventListCreateView(APIView):
         return _wheel_response(event, request, response_status=status.HTTP_201_CREATED)
 
 
-class WheelEventDetailView(APIView):
+class WheelEventDetailView(EventAvailabilityMixin, APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk: int):
         return _wheel_response(get_object_or_404(WheelEvent, pk=pk), request)
 
 
-class WheelStartView(APIView):
+class WheelStartView(EventAvailabilityMixin, APIView):
     permission_classes = [IsMentor]
 
     def post(self, request, pk: int):
@@ -629,7 +715,7 @@ class WheelStartView(APIView):
         return _wheel_response(event, request)
 
 
-class WheelStopView(APIView):
+class WheelStopView(EventAvailabilityMixin, APIView):
     permission_classes = [IsMentor]
 
     def post(self, request, pk: int):
@@ -640,7 +726,7 @@ class WheelStopView(APIView):
         return _wheel_response(event, request)
 
 
-class WheelSpinView(APIView):
+class WheelSpinView(EventAvailabilityMixin, APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, pk: int):
@@ -655,7 +741,7 @@ class WheelSpinView(APIView):
         return Response(WheelSpinSerializer(spin).data, status=status.HTTP_201_CREATED)
 
 
-class WheelDeliveryView(APIView):
+class WheelDeliveryView(EventAvailabilityMixin, APIView):
     permission_classes = [IsMentor]
 
     def post(self, request, pk: int):
@@ -685,7 +771,7 @@ def _pig_response(event, request, *, response_status=status.HTTP_200_OK):
     )
 
 
-class PigEventListCreateView(APIView):
+class PigEventListCreateView(EventAvailabilityMixin, APIView):
     def get_permissions(self):
         return [IsMentor()] if self.request.method == "POST" else [IsAuthenticated()]
 
@@ -704,7 +790,7 @@ class PigEventListCreateView(APIView):
         return _pig_response(event, request, response_status=status.HTTP_201_CREATED)
 
 
-class PigEventFinishView(APIView):
+class PigEventFinishView(EventAvailabilityMixin, APIView):
     permission_classes = [IsMentor]
 
     def post(self, request, pk: int):
@@ -715,7 +801,7 @@ class PigEventFinishView(APIView):
         return _pig_response(event, request)
 
 
-class PigGameStartView(APIView):
+class PigGameStartView(EventAvailabilityMixin, APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, pk: int):
@@ -728,7 +814,7 @@ class PigGameStartView(APIView):
         return Response(PigGameSerializer(game).data, status=status.HTTP_201_CREATED)
 
 
-class PigActionView(APIView):
+class PigActionView(EventAvailabilityMixin, APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, pk: int):
@@ -747,3 +833,85 @@ class PigActionView(APIView):
             raise Conflict(str(exc)) from exc
         game = PigGame.objects.select_related("team").prefetch_related("rolls").get(pk=game.pk)
         return Response(PigGameSerializer(game).data)
+
+
+class EventConfigurationListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        configurations = ensure_event_configurations()
+        return Response(EventConfigurationSerializer(configurations, many=True).data)
+
+
+class EventConfigurationUpdateView(APIView):
+    permission_classes = [IsMentor]
+
+    def patch(self, request, code: str):
+        if code not in EventCode.values:
+            return Response({"detail": "رویداد ناشناخته است."}, status=status.HTTP_404_NOT_FOUND)
+        configuration, _ = EventConfiguration.objects.get_or_create(code=code)
+        serializer = EventConfigurationSerializer(configuration, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
+class MatchmakingListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if request.user.team_id is None:
+            return Response([])
+        tickets = MatchmakingTicket.objects.filter(
+            team=request.user.team, dismissed_at__isnull=True
+        ).select_related("team", "matched_team")[:30]
+        return Response(MatchmakingTicketSerializer(tickets, many=True).data)
+
+
+class MatchmakingJoinView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, code: str):
+        if request.user.team_id is None:
+            raise PermissionDenied("فقط حساب تیم می‌تواند وارد صف شود.")
+        try:
+            ticket = join_matchmaking(code, request.user.team)
+        except EventUnavailable as exc:
+            raise PermissionDenied(str(exc)) from exc
+        except MatchmakingError as exc:
+            raise Conflict(str(exc)) from exc
+        ticket = MatchmakingTicket.objects.select_related("team", "matched_team").get(pk=ticket.pk)
+        response_status = (
+            status.HTTP_201_CREATED
+            if ticket.status == MatchmakingStatus.WAITING
+            else status.HTTP_200_OK
+        )
+        return Response(MatchmakingTicketSerializer(ticket).data, status=response_status)
+
+
+class MatchmakingCancelView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, code: str):
+        if request.user.team_id is None:
+            raise PermissionDenied("فقط حساب تیم می‌تواند صف را لغو کند.")
+        try:
+            ticket = cancel_matchmaking(code, request.user.team)
+        except MatchmakingError as exc:
+            raise Conflict(str(exc)) from exc
+        return Response(MatchmakingTicketSerializer(ticket).data)
+
+
+class MatchmakingDismissView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk: int):
+        if request.user.team_id is None:
+            raise PermissionDenied("فقط حساب تیم می‌تواند از مسابقه خارج شود.")
+        try:
+            ticket = dismiss_matchmaking(pk, request.user.team)
+        except MatchmakingTicket.DoesNotExist as exc:
+            raise NotFound("مسابقه‌ای برای این تیم پیدا نشد.") from exc
+        except MatchmakingError as exc:
+            raise Conflict(str(exc)) from exc
+        return Response(MatchmakingTicketSerializer(ticket).data)
