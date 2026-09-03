@@ -89,8 +89,9 @@ started) plus duel/questions, not auth or the team picker.
 `STATIC_URL` must start with `/` (`"/static/"`) or Django's StaticFilesHandler will
 not serve admin CSS.
 
-**Three roles, not two.** Besides mentors (`act_as_mentor`) and game gods
-(`control_game`), a **Designer** holds `game.design_map` (`IsDesigner`, `Designers` group,
+**Four roles, not two.** Besides mentors (`act_as_mentor`), game gods
+(`control_game`) and announcers (`send_announcement`, see **Notifications** below), a
+**Designer** holds `game.design_map` (`IsDesigner`, `Designers` group,
 `is_designer` on `/api/auth/me/`) and may change only how the board *looks*: neighbourhood
 names/themes/colours and road style via `PATCH /api/map/design/`, and a per-node building-type
 pin or tier move via `PATCH /api/map/nodes/<code>/`. A tier move is refused (409) while any team
@@ -103,6 +104,59 @@ answers. Building-type keys are duplicated on purpose in `backend/game/design.py
 connectivity groups in `generateGraph.mjs`. The 3D house panel, its rebuild-vs-repaint
 invariant, and the Designer UI are documented in `docs/house-view.md` — read it before touching
 `frontend/src/lib/house/`.
+
+**Notifications are two models, fanned out at send time.** The `notifications` app splits
+"what was written" (`Message` — body plus the audience it was aimed at) from "who has read
+it" (`Notification` — one row per recipient). `services.send_message` resolves the audience
+*once*, at send, and writes a row each: read state needs a row anyway, the bell's unread
+count is then one indexed query, and a mentor added to a group an hour later must not
+retroactively appear to have been addressed. A draft has no `Notification` rows at all.
+The author is excluded from their own fan-out — an announcement belongs in Sent, not in its
+writer's bell. **Nothing in `game/` writes to the inbox.** An earlier cut had the board narrate
+itself (grade posted, attempt expired, clock started); it was removed deliberately in
+`notifications/migrations/0006` — a notification per board event is noise, and noise is how a
+player learns to ignore the bell. What the board did is on the board. If an organiser wants the
+hall told the game has started, they send it.
+
+**The audience is a union of three selections, not one choice.** `Message.scopes` is a list
+of `AudienceScope` values (`all` / `teams` / `mentors` / `designers`), and `Message.teams`
+and `Message.users` are M2Ms naming particular ones — so "these four teams plus every
+mentor" is one message. `services.resolve_audience` takes plain values so the composer's
+`POST /api/messages/audience-preview/` can count a selection that has not been saved yet;
+`recipients_for` is the thin wrapper over a saved row. Two traps live in there: it starts
+from `Q(pk__in=[])` because a bare `Q()` matches *everyone*, and `all` short-circuits the
+rest. Migrations 0004/0005 replaced the old single-target `audience`/`audience_team`/
+`audience_user` columns and backfilled them, so `scopes=['teams']` is what an old "all
+teams" row now looks like. An empty audience is legal on a draft and refused on send.
+`services.users_with_perm` resolves the mentor/designer scopes by *explicit* grant and
+deliberately not through `has_perm`, which is True for every superuser; same reasoning as
+`accounts.permissions.has_game_god_rights`. A permission that does not exist yet
+(`game.design_map` predates the designer work landing) resolves to an empty audience rather
+than raising. Sending is gated on `notifications.send_announcement`
+(`CanSendAnnouncement`), backed by its own **Notifier** group — running the clock and
+speaking to the hall are different jobs, so `migrations/0003` moved the grant off GameGods
+onto Notifier and deliberately did *not* carry the members across — the group starts empty,
+and someone who does both jobs goes in both groups.
+`/api/auth/me/` reports it as `is_announcer`, and the SPA hides the composer on that flag
+rather than on `is_game_god`. A message has a page of its own on both sides — `/inbox/:id`
+reads one (`GET /api/notifications/<pk>/`, which deliberately does *not* mark it read, so
+the page posts to `notifications/read/` instead of a GET mutating state) and `/messages/:id`
+shows read receipts (`GET /api/messages/<pk>/recipients/`, unread first via an explicit
+`nulls_first` — Postgres and SQLite disagree on where NULLs land by default). Inline
+expansion was removed: it broke on long bodies, and any card, title or body that can hold
+pasted text sets `overflow-wrap: anywhere`, because a line clamp alone still lets one
+unbroken token push the layout sideways. The automatic half lives in
+`notifications/alerts.py`, one function per moment, every one best-effort: an alert that
+raises is logged and swallowed, because a notification must never roll back the move that
+caused it. `game/` calls those with a **local import inside the function** — `notifications`
+reaches back into `game.services.events` for the publisher, so a module-level import would
+close the loop.
+
+**SSE frames can be addressed.** `publish(..., recipients=[user_id, ...])` puts the ids in
+their own stream field (`u`), never in the payload, and `game.sse._visible_to` drops the
+frame for anyone not named — so a notification hint does not tell the whole hall who got
+mail. An empty `recipients` still means everyone, so nothing else changed. As ever the frame
+is only a hint: the client refetches `GET /api/notifications/`.
 
 **The root `README.md` is a roadmap, not a description.** SSE and panzoom are installed
 but unwired. Pinia and TanStack Query are wired (see **Frontend data layer**).

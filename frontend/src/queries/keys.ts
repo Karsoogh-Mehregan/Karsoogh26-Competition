@@ -10,4 +10,12 @@ export const queryKeys = {
   gameSettings: () => ['game-settings'] as const,
   entrySheet: () => ['entry-sheet'] as const,
   mapDesign: () => ['map-design'] as const,
+  inbox: () => ['inbox'] as const,
+  notification: (id: number) => ['notification', id] as const,
+  // Prefix key: invalidating it matches the draft and sent lists at once.
+  messagesRoot: () => ['messages'] as const,
+  messages: (status: 'draft' | 'sent') => ['messages', status] as const,
+  audienceOptions: () => ['audience-options'] as const,
+  audiencePreview: (key: string) => ['audience-preview', key] as const,
+  messageRecipients: (id: number) => ['message-recipients', id] as const,
 }

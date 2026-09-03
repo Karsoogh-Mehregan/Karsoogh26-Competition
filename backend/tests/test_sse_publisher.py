@@ -75,9 +75,18 @@ def team(nodes):
 @pytest.fixture
 def recorded(monkeypatch):
     """Capture publish() calls without a Redis. publish_on_commit resolves the
-    name from the module at call time, so patching the attribute is enough."""
+    name from the module at call time, so patching the attribute is enough.
+
+    `recipients` is swallowed rather than recorded: it is routing, and the
+    frames these tests care about go to the whole hall. `tests/test_notifications.py`
+    is where addressing is asserted.
+    """
     calls = []
-    monkeypatch.setattr(events, "publish", lambda kind, payload=None: calls.append((kind, payload)))
+    monkeypatch.setattr(
+        events,
+        "publish",
+        lambda kind, payload=None, *, recipients=None: calls.append((kind, payload)),
+    )
     return calls
 
 

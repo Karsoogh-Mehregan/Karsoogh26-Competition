@@ -73,6 +73,7 @@ INSTALLED_APPS = [
     "teams",
     "accounts",
     "game",
+    "notifications",
 ]
 
 AUTH_USER_MODEL = "accounts.User"

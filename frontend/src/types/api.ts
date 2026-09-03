@@ -23,6 +23,7 @@ export interface Me {
   is_staff: boolean
   is_mentor: boolean
   is_game_god: boolean
+  is_announcer: boolean
   is_designer: boolean
   team: { code: string; name: string } | null
 }
@@ -172,6 +173,119 @@ export interface EntrySheet {
 
 export interface EntryAnswerResult extends EntrySheet {
   is_correct: boolean
+}
+
+// ---- notifications --------------------------------------------------------
+
+export type MessageStatus = 'draft' | 'sent'
+/** A whole category of recipients. Composes with explicit team/person picks. */
+export type AudienceScope = 'all' | 'teams' | 'mentors' | 'designers'
+
+export interface InboxItem {
+  id: number
+  title: string
+  body: string
+  excerpt: string
+  sender: string
+  sent_at: string | null
+  created_at: string
+  is_read: boolean
+  read_at: string | null
+}
+
+export interface Inbox {
+  unread: number
+  total: number
+  results: InboxItem[]
+}
+
+export interface ReadResult {
+  marked: number
+  unread: number
+}
+
+export interface AudienceChoice {
+  value: AudienceScope
+  label: string
+}
+
+export interface AudienceUser {
+  id: number
+  username: string
+  label: string
+  team_code: string | null
+}
+
+export interface AudienceOptions {
+  choices: AudienceChoice[]
+  teams: { code: string; name: string }[]
+  users: AudienceUser[]
+}
+
+export interface Message {
+  id: number
+  status: MessageStatus
+  title: string
+  body: string
+  excerpt: string
+  scopes: AudienceScope[]
+  /** Team codes. */
+  teams: string[]
+  /** User ids. */
+  users: number[]
+  audience_label: string
+  sender: string
+  created_at: string
+  updated_at: string
+  sent_at: string | null
+  recipient_count: number
+  read_count: number
+}
+
+/** What the composer submits. `send: true` writes and delivers in one call. */
+export interface MessageDraft {
+  title: string
+  body: string
+  scopes: AudienceScope[]
+  teams: string[]
+  users: number[]
+  send?: boolean
+}
+
+/** Just the audience, for the composer's live "this would reach N people". */
+export interface AudienceSelection {
+  scopes: AudienceScope[]
+  teams: string[]
+  users: number[]
+}
+
+export interface AudiencePreview {
+  count: number
+  label: string
+}
+
+/** One delivery, from the sender's side. */
+export interface Recipient {
+  id: number
+  user_id: number
+  username: string
+  label: string
+  team_code: string | null
+  team_name: string | null
+  is_read: boolean
+  read_at: string | null
+}
+
+export interface MessageRecipients {
+  delivered: number
+  read: number
+  unread: number
+  recipients: Recipient[]
+}
+
+export interface SendResult {
+  message: Message
+  delivered: number
 }
 
 // ---- map design -----------------------------------------------------------
