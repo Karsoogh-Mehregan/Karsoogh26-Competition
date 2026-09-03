@@ -1,5 +1,5 @@
 from django.db import models
-from django.db.models import CheckConstraint, Q
+from django.db.models import CheckConstraint, Q, UniqueConstraint
 
 
 class MinesweeperDifficulty(models.TextChoices):
@@ -146,6 +146,11 @@ class MinesweeperAttempt(models.Model):
                     )
                 ),
                 name="minesweeperattempt_finished_at_matches_status",
+            ),
+            UniqueConstraint(
+                fields=["game"],
+                condition=Q(status=MinesweeperStatus.IN_PROGRESS),
+                name="one_active_attempt_per_game",
             ),
         ]
         indexes = [

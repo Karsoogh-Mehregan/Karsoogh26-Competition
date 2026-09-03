@@ -24,6 +24,11 @@ def team():
 
 
 @pytest.fixture
+def other_team():
+    return Team.objects.create(code="beta", name="Beta")
+
+
+@pytest.fixture
 def node():
     return Node.objects.create(
         code="ms1",
@@ -119,8 +124,31 @@ class TestMinesweeperAttemptDefaults:
         assert first.pk != second.pk
         assert MinesweeperAttempt.objects.filter(game=game, team=team).count() == 2
 
+    def test_multiple_finished_attempts_are_allowed(self, team, other_team, node):
+        game = start_game(node)
+        first = start_attempt(
+            game,
+            team,
+            status=MinesweeperStatus.WON,
+            finished_at=timezone.now(),
+        )
+        second = start_attempt(
+            game,
+            other_team,
+            status=MinesweeperStatus.LOST,
+            finished_at=timezone.now(),
+        )
+        assert first.pk != second.pk
+        assert MinesweeperAttempt.objects.filter(game=game).count() == 2
+
 
 class TestMinesweeperAttemptConstraints:
+    def test_only_one_in_progress_attempt_per_game(self, team, other_team, node):
+        game = start_game(node)
+        start_attempt(game, team)
+        with pytest.raises(IntegrityError), transaction.atomic():
+            start_attempt(game, other_team)
+
     def test_in_progress_cannot_have_finished_at(self, team, node):
         game = start_game(node)
         with pytest.raises(IntegrityError), transaction.atomic():

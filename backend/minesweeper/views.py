@@ -13,6 +13,7 @@ from minesweeper.exceptions import (
     CellAlreadyRevealed,
     CellFlagged,
     GameFinished,
+    GameInProgress,
     InvalidCell,
     InvalidDifficulty,
     MinesweeperServiceError,
@@ -56,6 +57,8 @@ def _map_service_error(exc: Exception):
         raise NotFound("بازی پیدا نشد.") from exc
     if isinstance(exc, GameFinished):
         raise Conflict("این بازی تمام شده است.") from exc
+    if isinstance(exc, GameInProgress):
+        raise Conflict("این بازی در حال حاضر توسط تیم دیگری در حال اجرا است.") from exc
     if isinstance(exc, InvalidCell):
         raise Unprocessable("این خانه روی صفحه نیست.") from exc
     if isinstance(exc, CellAlreadyRevealed):
@@ -145,7 +148,7 @@ class JoinGameView(APIView):
         summary="Join a Minesweeper game",
         description=(
             "Opens or resumes the caller's in-progress attempt on this game. "
-            "A second team joining the same game gets its own attempt."
+            "If another team already has an in-progress attempt, the response is 409."
         ),
         parameters=[_GAME_PK],
         request=None,

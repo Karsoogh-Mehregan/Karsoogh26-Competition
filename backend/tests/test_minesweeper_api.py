@@ -311,19 +311,16 @@ class TestJoinGame:
         assert first.json()["attempt_id"] == second.json()["attempt_id"]
         assert MinesweeperAttempt.objects.filter(game=game, team=alpha).count() == 1
 
-    def test_second_team_gets_its_own_attempt(
-        self, alpha_client, beta_client, alpha, beta, node, running_contest
+    def test_second_team_join_is_conflict_while_active(
+        self, alpha_client, beta_client, node, running_contest
     ):
         game = _game(node)
         first = alpha_client.post(_join(game.pk), {}, format="json")
         second = beta_client.post(_join(game.pk), {}, format="json")
         assert first.status_code == 200
-        assert second.status_code == 200
-        assert first.json()["id"] == second.json()["id"] == game.pk
-        assert first.json()["attempt_id"] != second.json()["attempt_id"]
-        assert MinesweeperAttempt.objects.filter(game=game).count() == 2
-        assert MinesweeperAttempt.objects.get(pk=first.json()["attempt_id"]).team_id == alpha.pk
-        assert MinesweeperAttempt.objects.get(pk=second.json()["attempt_id"]).team_id == beta.pk
+        assert second.status_code == 409
+        assert second.json()["detail"] == "این بازی در حال حاضر توسط تیم دیگری در حال اجرا است."
+        assert MinesweeperAttempt.objects.filter(game=game).count() == 1
 
     def test_missing_game_is_404(self, alpha_client, running_contest):
         response = alpha_client.post(_join(999_999), {}, format="json")
@@ -444,26 +441,22 @@ class TestTeamIsolation:
         assert attempt.board["cells"][0][3]["revealed"] is False
         assert attempt.board["cells"][0][0]["flagged"] is False
 
-    def test_reveal_only_changes_the_current_team_attempt(
+    def test_reveal_does_not_create_an_attempt_for_another_team(
         self, alpha, beta, node, alpha_client, beta_client, running_contest
     ):
         game = _game(node)
         _install_layout(game, SPLIT_MINES)
-        alpha_client.post(_join(game.pk), {}, format="json")
-        beta_client.post(_join(game.pk), {}, format="json")
+        joined = alpha_client.post(_join(game.pk), {}, format="json")
+        assert joined.status_code == 200
         response = alpha_client.post(_reveal(game.pk), {"row": 0, "col": 3}, format="json")
         assert response.status_code == 200
         assert response.json()["board"]["cells"][0][3]["revealed"] is True
 
-        beta_view = beta_client.get(_detail(game.pk))
-        assert beta_view.status_code == 200
-        assert beta_view.json()["board"]["cells"][0][3]["revealed"] is False
-        assert beta_view.json()["attempt_id"] != response.json()["attempt_id"]
-
+        assert beta_client.post(_join(game.pk), {}, format="json").status_code == 409
+        assert beta_client.get(_detail(game.pk)).status_code == 404
+        assert MinesweeperAttempt.objects.filter(game=game, team=beta).count() == 0
         alpha_attempt = MinesweeperAttempt.objects.get(game=game, team=alpha)
-        beta_attempt = MinesweeperAttempt.objects.get(game=game, team=beta)
         assert alpha_attempt.board["cells"][0][3]["revealed"] is True
-        assert beta_attempt.board["cells"][0][3]["revealed"] is False
 
     def test_finished_attempt_does_not_block_another_team(
         self, alpha, beta_client, node, running_contest

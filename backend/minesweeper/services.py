@@ -15,6 +15,7 @@ from minesweeper.exceptions import (
     CellAlreadyRevealed,
     CellFlagged,
     GameFinished,
+    GameInProgress,
     InvalidCell,
     InvalidDifficulty,
 )
@@ -165,6 +166,24 @@ def _create_attempt_for(game: MinesweeperGame, team: Team) -> MinesweeperAttempt
     )
 
 
+def _active_attempt(game: MinesweeperGame) -> MinesweeperAttempt | None:
+    return (
+        MinesweeperAttempt.objects.filter(game=game, status=MinesweeperStatus.IN_PROGRESS)
+        .order_by("-started_at")
+        .first()
+    )
+
+
+def _resolve_attempt(game: MinesweeperGame, team: Team, *, reuse_own: bool) -> MinesweeperAttempt:
+    """One in-progress attempt per game. Caller must hold a row lock on ``game``."""
+    active = _active_attempt(game)
+    if active is None:
+        return _create_attempt_for(game, team)
+    if reuse_own and active.team_id == team.pk:
+        return active
+    raise GameInProgress("This game already has an in-progress attempt.")
+
+
 @transaction.atomic
 def create_game(node: Node, difficulty: str) -> MinesweeperGame:
     """Create one reusable game definition with a newly generated mine layout.
@@ -197,33 +216,24 @@ def create_game(node: Node, difficulty: str) -> MinesweeperGame:
 def create_attempt(game_id: int, team: Team) -> MinesweeperAttempt:
     """Start a new in-progress attempt for ``team`` on ``game_id``.
 
-    Always inserts. A missing game pk raises ``MinesweeperGame.DoesNotExist``.
+    Locks the game row. Raises ``GameInProgress`` if this game already has an
+    active attempt. A missing game pk raises ``MinesweeperGame.DoesNotExist``.
     """
     game = MinesweeperGame.objects.select_for_update().get(pk=game_id)
-    return _create_attempt_for(game, team)
+    return _resolve_attempt(game, team, reuse_own=False)
 
 
 @transaction.atomic
 def get_or_create_attempt(game_id: int, team: Team) -> MinesweeperAttempt:
-    """Return the team's active attempt, or create one.
+    """Return this team's active attempt, or start one if the game is free.
 
-    Locks the game row so two simultaneous joins cannot insert two in-progress
-    rows for the same team. A missing game pk raises
+    Locks the game row so two simultaneous joins cannot both become in-progress.
+    Same team reuses their active attempt. Another team while one is active
+    raises ``GameInProgress``. A missing game pk raises
     ``MinesweeperGame.DoesNotExist``.
     """
     game = MinesweeperGame.objects.select_for_update().get(pk=game_id)
-    existing = (
-        MinesweeperAttempt.objects.filter(
-            game=game,
-            team=team,
-            status=MinesweeperStatus.IN_PROGRESS,
-        )
-        .order_by("-started_at")
-        .first()
-    )
-    if existing is not None:
-        return existing
-    return _create_attempt_for(game, team)
+    return _resolve_attempt(game, team, reuse_own=True)
 
 
 @transaction.atomic

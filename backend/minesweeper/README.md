@@ -32,7 +32,7 @@ database
 
 `game.api_exceptions.Conflict` (409) and `Unprocessable` (422) are reused. OpenAPI uses `core.openapi.extend_schema`.
 
-A `MinesweeperGame` is a **reusable definition** placed on a Node. It has **no team**. Each play session is a `MinesweeperAttempt`. Multiple teams can play the same game; each gets an isolated progress board. The mine layout is shared.
+A `MinesweeperGame` is a **reusable definition** placed on a Node. It has **no team**. Each play session is a `MinesweeperAttempt`. Many attempts may exist historically, but **only one** may be `in_progress` at a time. After it finishes, another team may start. The mine layout is shared; progress is isolated per attempt.
 
 This app does **not** check node occupancy, capture the node, or change `Team.balance` / the leaderboard.
 
@@ -75,7 +75,9 @@ One team's execution of a game. `related_name="attempts"` on the game, `related_
 
 **Constraint:** `minesweeperattempt_finished_at_matches_status` — `in_progress` ⇔ `finished_at` is null.
 
-**Indexes:** `(team, status)` as `msweeper_att_team_status_idx`, `(game, team)` as `msweeper_att_game_team_idx`. There is **no** unique constraint; historical retries are allowed. Join reuses the current **in-progress** attempt for that team+game.
+**Indexes:** `(team, status)` as `msweeper_att_team_status_idx`, `(game, team)` as `msweeper_att_game_team_idx`.
+
+**Partial unique:** `one_active_attempt_per_game` — at most one row per game with `status=in_progress`. Finished (`won`/`lost`) rows are unrestricted. SQLite and PostgreSQL both support this (same pattern as `entryattempt_one_per_position`). Join still locks the game row so two concurrent inserts cannot race past the check.
 
 ---
 
@@ -174,16 +176,17 @@ Team A opens `/minesweeper/game/1/`:
 
 ```text
 get_or_create_attempt(1, Team A)
-    → in-progress attempt if one exists, else a new progress board
+    → this team's in-progress attempt if one exists
+    → else a new attempt, unless another team is already in_progress (GameInProgress)
 reveal / flag update that attempt
 ```
 
-Team B opens the same URL later and gets a **different** attempt on the same game. There is no "already claimed" error.
+Team B opening the same URL while A is still playing gets **409**. After A wins or loses, B can start a new attempt on the same game. Historical finished attempts stay on record; progress boards stay isolated per attempt.
 
 ```text
 create_game(node, difficulty)          → layout only; no team
-get_or_create_attempt(game_id, team)   → reuse in-progress, else insert
-create_attempt(game_id, team)          → always insert
+get_or_create_attempt(game_id, team)   → reuse own in-progress, else insert if the game is free
+create_attempt(game_id, team)          → insert if the game is free; else GameInProgress
 reveal_cell / toggle_flag(attempt_id)  → attempt only
 ```
 
@@ -213,7 +216,7 @@ Session cookies + CSRF. The URL still uses **game id**. Join/GET/reveal/flag res
 POST /api/minesweeper/games/<pk>/join/
 ```
 
-Empty JSON body. `200` + public attempt. Creates an in-progress attempt if the team has none; otherwise returns the existing one. A second team on the same game gets its own attempt.
+Empty JSON body. `200` + public attempt. Reuses this team's in-progress attempt if it exists. If another team is already playing, **409** `این بازی در حال حاضر توسط تیم دیگری در حال اجرا است.` After that attempt finishes, a later join creates a new attempt.
 
 ### Get / reveal / flag
 
@@ -230,6 +233,7 @@ Staff create returns a definition only (`id`, `node`, `difficulty`, `width`, `he
 | Contest not running (join / reveal / flag) | 403 | `The game is not running.` |
 | Anonymous / no team / mentor / non-staff create | 403 | DRF permission denied |
 | Finished attempt (`GameFinished`) | 409 | `این بازی تمام شده است.` |
+| Another team is already playing (`GameInProgress`) | 409 | `این بازی در حال حاضر توسط تیم دیگری در حال اجرا است.` |
 | Already revealed / flagged / flag-on-revealed | 409 | existing Persian messages |
 | Out of bounds (`InvalidCell`) | 422 | `این خانه روی صفحه نیست.` |
 
@@ -288,7 +292,7 @@ uv run pytest -q
 | File | What it covers |
 | ---- | -------------- |
 | `tests/test_minesweeper_models.py` | Game has no team; attempt FKs; layout/status constraints; `PROTECT` / `CASCADE`. |
-| `tests/test_minesweeper_services.py` | Create game, get_or_create attempt, independent boards, shared mines, reveal/flag/win/loss/scoring. `postgres_only` for row locks. |
+| `tests/test_minesweeper_services.py` | Create game, get_or_create attempt, one-active-at-a-time, independent boards, shared mines, reveal/flag/win/loss/scoring. `postgres_only` for row locks. |
 | `tests/test_minesweeper_api.py` | Join isolation, sanitization, contest clock, HTTP mapping. |
 
 ```bash
@@ -306,7 +310,7 @@ uv run manage.py makemigrations --check --dry-run
 
 `create_game`, `create_attempt`, `get_or_create_attempt`, `reveal_cell`, and `toggle_flag` are `@transaction.atomic`.
 
-`get_or_create_attempt` locks the **game** row so two joins for the same team cannot insert two in-progress attempts. Reveal/flag lock the **attempt** row.
+`get_or_create_attempt` and `create_attempt` lock the **game** row, then look for any `in_progress` attempt. Same team may resume; another team is rejected. Reveal/flag lock the **attempt** row. The partial unique constraint is a second line of defence if two writers skip the lock.
 
 ---
 
@@ -332,7 +336,8 @@ The SPA does **not** call `POST /api/minesweeper/games/`.
 
 - **Game vs attempt.** Layout is shared; progress and score belong to the attempt.
 - **No team on `MinesweeperGame`.** Claim-the-game is gone.
-- **Join reuses in-progress.** A finished attempt does not block another team.
+- **Join reuses this team's in-progress attempt.** Only one attempt per game may be `in_progress`. A finished attempt does not block a later team.
+- **Attempt state is isolated per team.** Shared mines; separate revealed/flagged cells.
 - **`node` is association only.** Win/loss do not modify `Node`, occupancy, or `Team.balance`.
 - **404 for foreign GET/reveal/flag.** Same body as missing.
 - **Frontend does not create games.** Entry is `/minesweeper/game/<id>/`.
