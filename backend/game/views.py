@@ -9,7 +9,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.permissions import GameIsRunning, IsGameGod, IsMentor
+from accounts.permissions import MENTOR_PERM, GameIsRunning, IsGameGod, IsMentor
 from core.openapi import OpenApiExample, OpenApiParameter, OpenApiTypes, extend_schema
 from game import services
 from game.api_exceptions import Conflict, Unprocessable
@@ -138,6 +138,7 @@ _SUBMISSION_DETAIL = {
     "submitted_by": 3,
     "body": "42",
     "file_url": None,
+    "file_name": None,
     "team_code": "alpha",
     "team_name": "Alpha",
     "node_code": "e1",
@@ -554,16 +555,21 @@ class SubmissionGradeView(APIView):
         )
 
 
+def _is_mentor(user) -> bool:
+    return bool(user and user.is_authenticated and user.has_perm(MENTOR_PERM))
+
+
 def _serve_upload(fieldfile):
     if settings.USE_S3_MEDIA:
         return HttpResponseRedirect(fieldfile.url)
-    return FileResponse(fieldfile.open("rb"), as_attachment=True, filename=fieldfile.name)
+    # Inline so the grading dialog can preview images and PDFs in-place.
+    return FileResponse(fieldfile.open("rb"), as_attachment=False, filename=fieldfile.name)
 
 
 @extend_schema(
     tags=["game"],
     summary="Download submission file",
-    description="Owning team or staff.",
+    description="Owning team or mentor.",
     parameters=[_SUBMISSION_PK],
     responses={200: OpenApiTypes.BINARY},
 )
@@ -577,7 +583,8 @@ class SubmissionMediaView(APIView):
         )
         if not submission.file:
             raise Http404("No file attached.")
-        if not request.user.is_staff and submission.occupancy.team_id != request.user.team_id:
+        owns_file = submission.occupancy.team_id == request.user.team_id
+        if not _is_mentor(request.user) and not owns_file:
             raise PermissionDenied("You cannot access this file.")
         return _serve_upload(submission.file)
 
@@ -585,7 +592,7 @@ class SubmissionMediaView(APIView):
 @extend_schema(
     tags=["game"],
     summary="Download question attachment",
-    description="Staff, or a team that was served this question.",
+    description="Mentor, staff, or a team that was served this question.",
     parameters=[_QUESTION_PK],
     responses={200: OpenApiTypes.BINARY},
 )
@@ -596,7 +603,7 @@ class QuestionMediaView(APIView):
         question = get_object_or_404(Question, pk=pk)
         if not question.attachment:
             raise Http404("No attachment.")
-        if request.user.is_staff:
+        if _is_mentor(request.user) or request.user.is_staff:
             return _serve_upload(question.attachment)
         if request.user.team_id is None:
             raise PermissionDenied("You cannot access this file.")

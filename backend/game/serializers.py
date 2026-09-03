@@ -117,6 +117,7 @@ class SubmissionDetailSerializer(serializers.ModelSerializer):
     points = serializers.IntegerField(source="occupancy.points", read_only=True)
     question = serializers.SerializerMethodField()
     file_url = serializers.SerializerMethodField()
+    file_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Submission
@@ -126,6 +127,7 @@ class SubmissionDetailSerializer(serializers.ModelSerializer):
             "submitted_by",
             "body",
             "file_url",
+            "file_name",
             "team_code",
             "team_name",
             "node_code",
@@ -160,6 +162,12 @@ class SubmissionDetailSerializer(serializers.ModelSerializer):
         if request is None:
             return None
         return request.build_absolute_uri(f"/api/media/submissions/{obj.pk}/")
+
+    @extend_schema_field(str | None)
+    def get_file_name(self, obj: Submission) -> str | None:
+        if not obj.file:
+            return None
+        return obj.file.name.rsplit("/", 1)[-1]
 
 
 class GradeSubmissionSerializer(serializers.Serializer):

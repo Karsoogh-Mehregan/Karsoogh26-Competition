@@ -11,7 +11,7 @@ export const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', name: 'map', component: MapPage },
-    { path: '/grading', name: 'grading', component: GradingPage, meta: { requiresMentor: true } },
+    { path: '/grading/:id?', name: 'grading', component: GradingPage, meta: { requiresMentor: true } },
     { path: '/solve', name: 'solve', component: SolvePage, meta: { requiresPlayer: true } },
     { path: '/leaderboard', name: 'leaderboard', component: LeaderboardPage, meta: { requiresAuth: true } },
     { path: '/design', name: 'design', component: DesignPage, meta: { requiresDesigner: true } },
