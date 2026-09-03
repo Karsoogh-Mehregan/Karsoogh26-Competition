@@ -2,9 +2,9 @@ import { computed, ref, type ComputedRef, type Ref } from 'vue'
 import { ApiError } from '@/lib/http'
 import { useMeQuery } from '@/queries/auth'
 import {
-  useJoinMinesweeperGameMutation,
-  useMinesweeperGameQuery,
+  useMinesweeperAttemptQuery,
   useRevealMinesweeperCellMutation,
+  useStartMinesweeperMutation,
   useToggleMinesweeperFlagMutation,
 } from '@/queries/minesweeper'
 import type { MinesweeperGame } from '@/types/api'
@@ -22,28 +22,28 @@ function messageOf(error: unknown): string {
   return 'خطا در ارتباط با سرور.'
 }
 
-export function useMinesweeper(gameId: Ref<number | null> | ComputedRef<number | null>) {
+export function useMinesweeper(nodeId: Ref<number | null> | ComputedRef<number | null>) {
   const meQuery = useMeQuery()
   const isPlayer = computed(() => meQuery.data.value?.team != null)
 
-  const hasJoined = ref(false)
+  const hasStarted = ref(false)
   const attemptId = ref<number | null>(null)
-  const gameQuery = useMinesweeperGameQuery(
-    gameId,
-    () => isPlayer.value && hasJoined.value,
+  const gameQuery = useMinesweeperAttemptQuery(
+    attemptId,
+    () => isPlayer.value && hasStarted.value,
   )
-  const joinMutation = useJoinMinesweeperGameMutation()
+  const startMutation = useStartMinesweeperMutation()
   const revealMutation = useRevealMinesweeperCellMutation()
   const flagMutation = useToggleMinesweeperFlagMutation()
 
   const actionError = ref('')
 
   const game = computed<MinesweeperGame | null>(() => gameQuery.data.value ?? null)
-  const joining = computed(() => joinMutation.isPending.value)
+  const starting = computed(() => startMutation.isPending.value)
   const loading = computed(
     () =>
-      joining.value ||
-      (hasJoined.value && isPlayer.value && gameQuery.isPending.value),
+      starting.value ||
+      (hasStarted.value && isPlayer.value && gameQuery.isPending.value),
   )
   const revealing = computed(() => revealMutation.isPending.value)
   const flagging = computed(() => flagMutation.isPending.value)
@@ -55,9 +55,9 @@ export function useMinesweeper(gameId: Ref<number | null> | ComputedRef<number |
     return gameQuery.error.value ? messageOf(gameQuery.error.value) : ''
   })
 
-  async function join(): Promise<MinesweeperGame | null> {
-    const id = gameId.value
-    hasJoined.value = false
+  async function start(): Promise<MinesweeperGame | null> {
+    const id = nodeId.value
+    hasStarted.value = false
     attemptId.value = null
     if (id == null) {
       actionError.value = 'بازی پیدا نشد.'
@@ -65,12 +65,12 @@ export function useMinesweeper(gameId: Ref<number | null> | ComputedRef<number |
     }
     actionError.value = ''
     try {
-      const result = await joinMutation.mutateAsync(id)
-      if (gameId.value !== id) {
+      const result = await startMutation.mutateAsync(id)
+      if (nodeId.value !== id) {
         return result
       }
       attemptId.value = result.attempt_id
-      hasJoined.value = true
+      hasStarted.value = true
       return result
     } catch (err) {
       actionError.value = messageOf(err)
@@ -79,14 +79,14 @@ export function useMinesweeper(gameId: Ref<number | null> | ComputedRef<number |
   }
 
   async function reveal(row: number, col: number): Promise<MinesweeperGame | null> {
-    const id = gameId.value
+    const id = attemptId.value
     if (id == null) {
       actionError.value = 'بازی پیدا نشد.'
       return null
     }
     actionError.value = ''
     try {
-      return await revealMutation.mutateAsync({ gameId: id, row, col })
+      return await revealMutation.mutateAsync({ attemptId: id, row, col })
     } catch (err) {
       actionError.value = messageOf(err)
       return null
@@ -94,14 +94,14 @@ export function useMinesweeper(gameId: Ref<number | null> | ComputedRef<number |
   }
 
   async function toggleFlag(row: number, col: number): Promise<MinesweeperGame | null> {
-    const id = gameId.value
+    const id = attemptId.value
     if (id == null) {
       actionError.value = 'بازی پیدا نشد.'
       return null
     }
     actionError.value = ''
     try {
-      return await flagMutation.mutateAsync({ gameId: id, row, col })
+      return await flagMutation.mutateAsync({ attemptId: id, row, col })
     } catch (err) {
       actionError.value = messageOf(err)
       return null
@@ -111,13 +111,13 @@ export function useMinesweeper(gameId: Ref<number | null> | ComputedRef<number |
   return {
     game,
     loading,
-    joining,
+    starting,
     revealing,
     flagging,
     error,
     isPlayer,
     attemptId,
-    join,
+    start,
     reveal,
     toggleFlag,
   }

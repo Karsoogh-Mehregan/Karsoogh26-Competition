@@ -29,14 +29,14 @@ const DIFFICULTY_LABEL: Record<MinesweeperDifficulty, string> = {
 }
 
 const route = useRoute()
-const gameId = computed(() => {
+const nodeId = computed(() => {
   const parsed = Number(route.params.id)
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null
 })
 const flagMode = ref(false)
 
-const { game, loading, joining, revealing, flagging, error, join, reveal, toggleFlag } =
-  useMinesweeper(gameId)
+const { game, loading, starting, revealing, flagging, error, start, reveal, toggleFlag } =
+  useMinesweeper(nodeId)
 
 const busy = computed(() => revealing.value || flagging.value)
 const inProgress = computed(() => game.value?.status === 'in_progress')
@@ -53,12 +53,12 @@ const remainingFlags = computed(() => {
 })
 
 watch(
-  gameId,
+  nodeId,
   async () => {
     flagMode.value = false
-    if (gameId.value == null) return
-    const joined = await join()
-    if (!joined && error.value) {
+    if (nodeId.value == null) return
+    const started = await start()
+    if (!started && error.value) {
       toast.error(error.value)
     }
   },
@@ -92,9 +92,9 @@ async function onFlag(row: number, col: number): Promise<void> {
         </p>
       </header>
 
-      <div v-if="gameId == null" class="text-destructive text-sm">بازی پیدا نشد.</div>
+      <div v-if="nodeId == null" class="text-destructive text-sm">بازی پیدا نشد.</div>
 
-      <div v-else-if="loading || joining" class="flex flex-col gap-3">
+      <div v-else-if="loading || starting" class="flex flex-col gap-3">
         <Skeleton class="h-16 w-full" />
         <Skeleton class="h-72 w-full" />
       </div>

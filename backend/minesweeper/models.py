@@ -1,5 +1,5 @@
 from django.db import models
-from django.db.models import CheckConstraint, Q, UniqueConstraint
+from django.db.models import CheckConstraint, Q
 
 
 class MinesweeperDifficulty(models.TextChoices):
@@ -14,14 +14,12 @@ class MinesweeperStatus(models.TextChoices):
     LOST = "lost", "باخته"
 
 
-# The only legal board size and mine count for each difficulty.
 DIFFICULTY_LAYOUTS = {
     MinesweeperDifficulty.EASY: {"width": 9, "height": 9, "mine_count": 10},
     MinesweeperDifficulty.MEDIUM: {"width": 16, "height": 16, "mine_count": 40},
     MinesweeperDifficulty.HARD: {"width": 30, "height": 16, "mine_count": 99},
 }
 
-# Base points awarded on a win, before the time bonus.
 DIFFICULTY_BASE_SCORES = {
     MinesweeperDifficulty.EASY: 100,
     MinesweeperDifficulty.MEDIUM: 250,
@@ -44,7 +42,7 @@ empty_board = empty_layout_board
 
 
 def empty_progress_board():
-    """Unpopulated per-attempt progress. Services fill `cells` on join.
+    """Unpopulated per-attempt progress. Services fill `cells` when starting play.
 
     Populated shape (``height`` rows of ``width`` cells)::
 
@@ -60,11 +58,29 @@ def _layout_matches_difficulty() -> Q:
     return condition
 
 
-class MinesweeperGame(models.Model):
-    """Reusable Minesweeper definition placed on one map node.
+class MinesweeperSettings(models.Model):
+    """Per-node configuration. Does not store a board, team, or score."""
 
-    Holds the mine layout. Runtime progress lives on ``MinesweeperAttempt``.
-    """
+    node = models.OneToOneField(
+        "game.Node",
+        on_delete=models.CASCADE,
+        related_name="minesweeper_settings",
+    )
+    enabled = models.BooleanField(default=True)
+    difficulty = models.CharField(max_length=8, choices=MinesweeperDifficulty.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name_plural = "Minesweeper settings"
+
+    def __str__(self):
+        state = "on" if self.enabled else "off"
+        return f"{self.node} {self.get_difficulty_display()} ({state})"
+
+
+class MinesweeperGame(models.Model):
+    """One generated board. Created when a team starts play on a configured node."""
 
     node = models.ForeignKey(
         "game.Node",
@@ -94,7 +110,7 @@ class MinesweeperGame(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.node} {self.get_difficulty_display()}"
+        return f"{self.node} game {self.pk} {self.get_difficulty_display()}"
 
 
 class MinesweeperAttemptQuerySet(models.QuerySet):
@@ -103,7 +119,7 @@ class MinesweeperAttemptQuerySet(models.QuerySet):
 
 
 class MinesweeperAttempt(models.Model):
-    """One team's play session on a MinesweeperGame."""
+    """One team's execution of a generated MinesweeperGame."""
 
     game = models.ForeignKey(
         MinesweeperGame,
@@ -146,11 +162,6 @@ class MinesweeperAttempt(models.Model):
                     )
                 ),
                 name="minesweeperattempt_finished_at_matches_status",
-            ),
-            UniqueConstraint(
-                fields=["game"],
-                condition=Q(status=MinesweeperStatus.IN_PROGRESS),
-                name="one_active_attempt_per_game",
             ),
         ]
         indexes = [

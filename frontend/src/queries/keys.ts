@@ -7,5 +7,5 @@ export const queryKeys = {
   leaderboard: () => ['leaderboard'] as const,
   entrySheet: () => ['entry-sheet'] as const,
   minesweeperRoot: () => ['minesweeper'] as const,
-  minesweeperGame: (gameId: number) => ['minesweeper', gameId] as const,
+  minesweeperAttempt: (attemptId: number) => ['minesweeper', 'attempt', attemptId] as const,
 }

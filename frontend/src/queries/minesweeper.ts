@@ -1,36 +1,36 @@
 import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, type ComputedRef, type Ref } from 'vue'
-import { getGame, joinGame, revealCell, toggleFlag } from '@/services/minesweeper'
+import { getAttempt, revealCell, startPlay, toggleFlag } from '@/services/minesweeper'
 import type { MinesweeperGame } from '@/types/api'
 import { queryKeys } from './keys'
 
-export function useMinesweeperGameQuery(
-  gameId: Ref<number | null> | ComputedRef<number | null>,
+export function useMinesweeperAttemptQuery(
+  attemptId: Ref<number | null> | ComputedRef<number | null>,
   enabled: () => boolean = () => true,
 ) {
   return useQuery({
-    queryKey: computed(() => queryKeys.minesweeperGame(gameId.value ?? 0)),
-    queryFn: ({ signal }) => getGame(gameId.value as number, signal),
-    enabled: () => enabled() && gameId.value != null,
+    queryKey: computed(() => queryKeys.minesweeperAttempt(attemptId.value ?? 0)),
+    queryFn: ({ signal }) => getAttempt(attemptId.value as number, signal),
+    enabled: () => enabled() && attemptId.value != null,
   })
 }
 
-function cacheGame(queryClient: QueryClient, game: MinesweeperGame): void {
-  queryClient.setQueryData(queryKeys.minesweeperGame(game.id), game)
+function cacheAttempt(queryClient: QueryClient, game: MinesweeperGame): void {
+  queryClient.setQueryData(queryKeys.minesweeperAttempt(game.attempt_id), game)
 }
 
-export function useJoinMinesweeperGameMutation() {
+export function useStartMinesweeperMutation() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (gameId: number) => joinGame(gameId),
+    mutationFn: (nodeId: number) => startPlay(nodeId),
     onSuccess: (game: MinesweeperGame) => {
-      cacheGame(queryClient, game)
+      cacheAttempt(queryClient, game)
     },
   })
 }
 
 export interface MinesweeperCellActionVariables {
-  gameId: number
+  attemptId: number
   row: number
   col: number
 }
@@ -38,10 +38,10 @@ export interface MinesweeperCellActionVariables {
 export function useRevealMinesweeperCellMutation() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ gameId, row, col }: MinesweeperCellActionVariables) =>
-      revealCell(gameId, row, col),
+    mutationFn: ({ attemptId, row, col }: MinesweeperCellActionVariables) =>
+      revealCell(attemptId, row, col),
     onSuccess: (game: MinesweeperGame) => {
-      cacheGame(queryClient, game)
+      cacheAttempt(queryClient, game)
     },
   })
 }
@@ -49,10 +49,10 @@ export function useRevealMinesweeperCellMutation() {
 export function useToggleMinesweeperFlagMutation() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ gameId, row, col }: MinesweeperCellActionVariables) =>
-      toggleFlag(gameId, row, col),
+    mutationFn: ({ attemptId, row, col }: MinesweeperCellActionVariables) =>
+      toggleFlag(attemptId, row, col),
     onSuccess: (game: MinesweeperGame) => {
-      cacheGame(queryClient, game)
+      cacheAttempt(queryClient, game)
     },
   })
 }

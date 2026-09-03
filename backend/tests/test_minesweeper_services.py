@@ -14,10 +14,11 @@ from minesweeper.exceptions import (
     CellAlreadyRevealed,
     CellFlagged,
     GameFinished,
-    GameInProgress,
     InvalidCell,
     InvalidDifficulty,
     MinesweeperServiceError,
+    SettingsDisabled,
+    SettingsNotConfigured,
 )
 from minesweeper.models import (
     DIFFICULTY_BASE_SCORES,
@@ -25,13 +26,15 @@ from minesweeper.models import (
     MinesweeperAttempt,
     MinesweeperDifficulty,
     MinesweeperGame,
+    MinesweeperSettings,
     MinesweeperStatus,
 )
 from minesweeper.services import (
     create_attempt,
     create_game,
-    get_or_create_attempt,
+    create_game_from_node,
     reveal_cell,
+    start_play,
     toggle_flag,
 )
 from teams.models import Team
@@ -69,9 +72,17 @@ def node():
     )
 
 
+def _configure(node, difficulty=MinesweeperDifficulty.HARD, *, enabled=True):
+    return MinesweeperSettings.objects.create(
+        node=node,
+        difficulty=difficulty,
+        enabled=enabled,
+    )
+
+
 def _playing(team, node, difficulty=MinesweeperDifficulty.EASY):
     game = create_game(node, difficulty)
-    return get_or_create_attempt(game.pk, team)
+    return create_attempt(game, team)
 
 
 def _neighbor_mine_count(cells: list[list[dict]], row: int, col: int) -> int:
@@ -88,7 +99,7 @@ def _neighbor_mine_count(cells: list[list[dict]], row: int, col: int) -> int:
 
 class TestCreateGame:
     @pytest.mark.parametrize("difficulty", list(MinesweeperDifficulty))
-    def test_creates_a_reusable_layout(self, node, difficulty):
+    def test_creates_a_runtime_board(self, node, difficulty):
         layout = DIFFICULTY_LAYOUTS[difficulty]
         game = create_game(node, difficulty)
 
@@ -103,10 +114,86 @@ class TestCreateGame:
         assert MinesweeperAttempt.objects.count() == 0
 
 
+class TestCreateGameFromNode:
+    def test_uses_node_difficulty(self, node):
+        _configure(node, MinesweeperDifficulty.HARD)
+        game = create_game_from_node(node)
+        layout = DIFFICULTY_LAYOUTS[MinesweeperDifficulty.HARD]
+        assert game.node_id == node.pk
+        assert game.difficulty == MinesweeperDifficulty.HARD
+        assert game.width == layout["width"]
+        assert game.height == layout["height"]
+        assert game.mine_count == layout["mine_count"]
+        assert game.board["cells"]
+
+    def test_each_call_creates_a_new_game(self, node):
+        _configure(node, MinesweeperDifficulty.EASY)
+        first = create_game_from_node(node)
+        second = create_game_from_node(node)
+        assert first.pk != second.pk
+        assert MinesweeperGame.objects.filter(node=node).count() == 2
+
+    def test_missing_settings_are_rejected(self, node):
+        with pytest.raises(SettingsNotConfigured) as caught:
+            create_game_from_node(node)
+        assert isinstance(caught.value, MinesweeperServiceError)
+        assert MinesweeperGame.objects.count() == 0
+
+    def test_disabled_settings_are_rejected(self, node):
+        _configure(node, MinesweeperDifficulty.MEDIUM, enabled=False)
+        with pytest.raises(SettingsDisabled) as caught:
+            create_game_from_node(node)
+        assert isinstance(caught.value, MinesweeperServiceError)
+        assert MinesweeperGame.objects.count() == 0
+
+
+class TestStartPlay:
+    def test_creates_a_new_game_and_attempt(self, team, node):
+        _configure(node, MinesweeperDifficulty.HARD)
+        attempt = start_play(node, team)
+        assert attempt.team_id == team.pk
+        assert attempt.status == MinesweeperStatus.IN_PROGRESS
+        assert attempt.game.node_id == node.pk
+        assert attempt.game.difficulty == MinesweeperDifficulty.HARD
+        assert len(attempt.board["cells"]) == attempt.game.height
+
+    def test_same_team_entering_twice_creates_independent_games(self, team, node):
+        _configure(node, MinesweeperDifficulty.EASY)
+        first = start_play(node, team)
+        second = start_play(node, team)
+        assert first.pk != second.pk
+        assert first.game_id != second.game_id
+        assert MinesweeperGame.objects.filter(node=node).count() == 2
+        assert MinesweeperAttempt.objects.filter(team=team).count() == 2
+
+    def test_different_teams_get_different_games(self, team, other_team, node):
+        _configure(node, MinesweeperDifficulty.MEDIUM)
+        alpha = start_play(node, team)
+        beta = start_play(node, other_team)
+        assert alpha.game_id != beta.game_id
+        assert alpha.pk != beta.pk
+        assert alpha.team_id == team.pk
+        assert beta.team_id == other_team.pk
+        assert alpha.game.difficulty == MinesweeperDifficulty.MEDIUM
+        assert beta.game.difficulty == MinesweeperDifficulty.MEDIUM
+
+    def test_progress_does_not_affect_another_attempt(self, team, other_team, node):
+        _configure(node, MinesweeperDifficulty.EASY)
+        alpha = start_play(node, team)
+        beta = start_play(node, other_team)
+        row, col = _find_cell(alpha.game, alpha, mine=False, min_adjacent=1)
+        reveal_cell(alpha.pk, row, col)
+        alpha.refresh_from_db()
+        beta.refresh_from_db()
+        assert alpha.board["cells"][row][col]["revealed"] is True
+        assert beta.board["cells"][row][col] == {"revealed": False, "flagged": False}
+        assert alpha.game_id != beta.game_id
+
+
 class TestAttempts:
     def test_team_can_create_an_attempt(self, team, node):
         game = create_game(node, MinesweeperDifficulty.EASY)
-        attempt = create_attempt(game.pk, team)
+        attempt = create_attempt(game, team)
 
         assert attempt.game_id == game.pk
         assert attempt.team_id == team.pk
@@ -121,77 +208,17 @@ class TestAttempts:
             for cell in row
         )
 
-    def test_second_team_is_blocked_while_first_is_playing(self, team, other_team, node):
-        game = create_game(node, MinesweeperDifficulty.EASY)
-        first = create_attempt(game.pk, team)
-        with pytest.raises(GameInProgress) as caught:
-            create_attempt(game.pk, other_team)
-        assert isinstance(caught.value, MinesweeperServiceError)
-        assert MinesweeperAttempt.objects.filter(game=game).count() == 1
-        assert first.status == MinesweeperStatus.IN_PROGRESS
-
-    def test_reopening_returns_the_same_active_attempt(self, team, node):
-        game = create_game(node, MinesweeperDifficulty.EASY)
-        first = get_or_create_attempt(game.pk, team)
-        second = get_or_create_attempt(game.pk, team)
-        assert first.pk == second.pk
-        assert MinesweeperAttempt.objects.filter(game=game, team=team).count() == 1
-
-    def test_other_team_cannot_join_while_active(self, team, other_team, node):
-        game = create_game(node, MinesweeperDifficulty.EASY)
-        active = get_or_create_attempt(game.pk, team)
-        with pytest.raises(GameInProgress):
-            get_or_create_attempt(game.pk, other_team)
-        stored = MinesweeperAttempt.objects.get(pk=active.pk)
-        assert stored.team_id == team.pk
-        assert stored.status == MinesweeperStatus.IN_PROGRESS
-
-    def test_after_finish_another_team_can_start(self, team, other_team, node):
-        game = create_game(node, MinesweeperDifficulty.EASY)
-        first = get_or_create_attempt(game.pk, team)
-        _finish(first, MinesweeperStatus.WON)
-        second = get_or_create_attempt(game.pk, other_team)
-        assert second.pk != first.pk
-        assert second.team_id == other_team.pk
-        assert second.status == MinesweeperStatus.IN_PROGRESS
-        first.refresh_from_db()
-        assert first.status == MinesweeperStatus.WON
-
-    def test_missing_game_raises(self, team):
-        with pytest.raises(MinesweeperGame.DoesNotExist):
-            get_or_create_attempt(999_999, team)
-
-    def test_boards_are_independent(self, team, other_team, node):
-        game = create_game(node, MinesweeperDifficulty.EASY)
-        original_layout = copy.deepcopy(game.board)
-        alpha = get_or_create_attempt(game.pk, team)
-        row, col = _find_cell(game, alpha, mine=False, min_adjacent=1)
+    def test_progress_is_isolated_per_attempt(self, team, other_team, node):
+        alpha_game = create_game(node, MinesweeperDifficulty.EASY)
+        beta_game = create_game(node, MinesweeperDifficulty.EASY)
+        alpha = create_attempt(alpha_game, team)
+        beta = create_attempt(beta_game, other_team)
+        row, col = _find_cell(alpha_game, alpha, mine=False, min_adjacent=1)
         reveal_cell(alpha.pk, row, col)
-        _finish(alpha, MinesweeperStatus.WON)
-
-        beta = get_or_create_attempt(game.pk, other_team)
         alpha.refresh_from_db()
         beta.refresh_from_db()
-        game.refresh_from_db()
         assert alpha.board["cells"][row][col]["revealed"] is True
         assert beta.board["cells"][row][col] == {"revealed": False, "flagged": False}
-        assert game.board == original_layout
-
-    def test_attempts_share_the_same_mines(self, team, other_team, node):
-        game = create_game(node, MinesweeperDifficulty.EASY)
-        alpha = get_or_create_attempt(game.pk, team)
-        _finish(alpha, MinesweeperStatus.LOST)
-        beta = get_or_create_attempt(game.pk, other_team)
-        assert alpha.game_id == beta.game_id
-        game.refresh_from_db()
-        assert beta.game.board == game.board
-        mines = [
-            (row, col)
-            for row, line in enumerate(game.board["cells"])
-            for col, cell in enumerate(line)
-            if cell["mine"]
-        ]
-        assert len(mines) == game.mine_count
 
 
 class TestBoardGeneration:
@@ -329,7 +356,7 @@ def _install_progress(attempt, flags=frozenset()):
 def _split_attempt(team, node, flags=frozenset()):
     game = create_game(node, MinesweeperDifficulty.EASY)
     _install_layout(game, SPLIT_MINES)
-    attempt = get_or_create_attempt(game.pk, team)
+    attempt = create_attempt(game, team)
     _install_progress(attempt, flags)
     return attempt
 
@@ -367,7 +394,7 @@ def _cluster_mines(difficulty) -> frozenset[tuple[int, int]]:
 def _prepared_attempt(team, node, difficulty):
     game = create_game(node, difficulty)
     _install_layout(game, _cluster_mines(difficulty))
-    attempt = get_or_create_attempt(game.pk, team)
+    attempt = create_attempt(game, team)
     _install_progress(attempt)
     return attempt
 
@@ -892,56 +919,24 @@ class TestToggleFlagConcurrency:
 
 @pytest.mark.postgres_only
 @pytest.mark.django_db(transaction=True)
-class TestGetOrCreateConcurrency:
-    def test_concurrent_joins_create_one_active_attempt(self, team, node):
-        game = create_game(node, MinesweeperDifficulty.EASY)
+class TestStartPlayConcurrency:
+    def test_concurrent_starts_create_independent_games(self, team, other_team, node):
+        _configure(node, MinesweeperDifficulty.EASY)
         barrier = threading.Barrier(2)
         ids = []
         errors = []
 
-        def join():
+        def start(candidate):
             barrier.wait()
             try:
-                ids.append(get_or_create_attempt(game.pk, team).pk)
-            except Exception as exc:  # noqa: BLE001 - reported, not swallowed
-                errors.append(repr(exc))
-            finally:
-                connection.close()
-
-        threads = [threading.Thread(target=join) for _ in range(2)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
-
-        assert not errors, errors
-        assert len(set(ids)) == 1
-        assert MinesweeperAttempt.objects.filter(game=game, team=team).count() == 1
-
-
-@pytest.mark.postgres_only
-@pytest.mark.django_db(transaction=True)
-class TestGetOrCreateCrossTeamConcurrency:
-    def test_concurrent_joins_only_one_in_progress(self, team, other_team, node):
-        game = create_game(node, MinesweeperDifficulty.EASY)
-        barrier = threading.Barrier(2)
-        started = []
-        blocked = []
-        errors = []
-
-        def join(candidate):
-            barrier.wait()
-            try:
-                started.append(get_or_create_attempt(game.pk, candidate).team_id)
-            except GameInProgress:
-                blocked.append(candidate.pk)
+                ids.append(start_play(node, candidate).pk)
             except Exception as exc:  # noqa: BLE001 - reported, not swallowed
                 errors.append(f"{candidate.code}: {exc!r}")
             finally:
                 connection.close()
 
         threads = [
-            threading.Thread(target=join, args=(candidate,)) for candidate in (team, other_team)
+            threading.Thread(target=start, args=(candidate,)) for candidate in (team, other_team)
         ]
         for thread in threads:
             thread.start()
@@ -949,11 +944,7 @@ class TestGetOrCreateCrossTeamConcurrency:
             thread.join()
 
         assert not errors, errors
-        assert len(started) == 1
-        assert len(blocked) == 1
-        assert (
-            MinesweeperAttempt.objects.filter(
-                game=game, status=MinesweeperStatus.IN_PROGRESS
-            ).count()
-            == 1
-        )
+        assert len(ids) == 2
+        assert len(set(ids)) == 2
+        assert MinesweeperGame.objects.filter(node=node).count() == 2
+        assert MinesweeperAttempt.objects.filter(status=MinesweeperStatus.IN_PROGRESS).count() == 2

@@ -1,6 +1,6 @@
 # Minesweeper
 
-Django app that owns competition Minesweeper: the reusable `MinesweeperGame` definition, per-team `MinesweeperAttempt` rows, gameplay services, REST API, and public-board sanitization.
+Django app that owns competition Minesweeper: per-node `MinesweeperSettings`, generated `MinesweeperGame` boards, per-team `MinesweeperAttempt` results, gameplay services, REST API, and public-board sanitization.
 
 It is **not** a standalone project. It lives inside Karsoogh 26 (`INSTALLED_APPS` → `minesweeper`), uses the existing session-auth / `Team` identity, stores an association to a map `Node`, and follows the contest clock via `GameIsRunning`.
 
@@ -11,13 +11,35 @@ Gameplay is server-authoritative. The Vue client talks only to this API and must
 ## Architecture
 
 ```text
+Node
+ └── MinesweeperSettings     configuration only (difficulty, enabled)
+          │
+          │  each entry generates a new board
+          ▼
+     MinesweeperGame         one random runtime layout
+          │
+          ▼
+     MinesweeperAttempt      that team's progress and result
+```
+
+Example: Node #10 has settings `difficulty=hard`.
+
+```text
+Team A enters  →  Game #1 (board A)  →  Attempt Team A
+Team B enters  →  Game #2 (board B)  →  Attempt Team B
+```
+
+These games are completely independent. A single Node can generate unlimited games over time. Two teams entering the same Node do **not** share a board.
+
+```text
 HTTP request
     ↓
-views + serializers     auth, attempt lookup, validation, HTTP mapping
+views + serializers     auth, attempt ownership, validation, HTTP mapping
     ↓
-minesweeper.services    create game / get_or_create attempt / reveal / flag
+minesweeper.services    start from node / reveal / flag
     ↓
-MinesweeperGame         reusable mine layout on a Node
+MinesweeperSettings     Node configuration
+MinesweeperGame         generated mine layout
 MinesweeperAttempt      one team's play (progress, status, score)
     ↓
 database
@@ -26,45 +48,58 @@ database
 | Layer | Responsibility |
 | ----- | -------------- |
 | `serializers.py` | Request validation and the **public** attempt JSON. Merges layout + progress into a client board; does not dump stored JSON. |
-| `views.py` | Session auth, team membership, contest-running gate, resolve the caller's attempt, calls into services. No gameplay. |
+| `views.py` | Session auth, team membership, contest-running gate, attempt ownership, calls into services. No gameplay. |
 | `services.py` | All mutations. HTTP-unaware. Raises `minesweeper.exceptions` (or `DoesNotExist`). |
-| `models.py` | Game layout + attempt progress, constraints, indexes. |
+| `models.py` | Settings, game layout, attempt progress, constraints, indexes. |
 
 `game.api_exceptions.Conflict` (409) and `Unprocessable` (422) are reused. OpenAPI uses `core.openapi.extend_schema`.
-
-A `MinesweeperGame` is a **reusable definition** placed on a Node. It has **no team**. Each play session is a `MinesweeperAttempt`. Many attempts may exist historically, but **only one** may be `in_progress` at a time. After it finishes, another team may start. The mine layout is shared; progress is isolated per attempt.
 
 This app does **not** check node occupancy, capture the node, or change `Team.balance` / the leaderboard.
 
 ---
 
-## MinesweeperGame
+## MinesweeperSettings
 
-Reusable puzzle on one map node. `related_name="minesweeper_games"` on `Node`. Default ordering: `-created_at`.
+Per-node configuration. `related_name="minesweeper_settings"` on `Node` (`OneToOne`). Does **not** store a board, team, status, or score.
 
 | Field | Type | Purpose |
 | ----- | ---- | ------- |
-| `id` | `BigAutoField` | Primary key; this is the `game_id` in URLs (`/minesweeper/game/<id>/`). |
+| `node` | OneToOne → `game.Node`, **`CASCADE`** | Which map node this config belongs to. |
+| `enabled` | bool, default `True` | Start is rejected when false. |
+| `difficulty` | `easy` / `medium` / `hard` | Layout used when generating a game. |
+| `created_at` / `updated_at` | timestamps | Audit. |
+
+Django admin is the intended configuration path: pick a node, pick a difficulty, enable or disable.
+
+---
+
+## MinesweeperGame
+
+One generated board, created when a team starts play. `related_name="minesweeper_games"` on `Node`. Default ordering: `-created_at`.
+
+| Field | Type | Purpose |
+| ----- | ---- | ------- |
+| `id` | `BigAutoField` | Primary key (`game_id` in the public JSON). |
 | `node` | FK → `game.Node`, **`PROTECT`** | Associated map node. Not an ownership record. |
-| `difficulty` | `easy` / `medium` / `hard` | Layout key. Width/height/mine count are **not** caller-chosen. |
+| `difficulty` | `easy` / `medium` / `hard` | Copied from settings at create. |
 | `width`, `height`, `mine_count` | positive small ints | Copied from `DIFFICULTY_LAYOUTS` at create. |
 | `board` | JSON | **Mine layout only** (`mine`, `adjacent_mines`). Never sent to teams while an attempt is in progress. |
 | `created_at` | `auto_now_add` | Audit timestamp. |
 
 **Constraint:** `minesweepergame_layout_matches_difficulty`.
 
-The game row is **immutable during gameplay**. Reveal/flag/win/loss write the attempt only.
+There is **no** team, status, score, or `finished_at` on the game. Each start generates a **new** random mine placement. The game row is **immutable during gameplay**. Reveal/flag/win/loss write the attempt only.
 
 ---
 
 ## MinesweeperAttempt
 
-One team's execution of a game. `related_name="attempts"` on the game, `related_name="minesweeper_attempts"` on `Team`. Default ordering: `-started_at`.
+One team's execution of a generated game. `related_name="attempts"` on the game, `related_name="minesweeper_attempts"` on `Team`. Default ordering: `-started_at`.
 
 | Field | Type | Purpose |
 | ----- | ---- | ------- |
-| `id` | `BigAutoField` | Attempt id (`attempt_id` in the public JSON). |
-| `game` | FK → `MinesweeperGame`, **`CASCADE`** | Which layout this play uses. |
+| `id` | `BigAutoField` | Attempt id (`attempt_id` in the public JSON and in gameplay URLs). |
+| `game` | FK → `MinesweeperGame`, **`CASCADE`** | Which generated board this play uses. |
 | `team` | FK → `teams.Team`, **`PROTECT`** | Who is playing. |
 | `status` | `in_progress` / `won` / `lost` | Default `in_progress`. |
 | `board` | JSON | **Progress only** (`revealed`, `flagged`). |
@@ -77,7 +112,7 @@ One team's execution of a game. `related_name="attempts"` on the game, `related_
 
 **Indexes:** `(team, status)` as `msweeper_att_team_status_idx`, `(game, team)` as `msweeper_att_game_team_idx`.
 
-**Partial unique:** `one_active_attempt_per_game` — at most one row per game with `status=in_progress`. Finished (`won`/`lost`) rows are unrestricted. SQLite and PostgreSQL both support this (same pattern as `entryattempt_one_per_position`). Join still locks the game row so two concurrent inserts cannot race past the check.
+Mine layout comes from `attempt.game.board`. Revealed/flagged state comes from `attempt.board`. Progress of one attempt never affects another.
 
 ---
 
@@ -91,7 +126,7 @@ Single source of truth: `DIFFICULTY_LAYOUTS` and `DIFFICULTY_BASE_SCORES` in `mo
 | `medium` | 16 × 16 | 40 | 250 |
 | `hard` | 30 × 16 | 99 | 500 |
 
-`create_game` looks up the layout by key. Unknown keys raise `InvalidDifficulty`.
+`create_game` looks up the layout by key. Unknown keys raise `InvalidDifficulty`. The SPA never sends difficulty; it comes from `MinesweeperSettings`.
 
 ---
 
@@ -117,9 +152,7 @@ Single source of truth: `DIFFICULTY_LAYOUTS` and `DIFFICULTY_BASE_SCORES` in `mo
 }
 ```
 
-Two teams on the same game share mines and adjacency. They do **not** share revealed cells or flags.
-
-Mine placement: `random.sample` over all cells (`_generate_layout`) once at `create_game`. Attempts copy dimensions into an all-hidden progress board; they do **not** regenerate mines.
+Mine placement: `random.sample` over all cells (`_generate_layout`) once per `create_game` / `create_game_from_node`. Attempts copy dimensions into an all-hidden progress board; they do **not** regenerate mines.
 
 ---
 
@@ -137,7 +170,7 @@ Revealed: `{ "revealed": true, "flagged": false, "adjacent_mines": 2 }` (still n
 
 Every cell includes `revealed`, `flagged`, `adjacent_mines`, and `mine`.
 
-Public fields: `id` (game id), `attempt_id`, `node`, `difficulty`, `width`, `height`, `mine_count`, `status`, `score`, `started_at`, `finished_at`, `board`. **No `team`.**
+Public fields: `game_id`, `attempt_id`, `node`, `difficulty`, `width`, `height`, `mine_count`, `status`, `score`, `started_at`, `finished_at`, `board`. **No `team`.**
 
 ---
 
@@ -160,39 +193,41 @@ Implemented only in `services.py`, against an **attempt**.
 
 ### Flood-fill / flag / win / loss / scoring
 
-Same rules as before, with mines read from the game and flags/reveals stored on the attempt. Score is written on the attempt: `base + max(0, base - floor(elapsed))`. Loss scores `0`. Clock is `services._now()`.
+Mines are read from `attempt.game.board`. Flags and reveals are stored on `attempt.board`. Score is written on the attempt: `base + max(0, base - floor(elapsed))`. Loss scores `0`. Clock is `services._now()`.
 
 ---
 
 ## Game lifecycle
 
-Admin creates:
+Admin configures:
 
 ```text
-MinesweeperGame(node=10, difficulty=medium)   # mine layout generated
+MinesweeperSettings(node=10, difficulty=hard, enabled=True)
 ```
 
-Team A opens `/minesweeper/game/1/`:
+Team A opens `/minesweeper/node/10/`:
 
 ```text
-get_or_create_attempt(1, Team A)
-    → this team's in-progress attempt if one exists
-    → else a new attempt, unless another team is already in_progress (GameInProgress)
+start_play(node 10, Team A)
+    → create_game_from_node  → MinesweeperGame (random board, difficulty=hard)
+    → create_attempt         → MinesweeperAttempt for Team A
 reveal / flag update that attempt
 ```
 
-Team B opening the same URL while A is still playing gets **409**. After A wins or loses, B can start a new attempt on the same game. Historical finished attempts stay on record; progress boards stay isolated per attempt.
+Team B opening the same URL at the same time gets **Game B + Attempt B**, with a different random board.
+
+Every entry creates a new game. The same team entering twice also gets two independent games and attempts.
 
 ```text
-create_game(node, difficulty)          → layout only; no team
-get_or_create_attempt(game_id, team)   → reuse own in-progress, else insert if the game is free
-create_attempt(game_id, team)          → insert if the game is free; else GameInProgress
+create_game_from_node(node)   → read settings; generate a new MinesweeperGame
+create_attempt(game, team)    → always insert a new attempt
+start_play(node, team)        → both of the above
 reveal_cell / toggle_flag(attempt_id)  → attempt only
 ```
 
-Join / reveal / flag require `GameSettings.is_running`. **GET of the caller's attempt remains allowed** when the contest is not running. Staff create is not gated on the contest clock.
+Start / reveal / flag require `GameSettings.is_running`. **GET of the caller's attempt remains allowed** when the contest is not running.
 
-Django admin: add a game by node + difficulty (`create_game` generates the layout). Attempts are listed inline (read-only).
+Django admin: configure `MinesweeperSettings` (node, difficulty, enabled). Generated games and attempts are listed read-only.
 
 ---
 
@@ -202,38 +237,36 @@ Mounted from `core/api_urls.py` as `path("minesweeper/", include("minesweeper.ur
 
 | Method | Path | Name | Permissions |
 | ------ | ---- | ---- | ----------- |
-| `POST` | `/api/minesweeper/games/` | `game-create` | `IsAuthenticated`, `IsAdminUser` (SPA must not call this) |
-| `POST` | `/api/minesweeper/games/<pk>/join/` | `game-join` | `IsAuthenticated`, `IsTeamMember`, `GameIsRunning` |
-| `GET` | `/api/minesweeper/games/<pk>/` | `game-detail` | `IsAuthenticated`, `IsTeamMember` |
-| `POST` | `/api/minesweeper/games/<pk>/reveal/` | `game-reveal` | `IsAuthenticated`, `IsTeamMember`, `GameIsRunning` |
-| `POST` | `/api/minesweeper/games/<pk>/flag/` | `game-flag` | `IsAuthenticated`, `IsTeamMember`, `GameIsRunning` |
+| `POST` | `/api/minesweeper/nodes/<node_id>/start/` | `node-start` | `IsAuthenticated`, `IsTeamMember`, `GameIsRunning` |
+| `GET` | `/api/minesweeper/attempts/<pk>/` | `attempt-detail` | `IsAuthenticated`, `IsTeamMember` |
+| `POST` | `/api/minesweeper/attempts/<pk>/reveal/` | `attempt-reveal` | `IsAuthenticated`, `IsTeamMember`, `GameIsRunning` |
+| `POST` | `/api/minesweeper/attempts/<pk>/flag/` | `attempt-flag` | `IsAuthenticated`, `IsTeamMember`, `GameIsRunning` |
 
-Session cookies + CSRF. The URL still uses **game id**. Join/GET/reveal/flag resolve **the caller's attempt** automatically.
+Session cookies + CSRF. The SPA provides only the **node id** to start. Gameplay URLs use **attempt id**. Ownership is `request.user.team == attempt.team`.
 
-### Join
+### Start
 
 ```http
-POST /api/minesweeper/games/<pk>/join/
+POST /api/minesweeper/nodes/<node_id>/start/
 ```
 
-Empty JSON body. `200` + public attempt. Reuses this team's in-progress attempt if it exists. If another team is already playing, **409** `این بازی در حال حاضر توسط تیم دیگری در حال اجرا است.` After that attempt finishes, a later join creates a new attempt.
+Empty JSON body. **201** + public attempt. Always creates a new `MinesweeperGame` and `MinesweeperAttempt`. The client does not send difficulty.
+
+Missing node or missing settings: **404**. Disabled settings: **409**.
 
 ### Get / reveal / flag
 
-Same paths as before. GET without an attempt for that team is **404** (same body as a missing game). Reveal/flag operate on the in-progress attempt; a finished attempt is **409**.
-
-Staff create returns a definition only (`id`, `node`, `difficulty`, `width`, `height`, `mine_count`) — no mine layout.
+Paths are `/api/minesweeper/attempts/<pk>/…`. GET without that attempt, or an attempt owned by another team, is **404** (same body as a missing id). Reveal/flag operate on the in-progress attempt; a finished attempt is **409**.
 
 ### Error handling
 
 | Condition | HTTP | `detail` / body |
 | --------- | ---: | --------------- |
-| Invalid JSON / unknown `difficulty` / missing or unknown `node` | 400 | DRF field errors |
-| Missing game, or no attempt for this team | 404 | `بازی پیدا نشد.` |
-| Contest not running (join / reveal / flag) | 403 | `The game is not running.` |
-| Anonymous / no team / mentor / non-staff create | 403 | DRF permission denied |
+| Missing node / missing settings / missing or foreign attempt | 404 | `بازی پیدا نشد.` |
+| Contest not running (start / reveal / flag) | 403 | `The game is not running.` |
+| Anonymous / no team / mentor | 403 | DRF permission denied |
+| Settings disabled (`SettingsDisabled`) | 409 | `این بازی مین‌روب فعال نیست.` |
 | Finished attempt (`GameFinished`) | 409 | `این بازی تمام شده است.` |
-| Another team is already playing (`GameInProgress`) | 409 | `این بازی در حال حاضر توسط تیم دیگری در حال اجرا است.` |
 | Already revealed / flagged / flag-on-revealed | 409 | existing Persian messages |
 | Out of bounds (`InvalidCell`) | 422 | `این خانه روی صفحه نیست.` |
 
@@ -243,7 +276,7 @@ Staff create returns a definition only (`id`, `node`, `difficulty`, `width`, `he
 
 - Layout `mine` / `adjacent_mines` never appear on in-progress unrevealed cells.
 - Sanitization is constructive (`_public_cell`), merging two JSON blobs.
-- Attempt lookup is `filter(game_id=…, team_id=…)`. Other teams get the same 404 as a missing id on GET/reveal/flag.
+- Attempt lookup loads the row, then requires `attempt.team_id == request.user.team_id`. Other teams get the same 404 as a missing id.
 - Admin and the database **do** contain the real mine map.
 
 ---
@@ -262,13 +295,13 @@ cd frontend
 npm run dev
 ```
 
-Log in as a **player**. There is no nav button. Open a prepared game:
+In Django admin, add `MinesweeperSettings` for a node (difficulty + enabled). Log in as a **player**. There is no nav button. Open that node:
 
 ```text
-http://localhost:3000/minesweeper/game/1/
+http://localhost:3000/minesweeper/node/<node_id>/
 ```
 
-The page joins, stores `attempt_id` internally, and renders the existing board UI. The frontend does not create games.
+The page calls start, stores `attempt_id`, and renders the existing board UI. There is no difficulty picker and no start button. The frontend does not create games directly.
 
 Mutating endpoints require `GameSettings.status == running`. Set that in admin (Game settings) or:
 
@@ -291,9 +324,9 @@ uv run pytest -q
 
 | File | What it covers |
 | ---- | -------------- |
-| `tests/test_minesweeper_models.py` | Game has no team; attempt FKs; layout/status constraints; `PROTECT` / `CASCADE`. |
-| `tests/test_minesweeper_services.py` | Create game, get_or_create attempt, one-active-at-a-time, independent boards, shared mines, reveal/flag/win/loss/scoring. `postgres_only` for row locks. |
-| `tests/test_minesweeper_api.py` | Join isolation, sanitization, contest clock, HTTP mapping. |
+| `tests/test_minesweeper_models.py` | Settings OneToOne; game has no team/status/score; attempt FKs; layout/status constraints; `PROTECT` / `CASCADE`. |
+| `tests/test_minesweeper_services.py` | Settings-driven create; each entry a new game; independent boards; reveal/flag/win/loss/scoring. `postgres_only` for row locks. |
+| `tests/test_minesweeper_api.py` | Start endpoint, attempt ownership, sanitization, contest clock, HTTP mapping. |
 
 ```bash
 uv run ruff check .
@@ -308,49 +341,49 @@ uv run manage.py makemigrations --check --dry-run
 
 ## Concurrency and transactions
 
-`create_game`, `create_attempt`, `get_or_create_attempt`, `reveal_cell`, and `toggle_flag` are `@transaction.atomic`.
+`create_game`, `create_game_from_node`, `create_attempt`, `start_play`, `reveal_cell`, and `toggle_flag` are `@transaction.atomic`.
 
-`get_or_create_attempt` and `create_attempt` lock the **game** row, then look for any `in_progress` attempt. Same team may resume; another team is rejected. Reveal/flag lock the **attempt** row. The partial unique constraint is a second line of defence if two writers skip the lock.
+Reveal/flag lock the **attempt** row. Two teams starting the same node concurrently each get their own game and attempt.
 
 ---
 
 ## Frontend integration
 
 ```text
-MinesweeperPage.vue  (/minesweeper/game/:id/ — join on enter, then board)
+MinesweeperPage.vue  (/minesweeper/node/:id/ — start on enter, then board)
     ↓
-useMinesweeper(gameId)   stores attempt_id from the join response
+useMinesweeper(nodeId)   stores attempt_id from the start response
     ↓
 queries/minesweeper.ts
     ↓
 services/minesweeper.ts
     ↓
-this REST API  (still /games/<game_id>/… ; server resolves the attempt)
+POST /nodes/<node_id>/start/
+GET/POST /attempts/<attempt_id>/…
 ```
 
-The SPA does **not** call `POST /api/minesweeper/games/`.
+The SPA does **not** send difficulty and does not create games by id.
 
 ---
 
 ## Design decisions
 
-- **Game vs attempt.** Layout is shared; progress and score belong to the attempt.
-- **No team on `MinesweeperGame`.** Claim-the-game is gone.
-- **Join reuses this team's in-progress attempt.** Only one attempt per game may be `in_progress`. A finished attempt does not block a later team.
-- **Attempt state is isolated per team.** Shared mines; separate revealed/flagged cells.
+- **Settings vs game vs attempt.** Configuration lives on the node. Each entry generates a new board. Progress and score belong to the attempt.
+- **No shared board.** Two teams on the same node get two random layouts.
+- **Every entry creates a new game.** The same team entering twice gets two independent plays.
 - **`node` is association only.** Win/loss do not modify `Node`, occupancy, or `Team.balance`.
 - **404 for foreign GET/reveal/flag.** Same body as missing.
-- **Frontend does not create games.** Entry is `/minesweeper/game/<id>/`.
+- **Frontend does not create games.** Entry is `/minesweeper/node/<node_id>/`.
 
 ---
 
 ## Current scope and limitations
 
 - No WebSocket/SSE; no live sync across tabs.
-- Multiple historical attempts per team+game are allowed.
-- No list/delete endpoints. Teams enter by URL id.
+- Refreshing `/minesweeper/node/<id>/` starts a **new** game.
+- No list/delete endpoints. Teams enter by node URL.
 - Winning does not capture the node.
-- Join/reveal/flag follow the contest clock; GET and staff create do not.
+- Start/reveal/flag follow the contest clock; GET does not.
 - No flag limit; no chord/middle-click API.
 - Score is not paid into the team economy.
 - Admin can see unsanitized layouts and attempt boards.

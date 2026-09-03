@@ -1,14 +1,16 @@
-from django import forms
 from django.contrib import admin
 
-from .models import MinesweeperAttempt, MinesweeperGame
-from .services import create_game
+from .models import MinesweeperAttempt, MinesweeperGame, MinesweeperSettings
 
 
-class MinesweeperGameAddForm(forms.ModelForm):
-    class Meta:
-        model = MinesweeperGame
-        fields = ("node", "difficulty")
+@admin.register(MinesweeperSettings)
+class MinesweeperSettingsAdmin(admin.ModelAdmin):
+    list_display = ("node", "difficulty", "enabled", "updated_at")
+    list_filter = ("difficulty", "enabled")
+    search_fields = ("node__code", "node__name")
+    list_select_related = ("node",)
+    autocomplete_fields = ("node",)
+    ordering = ("node__code",)
 
 
 class MinesweeperAttemptInline(admin.TabularInline):
@@ -48,47 +50,18 @@ class MinesweeperGameAdmin(admin.ModelAdmin):
     autocomplete_fields = ("node",)
     ordering = ("-created_at",)
     inlines = (MinesweeperAttemptInline,)
+    readonly_fields = (
+        "node",
+        "difficulty",
+        "width",
+        "height",
+        "mine_count",
+        "board",
+        "created_at",
+    )
 
-    def get_form(self, request, obj=None, change=False, **kwargs):
-        if obj is None:
-            kwargs["form"] = MinesweeperGameAddForm
-        return super().get_form(request, obj, change, **kwargs)
-
-    def get_fields(self, request, obj=None):
-        if obj is None:
-            return ("node", "difficulty")
-        return (
-            "node",
-            "difficulty",
-            "width",
-            "height",
-            "mine_count",
-            "board",
-            "created_at",
-        )
-
-    def get_readonly_fields(self, request, obj=None):
-        if obj is None:
-            return ()
-        return (
-            "node",
-            "difficulty",
-            "width",
-            "height",
-            "mine_count",
-            "board",
-            "created_at",
-        )
-
-    def save_model(self, request, obj, form, change):
-        if change:
-            super().save_model(request, obj, form, change)
-            return
-        created = create_game(obj.node, obj.difficulty)
-        obj.pk = created.pk
-        obj.id = created.pk
-        for field in ("width", "height", "mine_count", "board", "created_at"):
-            setattr(obj, field, getattr(created, field))
+    def has_add_permission(self, request):
+        return False
 
 
 @admin.register(MinesweeperAttempt)

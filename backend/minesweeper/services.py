@@ -15,15 +15,17 @@ from minesweeper.exceptions import (
     CellAlreadyRevealed,
     CellFlagged,
     GameFinished,
-    GameInProgress,
     InvalidCell,
     InvalidDifficulty,
+    SettingsDisabled,
+    SettingsNotConfigured,
 )
 from minesweeper.models import (
     DIFFICULTY_BASE_SCORES,
     DIFFICULTY_LAYOUTS,
     MinesweeperAttempt,
     MinesweeperGame,
+    MinesweeperSettings,
     MinesweeperStatus,
 )
 from teams.models import Team
@@ -158,35 +160,9 @@ def _finish(attempt: MinesweeperAttempt, progress: dict, *, won: bool) -> None:
     attempt.save(update_fields=["board", "status", "score", "finished_at"])
 
 
-def _create_attempt_for(game: MinesweeperGame, team: Team) -> MinesweeperAttempt:
-    return MinesweeperAttempt.objects.create(
-        game=game,
-        team=team,
-        board=_empty_progress_board(game.width, game.height),
-    )
-
-
-def _active_attempt(game: MinesweeperGame) -> MinesweeperAttempt | None:
-    return (
-        MinesweeperAttempt.objects.filter(game=game, status=MinesweeperStatus.IN_PROGRESS)
-        .order_by("-started_at")
-        .first()
-    )
-
-
-def _resolve_attempt(game: MinesweeperGame, team: Team, *, reuse_own: bool) -> MinesweeperAttempt:
-    """One in-progress attempt per game. Caller must hold a row lock on ``game``."""
-    active = _active_attempt(game)
-    if active is None:
-        return _create_attempt_for(game, team)
-    if reuse_own and active.team_id == team.pk:
-        return active
-    raise GameInProgress("This game already has an in-progress attempt.")
-
-
 @transaction.atomic
 def create_game(node: Node, difficulty: str) -> MinesweeperGame:
-    """Create one reusable game definition with a newly generated mine layout.
+    """Create one runtime game with a newly generated mine layout.
 
     ``difficulty`` must be a key of ``DIFFICULTY_LAYOUTS``. Width, height, and
     mine count come from that mapping — they are not caller-supplied.
@@ -213,27 +189,38 @@ def create_game(node: Node, difficulty: str) -> MinesweeperGame:
 
 
 @transaction.atomic
-def create_attempt(game_id: int, team: Team) -> MinesweeperAttempt:
-    """Start a new in-progress attempt for ``team`` on ``game_id``.
-
-    Locks the game row. Raises ``GameInProgress`` if this game already has an
-    active attempt. A missing game pk raises ``MinesweeperGame.DoesNotExist``.
-    """
-    game = MinesweeperGame.objects.select_for_update().get(pk=game_id)
-    return _resolve_attempt(game, team, reuse_own=False)
+def create_game_from_node(node: Node) -> MinesweeperGame:
+    """Read the node's MinesweeperSettings and generate a new runtime game."""
+    try:
+        settings = MinesweeperSettings.objects.get(node=node)
+    except MinesweeperSettings.DoesNotExist:
+        raise SettingsNotConfigured("This node has no Minesweeper configuration.") from None
+    if not settings.enabled:
+        raise SettingsDisabled("Minesweeper is disabled on this node.")
+    return create_game(node, settings.difficulty)
 
 
 @transaction.atomic
-def get_or_create_attempt(game_id: int, team: Team) -> MinesweeperAttempt:
-    """Return this team's active attempt, or start one if the game is free.
+def create_attempt(game: MinesweeperGame, team: Team) -> MinesweeperAttempt:
+    """Start a new in-progress attempt for ``team`` on ``game``.
 
-    Locks the game row so two simultaneous joins cannot both become in-progress.
-    Same team reuses their active attempt. Another team while one is active
-    raises ``GameInProgress``. A missing game pk raises
-    ``MinesweeperGame.DoesNotExist``.
+    Always inserts. Does not reuse an existing attempt or game.
     """
-    game = MinesweeperGame.objects.select_for_update().get(pk=game_id)
-    return _resolve_attempt(game, team, reuse_own=True)
+    return MinesweeperAttempt.objects.create(
+        game=game,
+        team=team,
+        board=_empty_progress_board(game.width, game.height),
+    )
+
+
+@transaction.atomic
+def start_play(node: Node, team: Team) -> MinesweeperAttempt:
+    """Generate a new board from the node's settings and open an attempt for ``team``.
+
+    Every call creates a new ``MinesweeperGame`` and a new ``MinesweeperAttempt``.
+    """
+    game = create_game_from_node(node)
+    return create_attempt(game, team)
 
 
 @transaction.atomic

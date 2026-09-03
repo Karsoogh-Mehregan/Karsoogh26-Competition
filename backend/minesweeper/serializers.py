@@ -1,29 +1,12 @@
 from rest_framework import serializers
 
 from core.openapi import extend_schema_field
-from game.models import Node
-from minesweeper.models import MinesweeperAttempt, MinesweeperDifficulty, MinesweeperStatus
-
-
-class CreateGameSerializer(serializers.Serializer):
-    node = serializers.PrimaryKeyRelatedField(queryset=Node.objects.all())
-    difficulty = serializers.ChoiceField(choices=MinesweeperDifficulty.choices)
+from minesweeper.models import MinesweeperAttempt, MinesweeperStatus
 
 
 class CellActionSerializer(serializers.Serializer):
     row = serializers.IntegerField()
     col = serializers.IntegerField()
-
-
-class GameDefinitionSerializer(serializers.Serializer):
-    """Staff create response — mine layout is not on the wire."""
-
-    id = serializers.IntegerField(read_only=True)
-    node = serializers.IntegerField(source="node_id", read_only=True)
-    difficulty = serializers.CharField(read_only=True)
-    width = serializers.IntegerField(read_only=True)
-    height = serializers.IntegerField(read_only=True)
-    mine_count = serializers.IntegerField(read_only=True)
 
 
 def _public_cell(progress: dict, layout: dict, *, finished: bool) -> dict:
@@ -60,9 +43,9 @@ def public_board(attempt: MinesweeperAttempt) -> dict:
 
 
 class PublicGameSerializer(serializers.Serializer):
-    """Public view of the caller's attempt, keyed by the reusable game id."""
+    """Public view of the caller's attempt, including the generated game id."""
 
-    id = serializers.IntegerField(source="game_id", read_only=True)
+    game_id = serializers.IntegerField(read_only=True)
     attempt_id = serializers.IntegerField(source="pk", read_only=True)
     node = serializers.IntegerField(source="game.node_id", read_only=True)
     difficulty = serializers.CharField(source="game.difficulty", read_only=True)

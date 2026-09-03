@@ -6,6 +6,14 @@ class InvalidDifficulty(MinesweeperServiceError):
     """difficulty is not one of the three configured layouts."""
 
 
+class SettingsNotConfigured(MinesweeperServiceError):
+    """The node has no MinesweeperSettings row."""
+
+
+class SettingsDisabled(MinesweeperServiceError):
+    """MinesweeperSettings.enabled is false."""
+
+
 class GameFinished(MinesweeperServiceError):
     """The attempt is won or lost and no longer accepts moves."""
 
@@ -24,7 +32,3 @@ class CellFlagged(MinesweeperServiceError):
 
 class CannotFlagRevealed(MinesweeperServiceError):
     """A revealed cell cannot be flagged or unflagged."""
-
-
-class GameInProgress(MinesweeperServiceError):
-    """This game already has an in-progress attempt, for another team."""
