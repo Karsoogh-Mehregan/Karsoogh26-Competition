@@ -281,9 +281,7 @@ class TestMediaAccess:
         allowed = client.get(f"/api/media/submissions/{submission.pk}/")
         assert allowed.status_code == 200
 
-    def test_mentor_without_staff_can_download_submission_file(
-        self, node, teams, running_game
-    ):
+    def test_mentor_without_staff_can_download_submission_file(self, node, teams, running_game):
         file_question = Question.objects.create(
             level=node.level,
             code="fq2",
