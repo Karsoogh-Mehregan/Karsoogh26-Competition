@@ -95,8 +95,9 @@ class StartPlayView(APIView):
         tags=["minesweeper"],
         summary="Start Minesweeper on a node",
         description=(
-            "Creates a new generated board from the node's MinesweeperSettings and an "
-            "attempt for the caller's team. Every call creates a new game."
+            "Resumes the caller's in-progress attempt on this node, or generates a new "
+            "board from MinesweeperSettings and opens an attempt. One active attempt "
+            "per team per node."
         ),
         parameters=[_NODE_ID],
         request=None,
@@ -110,7 +111,7 @@ class StartPlayView(APIView):
             raise NotFound("بازی پیدا نشد.") from None
         try:
             attempt = start_play(node, request.user.team)
-        except MinesweeperServiceError as exc:
+        except (MinesweeperServiceError, Node.DoesNotExist) as exc:
             _map_service_error(exc)
         return Response(PublicGameSerializer(attempt).data, status=status.HTTP_201_CREATED)
 

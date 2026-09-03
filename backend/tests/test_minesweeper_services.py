@@ -157,12 +157,26 @@ class TestStartPlay:
         assert attempt.game.difficulty == MinesweeperDifficulty.HARD
         assert len(attempt.board["cells"]) == attempt.game.height
 
-    def test_same_team_entering_twice_creates_independent_games(self, team, node):
+    def test_same_team_reentering_resumes_the_active_attempt(self, team, node):
         _configure(node, MinesweeperDifficulty.EASY)
         first = start_play(node, team)
         second = start_play(node, team)
-        assert first.pk != second.pk
-        assert first.game_id != second.game_id
+        assert second.pk == first.pk
+        assert second.game_id == first.game_id
+        assert MinesweeperGame.objects.filter(node=node).count() == 1
+        assert MinesweeperAttempt.objects.filter(team=team).count() == 1
+
+    @pytest.mark.parametrize("status", [MinesweeperStatus.WON, MinesweeperStatus.LOST])
+    def test_finished_attempt_starts_a_new_game(self, team, node, status):
+        _configure(node, MinesweeperDifficulty.EASY)
+        first = start_play(node, team)
+        _finish(first, status)
+        second = start_play(node, team)
+        assert second.pk != first.pk
+        assert second.game_id != first.game_id
+        assert second.status == MinesweeperStatus.IN_PROGRESS
+        first.refresh_from_db()
+        assert first.status == status
         assert MinesweeperGame.objects.filter(node=node).count() == 2
         assert MinesweeperAttempt.objects.filter(team=team).count() == 2
 
@@ -948,3 +962,35 @@ class TestStartPlayConcurrency:
         assert len(set(ids)) == 2
         assert MinesweeperGame.objects.filter(node=node).count() == 2
         assert MinesweeperAttempt.objects.filter(status=MinesweeperStatus.IN_PROGRESS).count() == 2
+
+    def test_concurrent_starts_from_the_same_team_resume_one_attempt(self, team, node):
+        _configure(node, MinesweeperDifficulty.EASY)
+        barrier = threading.Barrier(2)
+        ids = []
+        errors = []
+
+        def start():
+            barrier.wait()
+            try:
+                ids.append(start_play(node, team).pk)
+            except Exception as exc:  # noqa: BLE001 - reported, not swallowed
+                errors.append(repr(exc))
+            finally:
+                connection.close()
+
+        threads = [threading.Thread(target=start) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert not errors, errors
+        assert len(ids) == 2
+        assert len(set(ids)) == 1
+        assert MinesweeperGame.objects.filter(node=node).count() == 1
+        assert (
+            MinesweeperAttempt.objects.filter(
+                team=team, status=MinesweeperStatus.IN_PROGRESS
+            ).count()
+            == 1
+        )

@@ -5,6 +5,7 @@ import copy
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from game.models import GameSettings, GameStatus, LevelConfig, Node
@@ -245,14 +246,33 @@ class TestStartPlay:
         assert response.status_code == 201
         assert response.json()["difficulty"] == MinesweeperDifficulty.MEDIUM
 
-    def test_every_entry_creates_a_new_game(self, alpha_client, alpha, node, running_contest):
+    def test_same_team_refresh_resumes_the_active_attempt(
+        self, alpha_client, alpha, node, running_contest
+    ):
         _configure(node, MinesweeperDifficulty.EASY)
         first = alpha_client.post(_start(node.pk), {}, format="json")
         second = alpha_client.post(_start(node.pk), {}, format="json")
         assert first.status_code == 201
         assert second.status_code == 201
-        assert first.json()["game_id"] != second.json()["game_id"]
-        assert first.json()["attempt_id"] != second.json()["attempt_id"]
+        assert second.json()["game_id"] == first.json()["game_id"]
+        assert second.json()["attempt_id"] == first.json()["attempt_id"]
+        assert MinesweeperGame.objects.filter(node=node).count() == 1
+        assert MinesweeperAttempt.objects.filter(team=alpha).count() == 1
+
+    def test_finished_attempt_starts_a_new_game(self, alpha_client, alpha, node, running_contest):
+        _configure(node, MinesweeperDifficulty.EASY)
+        first = alpha_client.post(_start(node.pk), {}, format="json")
+        assert first.status_code == 201
+        attempt = MinesweeperAttempt.objects.get(pk=first.json()["attempt_id"])
+        attempt.status = MinesweeperStatus.WON
+        attempt.finished_at = timezone.now()
+        attempt.save(update_fields=["status", "finished_at"])
+
+        second = alpha_client.post(_start(node.pk), {}, format="json")
+        assert second.status_code == 201
+        assert second.json()["game_id"] != first.json()["game_id"]
+        assert second.json()["attempt_id"] != first.json()["attempt_id"]
+        assert second.json()["status"] == MinesweeperStatus.IN_PROGRESS
         assert MinesweeperGame.objects.filter(node=node).count() == 2
         assert MinesweeperAttempt.objects.filter(team=alpha).count() == 2
 

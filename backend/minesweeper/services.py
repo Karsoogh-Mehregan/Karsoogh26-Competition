@@ -213,13 +213,31 @@ def create_attempt(game: MinesweeperGame, team: Team) -> MinesweeperAttempt:
     )
 
 
+def _active_attempt_for(team: Team, node: Node) -> MinesweeperAttempt | None:
+    return (
+        MinesweeperAttempt.objects.select_related("game")
+        .filter(
+            team=team,
+            game__node_id=node.pk,
+            status=MinesweeperStatus.IN_PROGRESS,
+        )
+        .order_by("-started_at")
+        .first()
+    )
+
+
 @transaction.atomic
 def start_play(node: Node, team: Team) -> MinesweeperAttempt:
-    """Generate a new board from the node's settings and open an attempt for ``team``.
+    """Resume this team's in-progress attempt on ``node``, or start a new game.
 
-    Every call creates a new ``MinesweeperGame`` and a new ``MinesweeperAttempt``.
+    Locks the node row so two concurrent starts cannot both insert. A finished
+    attempt is left as history; the next visit generates a new board.
     """
-    game = create_game_from_node(node)
+    locked_node = Node.objects.select_for_update().get(pk=node.pk)
+    active = _active_attempt_for(team, locked_node)
+    if active is not None:
+        return active
+    game = create_game_from_node(locked_node)
     return create_attempt(game, team)
 
 

@@ -14,7 +14,7 @@ Gameplay is server-authoritative. The Vue client talks only to this API and must
 Node
  └── MinesweeperSettings     configuration only (difficulty, enabled)
           │
-          │  each entry generates a new board
+          │  start generates a new board unless this team already has an in-progress attempt on the node
           ▼
      MinesweeperGame         one random runtime layout
           │
@@ -29,7 +29,7 @@ Team A enters  →  Game #1 (board A)  →  Attempt Team A
 Team B enters  →  Game #2 (board B)  →  Attempt Team B
 ```
 
-These games are completely independent. A single Node can generate unlimited games over time. Two teams entering the same Node do **not** share a board.
+These games are completely independent. A single Node can generate unlimited games over time. Two teams entering the same Node do **not** share a board. **One active attempt per team per node:** returning while `status=in_progress` resumes that attempt. Finished attempts stay as history.
 
 ```text
 HTTP request
@@ -209,19 +209,20 @@ Team A opens `/minesweeper/node/10/`:
 
 ```text
 start_play(node 10, Team A)
-    → create_game_from_node  → MinesweeperGame (random board, difficulty=hard)
-    → create_attempt         → MinesweeperAttempt for Team A
+    → existing in-progress attempt on this node, if any
+    → else create_game_from_node  → MinesweeperGame (random board, difficulty=hard)
+      then create_attempt         → MinesweeperAttempt for Team A
 reveal / flag update that attempt
 ```
 
 Team B opening the same URL at the same time gets **Game B + Attempt B**, with a different random board.
 
-Every entry creates a new game. The same team entering twice also gets two independent games and attempts.
+Returning to the same node while an attempt is in progress resumes the existing attempt for that team. After the attempt finishes, a new visit creates a new game.
 
 ```text
 create_game_from_node(node)   → read settings; generate a new MinesweeperGame
 create_attempt(game, team)    → always insert a new attempt
-start_play(node, team)        → both of the above
+start_play(node, team)        → resume in-progress (team, node), else both of the above
 reveal_cell / toggle_flag(attempt_id)  → attempt only
 ```
 
@@ -250,7 +251,7 @@ Session cookies + CSRF. The SPA provides only the **node id** to start. Gameplay
 POST /api/minesweeper/nodes/<node_id>/start/
 ```
 
-Empty JSON body. **201** + public attempt. Always creates a new `MinesweeperGame` and `MinesweeperAttempt`. The client does not send difficulty.
+Empty JSON body. **201** + public attempt. Resumes this team's in-progress attempt on the node if one exists; otherwise creates a new `MinesweeperGame` and `MinesweeperAttempt`. The client does not send difficulty. Returned `game_id` / `attempt_id` may already exist.
 
 Missing node or missing settings: **404**. Disabled settings: **409**.
 
@@ -325,7 +326,7 @@ uv run pytest -q
 | File | What it covers |
 | ---- | -------------- |
 | `tests/test_minesweeper_models.py` | Settings OneToOne; game has no team/status/score; attempt FKs; layout/status constraints; `PROTECT` / `CASCADE`. |
-| `tests/test_minesweeper_services.py` | Settings-driven create; each entry a new game; independent boards; reveal/flag/win/loss/scoring. `postgres_only` for row locks. |
+| `tests/test_minesweeper_services.py` | Settings-driven create; resume vs new game; independent boards; reveal/flag/win/loss/scoring. `postgres_only` for row locks. |
 | `tests/test_minesweeper_api.py` | Start endpoint, attempt ownership, sanitization, contest clock, HTTP mapping. |
 
 ```bash
@@ -343,7 +344,7 @@ uv run manage.py makemigrations --check --dry-run
 
 `create_game`, `create_game_from_node`, `create_attempt`, `start_play`, `reveal_cell`, and `toggle_flag` are `@transaction.atomic`.
 
-Reveal/flag lock the **attempt** row. Two teams starting the same node concurrently each get their own game and attempt.
+`start_play` locks the **node** row (`select_for_update`), then looks for this team's `in_progress` attempt on that node. Two concurrent starts from the same team resume one attempt. Two teams starting the same node concurrently each get their own game and attempt. Reveal/flag lock the **attempt** row.
 
 ---
 
@@ -368,9 +369,9 @@ The SPA does **not** send difficulty and does not create games by id.
 
 ## Design decisions
 
-- **Settings vs game vs attempt.** Configuration lives on the node. Each entry generates a new board. Progress and score belong to the attempt.
+- **Settings vs game vs attempt.** Configuration lives on the node. Progress and score belong to the attempt.
 - **No shared board.** Two teams on the same node get two random layouts.
-- **Every entry creates a new game.** The same team entering twice gets two independent plays.
+- **One active attempt per team per node.** Returning while in progress resumes that attempt. After it finishes, a new visit creates a new game. Finished attempts are kept as history.
 - **`node` is association only.** Win/loss do not modify `Node`, occupancy, or `Team.balance`.
 - **404 for foreign GET/reveal/flag.** Same body as missing.
 - **Frontend does not create games.** Entry is `/minesweeper/node/<node_id>/`.
@@ -380,7 +381,7 @@ The SPA does **not** send difficulty and does not create games by id.
 ## Current scope and limitations
 
 - No WebSocket/SSE; no live sync across tabs.
-- Refreshing `/minesweeper/node/<id>/` starts a **new** game.
+- Returning to the same node while an attempt is in progress resumes the existing attempt for that team. After the attempt finishes, a new visit creates a new game.
 - No list/delete endpoints. Teams enter by node URL.
 - Winning does not capture the node.
 - Start/reveal/flag follow the contest clock; GET does not.
