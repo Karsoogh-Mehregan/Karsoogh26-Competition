@@ -3,7 +3,8 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import MapHud from './MapHud.vue'
 import { useActing } from '../composables/useActing'
 import { useEntry } from '../composables/useEntry'
-import { capacityForType } from '@/lib/mapLevels'
+import { useMapDesign } from '../composables/useMapDesign'
+import { sectorGeometries } from '../lib/mapNeighborhoods'
 import { useInspectorStore } from '../stores/inspector'
 import { useGraph } from '../composables/useGraph.js'
 import { useMapViewport } from '../composables/useMapViewport'
@@ -14,6 +15,28 @@ const { me, teams, actingTeam, isPlayer } = useActing()
 const { canClaimStart } = useEntry()
 const inspector = useInspectorStore()
 const { nodes, edges, nodeById, adjacency, startEligibleIds } = useGraph()
+const design = useMapDesign()
+const { neighborhoods, roadStyle, tintStrength, haloStrength } = design
+
+// ---- neighbourhoods ----
+// Eight wedges painted behind everything, and one ring per node in its sector's
+// colour. Both are static geometry: nothing here re-renders on a board event.
+const SECTOR_OUTER = 1075
+const SECTOR_INNER = 120
+// The borders follow the real gaps between groups on every ring, so they
+// wander a little instead of cutting straight. Geometry only; computed once.
+const sectorShapes = sectorGeometries(nodes, SECTOR_OUTER, SECTOR_INNER)
+const sectors = computed(() =>
+  sectorShapes.map((shape) => ({
+    ...shape,
+    color: neighborhoods.value[shape.index]?.color ?? '#999999',
+    name: neighborhoods.value[shape.index]?.name ?? '',
+  })),
+)
+
+function haloColor(n) {
+  return design.neighborhoodOf(n).color
+}
 
 const loggedIn = computed(() => !!me.value)
 const hasTeam = computed(() => !!actingTeam.value)
@@ -211,6 +234,29 @@ function edgePath(e) {
   return { x1: a.x, y1: a.y, x2: b.x, y2: b.y }
 }
 
+// One <path> per road, so the Designer's road style is a `d` string and a
+// class rather than a different element. Curved roads bow away from the map's
+// centre, which reads as streets wrapping around the rings.
+function edgeD(e) {
+  const { x1, y1 } = edgePath(e)
+  const end = e.directed ? shrunkTarget(e) : { x: edgePath(e).x2, y: edgePath(e).y2 }
+  if (roadStyle.value !== 'curved') {
+    return `M ${x1} ${y1} L ${end.x} ${end.y}`
+  }
+  const mx = (x1 + end.x) / 2
+  const my = (y1 + end.y) / 2
+  const len = Math.hypot(end.x - x1, end.y - y1) || 1
+  // Perpendicular, pointing away from the origin.
+  let nx = -(end.y - y1) / len
+  let ny = (end.x - x1) / len
+  if (nx * mx + ny * my < 0) {
+    nx = -nx
+    ny = -ny
+  }
+  const bulge = Math.min(22, len * 0.16)
+  return `M ${x1} ${y1} Q ${mx + nx * bulge} ${my + ny * bulge} ${end.x} ${end.y}`
+}
+
 // shrink a directed edge's endpoint back so the arrowhead doesn't overlap the node circle
 function shrunkTarget(e) {
   const a = nodeById.get(e.source)
@@ -293,10 +339,12 @@ function reservedHoldingsOn(n) {
   )
 }
 
+// Team colour is the node's message; only dim it when there is a team to
+// contrast against, and never so far that the colour stops reading.
 function holdingOpacity(holding) {
   if (!holding) return 1
-  if (!actingTeam.value) return 0.32
-  return holding.team_code === actingTeam.value.code ? 1 : 0.32
+  if (!actingTeam.value) return 1
+  return holding.team_code === actingTeam.value.code ? 1 : 0.55
 }
 
 function ringFill(n, ringIndexFromOutside) {
@@ -342,7 +390,7 @@ function shapeOpacity(n) {
 }
 
 function slotCount(n) {
-  return capacityForType(n.type)
+  return design.capacityOf(n.id, n.type)
 }
 
 function visualRadius(n) {
@@ -432,6 +480,13 @@ function shapePath(n) {
       >
         <path d="M 0 0 L 10 5 L 0 10 z" fill="#222" />
       </marker>
+      <!-- عوارضی: a gantry with a barrier arm, instead of an anonymous dot. -->
+      <symbol id="toll-gate" viewBox="-10 -10 20 20">
+        <rect x="-8.5" y="-1" width="3" height="9.5" rx="0.6" />
+        <rect x="5.5" y="-1" width="3" height="9.5" rx="0.6" />
+        <rect x="-8.5" y="-5.5" width="17" height="3.2" rx="0.8" />
+        <rect x="-6" y="2.2" width="12" height="2" rx="0.6" />
+      </symbol>
       <pattern
         id="reserve-hatch"
         patternUnits="userSpaceOnUse"
@@ -442,6 +497,35 @@ function shapePath(n) {
         <line x1="0" y1="0" x2="0" y2="6" stroke="#1a1a1a" stroke-width="2.2" />
       </pattern>
     </defs>
+
+    <!-- neighbourhood wedges: a wash of colour per sector, never a hit target -->
+    <g v-if="tintStrength > 0" class="sectors" aria-hidden="true">
+      <path
+        v-for="sector in sectors"
+        :key="'sector-' + sector.index"
+        :d="sector.d"
+        :fill="sector.color"
+        :fill-opacity="tintStrength"
+        :stroke="sector.color"
+        :stroke-opacity="Math.min(1, tintStrength * 2.2)"
+        class="sector"
+      />
+    </g>
+    <g v-if="tintStrength > 0 && labelsVisible" class="sector-labels" aria-hidden="true">
+      <text
+        v-for="sector in sectors"
+        :key="'sector-label-' + sector.index"
+        :x="sector.label.x"
+        :y="sector.label.y"
+        :font-size="px(11)"
+        :fill="sector.color"
+        class="sector-label"
+        text-anchor="middle"
+        dominant-baseline="middle"
+      >
+        {{ sector.name }}
+      </text>
+    </g>
 
     <!-- outward direction markers: yellow diamond start nodes only -->
     <g class="out-arrows">
@@ -459,14 +543,12 @@ function shapePath(n) {
     </g>
 
     <!-- edges -->
-    <g class="edges">
-      <line
+    <g class="edges" :class="'road-' + roadStyle">
+      <path
         v-for="(e, i) in edges"
         :key="'e-' + i"
-        :x1="edgePath(e).x1"
-        :y1="edgePath(e).y1"
-        :x2="e.directed ? shrunkTarget(e).x : edgePath(e).x2"
-        :y2="e.directed ? shrunkTarget(e).y : edgePath(e).y2"
+        :d="edgeD(e)"
+        fill="none"
         :class="[
           'edge',
           { active: isEdgeActive(e), traversed: isEdgeTraversed(e) },
@@ -498,6 +580,17 @@ function shapePath(n) {
         @focus="hoveredId = n.id"
         @blur="hoveredId = null"
       >
+        <!-- An opaque plate under the node: the team colour must read against
+             neutral ground, not through the neighbourhood wash. -->
+        <circle class="node-plate" :r="visualRadius(n) + 1.5" />
+        <circle
+          v-if="haloStrength > 0"
+          class="node-halo"
+          :r="visualRadius(n) + 6"
+          :stroke="haloColor(n)"
+          :stroke-opacity="haloStrength"
+          fill="none"
+        />
         <template v-if="slotCount(n) > 1">
           <template v-for="(r, i) in slotRadii(n)" :key="n.id + '-ring-' + i">
             <circle
@@ -514,6 +607,20 @@ function shapePath(n) {
               class="node-hatch"
             />
           </template>
+        </template>
+        <template v-else-if="n.type === 'c34' || n.type === 'c45'">
+          <!-- The gantry glyph has gaps; this disc is what actually takes the click. -->
+          <circle :r="n.size * 1.4" fill="transparent" stroke="none" class="node-hit" />
+          <use
+            href="#toll-gate"
+            :x="-n.size * 1.4"
+            :y="-n.size * 1.4"
+            :width="n.size * 2.8"
+            :height="n.size * 2.8"
+            :fill="nodeFill(n)"
+            :opacity="shapeOpacity(n)"
+            class="node-shape node-toll"
+          />
         </template>
         <template v-else-if="n.shape === 'circle'">
           <circle
@@ -715,6 +822,44 @@ function shapePath(n) {
 }
 .graph-svg:focus-visible {
   box-shadow: inset 0 0 0 2px var(--ring);
+}
+
+.sector,
+.sector-label {
+  pointer-events: none;
+}
+.sector {
+  stroke-width: 1.6px;
+  vector-effect: non-scaling-stroke;
+  stroke-linejoin: round;
+}
+.node-toll {
+  stroke-width: 0.9px;
+  pointer-events: none;
+}
+.node-hit {
+  pointer-events: all;
+}
+.sector-label {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  opacity: 0.55;
+}
+
+/* The neighbourhood's "hollow presence" around every house. */
+.node-plate {
+  fill: #f8f7f3;
+  stroke: none;
+  pointer-events: none;
+}
+.node-halo {
+  stroke-width: 1.6px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.road-dashed .edge {
+  stroke-dasharray: 6 5;
 }
 
 .edge {

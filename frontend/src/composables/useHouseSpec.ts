@@ -2,14 +2,16 @@
  * The inspected node, as a house.
  *
  * Everything the model needs is already on the board: the map JSON knows the
- * node's type, `GET /api/teams/` knows who sits on it. Nothing new is fetched,
- * so opening the panel costs one computed, and an SSE frame that refreshes the
+ * node's position, the design query knows its tier, neighbourhood and any pin,
+ * and `GET /api/teams/` knows who sits on it. Nothing new is fetched, so
+ * opening the panel costs one computed, and an SSE frame that refreshes the
  * team list flows straight through to the paint.
  */
 import { computed } from 'vue'
 
 import { useActing } from '@/composables/useActing'
 import { useGraph } from '@/composables/useGraph.js'
+import { useMapDesign } from '@/composables/useMapDesign'
 import { buildSpec, type HouseSpec, type PaintedHolding } from '@/lib/house/spec'
 import { useInspectorStore } from '@/stores/inspector'
 
@@ -17,6 +19,7 @@ export function useHouseSpec() {
   const inspector = useInspectorStore()
   const { teams, actingTeam } = useActing()
   const { nodeById } = useGraph()
+  const { metaOf } = useMapDesign()
 
   const inspection = computed(() => inspector.inspection)
 
@@ -44,7 +47,7 @@ export function useHouseSpec() {
   const spec = computed<HouseSpec | null>(() => {
     const current = node.value
     if (!current) return null
-    return buildSpec(current, holdings.value, {
+    return buildSpec(current.id, metaOf(current), holdings.value, {
       ownTeamCode: actingTeam.value?.code ?? null,
       teamNames: teamNames.value,
     })

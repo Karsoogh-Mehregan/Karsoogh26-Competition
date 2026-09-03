@@ -40,6 +40,10 @@ const CAMERA_DISTANCE = 24
 const ENTRY_MS = 620
 const MIN_PITCH = 0.12
 const MAX_PITCH = 1.35
+const MIN_ZOOM = 0.6
+const MAX_ZOOM = 2.6
+const ZOOM_STEP = 1.25
+const WHEEL_STEP = 0.0018
 
 export interface StageStats {
   drawCalls: number
@@ -97,6 +101,8 @@ function createStage() {
   let suspended = true
   let width = 1
   let height = 1
+  /** 1 fits the whole model; larger is closer. Applied to the ortho frustum. */
+  let zoomLevel = 1
 
   // ---- camera ---------------------------------------------------------------
 
@@ -113,7 +119,7 @@ function createStage() {
   function frameCamera() {
     // Fit the tallest thing on screen with a little air, then let the aspect
     // ratio widen the frustum rather than scaling the model.
-    const span = Math.max(modelHeight + 1.4, 4.5)
+    const span = Math.max(modelHeight + 1.4, 4.5) / zoomLevel
     const aspect = width / Math.max(1, height)
     camera.top = span / 2
     camera.bottom = -span / 2
@@ -191,10 +197,25 @@ function createStage() {
     releaseDrag()
   }
 
+  function setZoom(next: number) {
+    const clamped = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, next))
+    if (clamped === zoomLevel) return
+    zoomLevel = clamped
+    frameCamera()
+    invalidate()
+  }
+
+  function onWheel(event: WheelEvent) {
+    event.preventDefault()
+    const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 100 : 1
+    setZoom(zoomLevel * Math.exp(-event.deltaY * unit * WHEEL_STEP))
+  }
+
   canvas.addEventListener('pointerdown', onPointerDown)
   canvas.addEventListener('pointermove', onPointerMove)
   canvas.addEventListener('pointerup', onPointerUp)
   canvas.addEventListener('pointercancel', onPointerUp)
+  canvas.addEventListener('wheel', onWheel, { passive: false })
 
   canvas.addEventListener('webglcontextlost', (event) => {
     event.preventDefault()
@@ -321,7 +342,21 @@ function createStage() {
     resetView() {
       yaw = ISO_YAW
       pitch = 0.62
+      zoomLevel = 1
+      frameCamera()
       invalidate()
+    },
+
+    zoomIn() {
+      setZoom(zoomLevel * ZOOM_STEP)
+    },
+
+    zoomOut() {
+      setZoom(zoomLevel / ZOOM_STEP)
+    },
+
+    get zoom() {
+      return zoomLevel
     },
 
     stats(): StageStats {

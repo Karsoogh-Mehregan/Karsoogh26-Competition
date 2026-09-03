@@ -1,6 +1,7 @@
 /**
  * The description a house is built from. Everything here comes from data the
- * board already has: the map JSON gives the node's type, `GET /api/teams/`
+ * board already has: the map JSON gives the node's position, the design query
+ * gives its level, its neighbourhood and any Designer pin, and `GET /api/teams/`
  * gives the holdings sitting on it.
  *
  * `structureKey` is the point of this file. A house is rebuilt only when its
@@ -9,8 +10,9 @@
  * renderer tells the two apart, and it is what keeps a busy board — where
  * every grade fires an SSE frame — from rebuilding geometry on every event.
  */
-import { LEVEL_LABEL, capacityForType, levelForType, type Level } from '@/lib/mapLevels'
-import { ARCHETYPES, archetypeFor, type Archetype } from './archetypes'
+import { LEVEL_LABEL, type Level } from '@/lib/mapLevels'
+import type { Archetype } from './archetypes'
+import type { Theme } from './themes'
 
 export type FloorStatus = 'empty' | 'reserved' | 'owned'
 
@@ -32,6 +34,8 @@ export interface HouseSpec {
   levelLabel: string
   capacity: 1 | 2 | 3
   archetype: Archetype
+  theme: Theme
+  neighborhoodName: string
   floors: FloorState[]
   /** Seats with nobody in them, reserved or owned. */
   freeSlots: number
@@ -50,9 +54,13 @@ export interface PaintedHolding {
   team_code: string
 }
 
-export interface MapNodeLike {
-  id: string
-  type: string
+/** What the design layer resolved for this node. */
+export interface NodeMeta {
+  level: Level
+  capacity: 1 | 2 | 3
+  archetype: Archetype
+  theme: Theme
+  neighborhoodName: string
 }
 
 function emptyFloor(floor: number): FloorState {
@@ -75,7 +83,8 @@ function emptyFloor(floor: number): FloorState {
  * lowest seat still free, which is where they would land if graded right now.
  */
 export function buildSpec(
-  node: MapNodeLike,
+  nodeCode: string,
+  meta: NodeMeta,
   holdings: PaintedHolding[],
   options: {
     nodeName?: string
@@ -83,9 +92,8 @@ export function buildSpec(
     teamNames?: Map<string, string>
   } = {},
 ): HouseSpec {
-  const level = levelForType(node.type)
-  const capacity = capacityForType(node.type)
   const { ownTeamCode = null, teamNames } = options
+  const { level, capacity, archetype, theme } = meta
 
   const floors: FloorState[] = Array.from({ length: capacity }, (_, i) => emptyFloor(i + 1))
 
@@ -120,25 +128,22 @@ export function buildSpec(
     seat(index, holding, 'owned')
   }
 
-  const archetype = archetypeFor(node.id, level)
-
   return {
-    nodeCode: node.id,
-    nodeName: options.nodeName || node.id,
+    nodeCode,
+    nodeName: options.nodeName || nodeCode,
     level,
     levelLabel: LEVEL_LABEL[level],
     capacity,
     archetype,
+    theme,
+    neighborhoodName: meta.neighborhoodName,
     floors,
     freeSlots: floors.filter((slot) => slot.status === 'empty').length,
-    // Only what changes *geometry*: the building worn, how many storeys, and
-    // which of them are scaffolded. A floor changing hands is paint, and paint
-    // must never cost a rebuild.
-    structureKey: `${archetype.key}:${capacity}:${floors
+    // Only what changes *geometry*: the building worn, the theme dressing it,
+    // how many storeys, and which of them are scaffolded. A floor changing
+    // hands is paint, and paint must never cost a rebuild.
+    structureKey: `${archetype.key}:${theme.key}:${capacity}:${floors
       .map((slot) => (slot.status === 'reserved' ? '1' : '0'))
       .join('')}`,
   }
 }
-
-export { ARCHETYPES }
-export type { Archetype }

@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { queryClient } from '@/lib/queryClient'
 import { meQueryOptions } from '@/queries/auth'
+import DesignPage from '@/pages/DesignPage.vue'
 import GradingPage from '@/pages/GradingPage.vue'
 import LeaderboardPage from '@/pages/LeaderboardPage.vue'
 import MapPage from '@/pages/MapPage.vue'
@@ -13,6 +14,7 @@ export const router = createRouter({
     { path: '/grading', name: 'grading', component: GradingPage, meta: { requiresMentor: true } },
     { path: '/solve', name: 'solve', component: SolvePage, meta: { requiresPlayer: true } },
     { path: '/leaderboard', name: 'leaderboard', component: LeaderboardPage, meta: { requiresAuth: true } },
+    { path: '/design', name: 'design', component: DesignPage, meta: { requiresDesigner: true } },
   ],
 })
 
@@ -28,6 +30,9 @@ router.beforeEach(async (to) => {
     return { name: 'map' }
   }
   if (to.meta.requiresPlayer && !me?.team) {
+    return { name: 'map' }
+  }
+  if (to.meta.requiresDesigner && !me?.is_designer) {
     return { name: 'map' }
   }
   if (to.meta.requiresAuth && !me) {

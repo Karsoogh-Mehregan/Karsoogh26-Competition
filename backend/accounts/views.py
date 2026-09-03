@@ -21,6 +21,7 @@ _ME = {
     "is_staff": False,
     "is_mentor": True,
     "is_game_god": False,
+    "is_designer": False,
     "team": None,
 }
 

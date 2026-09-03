@@ -89,6 +89,21 @@ started) plus duel/questions, not auth or the team picker.
 `STATIC_URL` must start with `/` (`"/static/"`) or Django's StaticFilesHandler will
 not serve admin CSS.
 
+**Three roles, not two.** Besides mentors (`act_as_mentor`) and game gods
+(`control_game`), a **Designer** holds `game.design_map` (`IsDesigner`, `Designers` group,
+`is_designer` on `/api/auth/me/`) and may change only how the board *looks*: neighbourhood
+names/themes/colours and road style via `PATCH /api/map/design/`, and a per-node building-type
+pin or tier move via `PATCH /api/map/nodes/<code>/`. A tier move is refused (409) while any team
+holds a seat on the node, because capacity and entry cost hang off `Node.level`. Every logged-in
+client reads `GET /api/map/design/` — **this is now the level-of-record for the SPA map**;
+`frontend/src/lib/mapLevels.ts` mirrors `TYPE_TO_LEVEL` only as the fallback before that query
+answers. Building-type keys are duplicated on purpose in `backend/game/design.py` and
+`frontend/src/lib/house/archetypes.ts`; add to both. Sector membership is *not* stored: it is
+`floor(theta / 45)` computed client-side (`lib/mapNeighborhoods.ts`), which lines up with the
+connectivity groups in `generateGraph.mjs`. The 3D house panel, its rebuild-vs-repaint
+invariant, and the Designer UI are documented in `docs/house-view.md` — read it before touching
+`frontend/src/lib/house/`.
+
 **The root `README.md` is a roadmap, not a description.** SSE and panzoom are installed
 but unwired. Pinia and TanStack Query are wired (see **Frontend data layer**).
 shadcn-vue is in use in the team picker.

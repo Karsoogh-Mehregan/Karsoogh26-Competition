@@ -4,6 +4,7 @@ from game.models import GameSettings
 
 MENTOR_PERM = "game.act_as_mentor"
 GAME_GOD_PERM = "game.control_game"
+DESIGNER_PERM = "game.design_map"
 
 
 class IsMentor(BasePermission):
@@ -80,3 +81,19 @@ class CanViewLeaderboard(BasePermission):
         if user.has_perm(MENTOR_PERM):
             return True
         return GameSettings.load().leaderboard_public
+
+
+class IsDesigner(BasePermission):
+    """May change how the map looks: building types, neighbourhood colours, roads.
+
+    Backed by the `design_map` permission and the `Designers` group seeded in
+    `game/migrations/0017_seed_map_design.py`. Deliberately cannot touch
+    holdings, balances or the clock — a stray click in the design page must not
+    be able to affect the standings.
+    """
+
+    message = "این عملیات فقط برای طراحان مجاز است."
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and user.has_perm(DESIGNER_PERM))
