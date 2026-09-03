@@ -31,6 +31,7 @@ export function useLoginMutation() {
     mutationFn: (credentials: LoginCredentials) => login(credentials),
     onSuccess: (me: Me) => {
       queryClient.setQueryData(queryKeys.me(), me)
+      queryClient.removeQueries({ queryKey: queryKeys.minesweeperRoot() })
       return Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.teams() }),
         // The sheet is per-team and cached forever, so it must not outlive
@@ -51,6 +52,7 @@ export function useLogoutMutation() {
       queryClient.removeQueries({ queryKey: queryKeys.submissions() })
       queryClient.removeQueries({ queryKey: queryKeys.entrySheet() })
       queryClient.removeQueries({ queryKey: queryKeys.attemptsRoot() })
+      queryClient.removeQueries({ queryKey: queryKeys.minesweeperRoot() })
       await ensureCsrf()
     },
   })

@@ -318,6 +318,8 @@ export interface NodeDesign {
   capacity: 1 | 2 | 3
   /** A Designer's pin; empty means the renderer chooses. */
   archetype: string
+  /** Whether this node has an enabled minesweeper board behind it. */
+  minesweeper: boolean
 }
 
 export interface MapDesign {
@@ -338,4 +340,73 @@ export interface MapDesignPatch {
 export interface NodeDesignPatch {
   level?: NodeLevel
   archetype?: string
+}
+
+// ---- minesweeper ---------------------------------------------------------
+
+export type MinesweeperDifficulty = 'easy' | 'medium' | 'hard'
+
+export type MinesweeperStatus = 'in_progress' | 'won' | 'lost'
+
+/** Unrevealed cell while the game is still in progress — no mine, no count. */
+export interface MinesweeperHiddenCell {
+  revealed: false
+  flagged: boolean
+}
+
+/** Revealed cell while the game is still in progress — count only, never mine. */
+export interface MinesweeperRevealedCell {
+  revealed: true
+  flagged: boolean
+  adjacent_mines: number
+}
+
+export type MinesweeperActiveCell = MinesweeperHiddenCell | MinesweeperRevealedCell
+
+/** Cell after won/lost — mine locations are part of the public result. */
+export interface MinesweeperFinishedCell {
+  revealed: boolean
+  flagged: boolean
+  adjacent_mines: number
+  mine: boolean
+}
+
+export interface MinesweeperBoard<TCell> {
+  cells: TCell[][]
+}
+
+interface MinesweeperGameBase {
+  game_id: number
+  attempt_id: number
+  node: string
+  difficulty: MinesweeperDifficulty
+  width: number
+  height: number
+  mine_count: number
+  score: number
+  started_at: string
+}
+
+export interface MinesweeperActiveGame extends MinesweeperGameBase {
+  status: 'in_progress'
+  finished_at: null
+  board: MinesweeperBoard<MinesweeperActiveCell>
+}
+
+export interface MinesweeperFinishedGame extends MinesweeperGameBase {
+  status: 'won' | 'lost'
+  finished_at: string
+  board: MinesweeperBoard<MinesweeperFinishedCell>
+}
+
+export type MinesweeperGame = MinesweeperActiveGame | MinesweeperFinishedGame
+
+export interface MinesweeperEntry {
+  entry: string
+  node: string
+}
+
+export interface MinesweeperCellActionRequest {
+  row: number
+  col: number
 }

@@ -73,6 +73,7 @@ INSTALLED_APPS = [
     "teams",
     "accounts",
     "game",
+    "minesweeper",
     "notifications",
 ]
 

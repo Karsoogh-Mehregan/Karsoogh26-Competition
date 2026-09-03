@@ -13,6 +13,7 @@ urlpatterns = [
     # notifications.urls owns "notifications/..." and "messages/...", which
     # nothing above claims.
     path("", include("notifications.urls")),
+    path("minesweeper/", include("minesweeper.urls")),
 ]
 
 if settings.DEBUG:
