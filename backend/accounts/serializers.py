@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from notifications.permissions import SEND_PERM as SEND_ANNOUNCEMENT_PERM
+
 from .models import User
 from .permissions import MENTOR_PERM, has_game_god_rights
 
@@ -16,14 +18,29 @@ class LoginSerializer(serializers.Serializer):
 class MeSerializer(serializers.ModelSerializer):
     is_mentor = serializers.SerializerMethodField()
     is_game_god = serializers.SerializerMethodField()
+    is_announcer = serializers.SerializerMethodField()
     team = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ("id", "username", "is_staff", "is_mentor", "is_game_god", "team")
+        fields = (
+            "id",
+            "username",
+            "is_staff",
+            "is_mentor",
+            "is_game_god",
+            "is_announcer",
+            "team",
+        )
 
     def get_is_mentor(self, user: User) -> bool:
         return user.has_perm(MENTOR_PERM)
+
+    def get_is_announcer(self, user: User) -> bool:
+        """Its own flag, not `is_game_god`. The permission is seeded onto that
+        group, but an organiser may grant it to anyone, and the SPA must show
+        the composer to exactly whoever the API would let through."""
+        return user.has_perm(SEND_ANNOUNCEMENT_PERM)
 
     def get_is_game_god(self, user: User) -> bool:
         return has_game_god_rights(user)

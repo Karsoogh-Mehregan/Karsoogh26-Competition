@@ -22,6 +22,7 @@ const {
   teams,
   actingTeam,
   isMentor,
+  isAnnouncer,
   isPlayer,
   loading,
   error,
@@ -139,6 +140,19 @@ const showTeamPicker = computed(() => isMentor.value || isPlayer.value)
             :aria-current="route.path === '/leaderboard' ? 'page' : undefined"
           >
             جدول امتیازات
+          </RouterLink>
+        </Button>
+        <Button
+          v-if="isAnnouncer"
+          as-child
+          size="sm"
+          :variant="route.path === '/messages' ? 'default' : 'outline'"
+        >
+          <RouterLink
+            to="/messages"
+            :aria-current="route.path === '/messages' ? 'page' : undefined"
+          >
+            ارسال پیام
           </RouterLink>
         </Button>
       </nav>

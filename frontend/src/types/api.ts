@@ -23,6 +23,7 @@ export interface Me {
   is_staff: boolean
   is_mentor: boolean
   is_game_god: boolean
+  is_announcer: boolean
   team: { code: string; name: string } | null
 }
 
@@ -171,4 +172,88 @@ export interface EntrySheet {
 
 export interface EntryAnswerResult extends EntrySheet {
   is_correct: boolean
+}
+
+// ---- notifications --------------------------------------------------------
+
+export type MessageKind = 'announcement' | 'system'
+export type MessageStatus = 'draft' | 'sent'
+export type Audience = 'all' | 'teams' | 'mentors' | 'designers' | 'team' | 'user'
+
+export interface InboxItem {
+  id: number
+  title: string
+  body: string
+  excerpt: string
+  kind: MessageKind
+  event_key: string
+  sender: string
+  sent_at: string | null
+  created_at: string
+  is_read: boolean
+  read_at: string | null
+}
+
+export interface Inbox {
+  unread: number
+  total: number
+  results: InboxItem[]
+}
+
+export interface ReadResult {
+  marked: number
+  unread: number
+}
+
+export interface AudienceChoice {
+  value: Audience
+  label: string
+}
+
+export interface AudienceUser {
+  id: number
+  username: string
+  label: string
+  team_code: string | null
+}
+
+export interface AudienceOptions {
+  choices: AudienceChoice[]
+  teams: { code: string; name: string }[]
+  users: AudienceUser[]
+}
+
+export interface Message {
+  id: number
+  kind: MessageKind
+  status: MessageStatus
+  title: string
+  body: string
+  excerpt: string
+  audience: Audience
+  audience_label: string
+  audience_team: string | null
+  audience_user: number | null
+  sender: string
+  event_key: string
+  created_at: string
+  updated_at: string
+  sent_at: string | null
+  recipient_count: number
+  read_count: number
+}
+
+/** What the composer submits. `send: true` writes and delivers in one call. */
+export interface MessageDraft {
+  title: string
+  body: string
+  audience: Audience
+  audience_team?: string | null
+  audience_user?: number | null
+  send?: boolean
+}
+
+export interface SendResult {
+  message: Message
+  delivered: number
 }

@@ -89,6 +89,32 @@ started) plus duel/questions, not auth or the team picker.
 `STATIC_URL` must start with `/` (`"/static/"`) or Django's StaticFilesHandler will
 not serve admin CSS.
 
+**Notifications are two models, fanned out at send time.** The `notifications` app splits
+"what was written" (`Message` — body plus the audience it was aimed at) from "who has read
+it" (`Notification` — one row per recipient). `services.send_message` resolves the audience
+*once*, at send, and writes a row each: read state needs a row anyway, the bell's unread
+count is then one indexed query, and a mentor added to a group an hour later must not
+retroactively appear to have been addressed. A draft has no `Notification` rows at all.
+The author is excluded from their own fan-out — an announcement belongs in Sent, not in its
+writer's bell. `services.users_with_perm` resolves the mentor/designer audiences by
+*explicit* grant and deliberately not through `has_perm`, which is True for every superuser;
+same reasoning as `accounts.permissions.has_game_god_rights`. A permission that does not
+exist yet (`game.design_map`, which arrives with the designer work) resolves to an empty
+audience rather than raising. Sending is gated on `notifications.send_announcement`
+(`CanSendAnnouncement`), seeded onto the existing **GameGods** group by
+`notifications/migrations/0002` — no new group. The automatic half lives in
+`notifications/alerts.py`, one function per moment, every one best-effort: an alert that
+raises is logged and swallowed, because a notification must never roll back the move that
+caused it. `game/` calls those with a **local import inside the function** — `notifications`
+reaches back into `game.services.events` for the publisher, so a module-level import would
+close the loop.
+
+**SSE frames can be addressed.** `publish(..., recipients=[user_id, ...])` puts the ids in
+their own stream field (`u`), never in the payload, and `game.sse._visible_to` drops the
+frame for anyone not named — so a notification hint does not tell the whole hall who got
+mail. An empty `recipients` still means everyone, so nothing else changed. As ever the frame
+is only a hint: the client refetches `GET /api/notifications/`.
+
 **The root `README.md` is a roadmap, not a description.** SSE and panzoom are installed
 but unwired. Pinia and TanStack Query are wired (see **Frontend data layer**).
 shadcn-vue is in use in the team picker.

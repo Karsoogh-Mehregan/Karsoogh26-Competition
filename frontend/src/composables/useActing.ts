@@ -38,6 +38,8 @@ export function useActing() {
   const isMentor = computed(() => me.value?.is_mentor ?? false)
   // Running the event is a narrower right than grading for it.
   const isGameGod = computed(() => me.value?.is_game_god ?? false)
+  // Backed by its own permission, so it is not the same set as isGameGod.
+  const isAnnouncer = computed(() => me.value?.is_announcer ?? false)
   const isPlayer = computed(() => me.value != null && me.value.team != null)
   const ownTeamCode = computed(() => me.value?.team?.code ?? null)
 
@@ -135,6 +137,7 @@ export function useActing() {
     actingTeam,
     isMentor,
     isGameGod,
+    isAnnouncer,
     isPlayer,
     loading,
     error,

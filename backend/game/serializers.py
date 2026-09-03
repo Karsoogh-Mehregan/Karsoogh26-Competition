@@ -371,6 +371,7 @@ class GameRestartResultSerializer(serializers.Serializer):
     occupancies = serializers.IntegerField(read_only=True)
     submissions = serializers.IntegerField(read_only=True)
     entry_attempts = serializers.IntegerField(read_only=True)
+    system_messages = serializers.IntegerField(read_only=True)
     teams = serializers.IntegerField(read_only=True)
 
 
