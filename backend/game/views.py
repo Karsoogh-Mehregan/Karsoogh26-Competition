@@ -92,6 +92,7 @@ _HOLDING_ASSIGNED = {
     "entered_at": "2026-08-30T09:55:00Z",
     "released_at": None,
     "release_reason": "",
+    "source": "attempt",
 }
 _HOLDING_GRADED = {
     **_HOLDING_ASSIGNED,

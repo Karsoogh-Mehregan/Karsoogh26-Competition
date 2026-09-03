@@ -39,6 +39,11 @@ class ReleaseReason(models.TextChoices):
     BOUGHT_OUT = "bought_out", "خریداری شد"
 
 
+class AcquisitionSource(models.TextChoices):
+    ATTEMPT = "attempt", "تلاش"
+    ITEM = "item", "آیتم"
+
+
 class GameStatus(models.TextChoices):
     NOT_STARTED = "not_started", "شروع نشده"
     RUNNING = "running", "در حال اجرا"
@@ -210,6 +215,11 @@ class Occupancy(models.Model):
     )
 
     is_spawn = models.BooleanField(default=False)
+    source = models.CharField(
+        max_length=16,
+        choices=AcquisitionSource.choices,
+        default=AcquisitionSource.ATTEMPT,
+    )
     expires_at = models.DateTimeField(null=True, blank=True)
 
     entered_at = models.DateTimeField(auto_now_add=True)
