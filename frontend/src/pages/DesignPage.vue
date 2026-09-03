@@ -125,7 +125,7 @@ async function saveNeighborhoods() {
             <div class="grid gap-4 sm:grid-cols-2">
               <div class="flex flex-col gap-1.5">
                 <Label for="tint">رنگ پس‌زمینهٔ محله — {{ tint }}٪</Label>
-                <input id="tint" v-model.number="tint" type="range" min="0" max="40" class="w-full" />
+                <input id="tint" v-model.number="tint" type="range" min="0" max="60" class="w-full" />
               </div>
               <div class="flex flex-col gap-1.5">
                 <Label for="halo">حلقهٔ دور خانه‌ها — {{ halo }}٪</Label>

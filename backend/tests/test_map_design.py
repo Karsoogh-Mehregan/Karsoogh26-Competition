@@ -80,6 +80,7 @@ def test_the_seed_gives_eight_sectors_and_a_settings_row():
 def test_any_logged_in_user_can_read_the_design(player, nodes):
     body = player.get(DESIGN_URL).json()
     assert body["road_style"] == "straight"
+    assert body["tint_strength"] == 22
     assert len(body["neighborhoods"]) == 8
     by_code = {row["code"]: row for row in body["nodes"]}
     assert by_code["L6_0"] == {"code": "L6_0", "level": "hard", "capacity": 3, "archetype": ""}

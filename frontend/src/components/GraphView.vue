@@ -4,7 +4,7 @@ import MapHud from './MapHud.vue'
 import { useActing } from '../composables/useActing'
 import { useEntry } from '../composables/useEntry'
 import { useMapDesign } from '../composables/useMapDesign'
-import { SECTOR_COUNT, sectorLabelPoint, wedgePath } from '../lib/mapNeighborhoods'
+import { sectorGeometries } from '../lib/mapNeighborhoods'
 import { useInspectorStore } from '../stores/inspector'
 import { useGraph } from '../composables/useGraph.js'
 import { useMapViewport } from '../composables/useMapViewport'
@@ -23,13 +23,14 @@ const { neighborhoods, roadStyle, tintStrength, haloStrength } = design
 // colour. Both are static geometry: nothing here re-renders on a board event.
 const SECTOR_OUTER = 1075
 const SECTOR_INNER = 120
+// The borders follow the real gaps between groups on every ring, so they
+// wander a little instead of cutting straight. Geometry only; computed once.
+const sectorShapes = sectorGeometries(nodes, SECTOR_OUTER, SECTOR_INNER)
 const sectors = computed(() =>
-  Array.from({ length: SECTOR_COUNT }, (_, index) => ({
-    index,
-    d: wedgePath(index, SECTOR_OUTER, SECTOR_INNER),
-    color: neighborhoods.value[index]?.color ?? '#999999',
-    name: neighborhoods.value[index]?.name ?? '',
-    label: sectorLabelPoint(index, SECTOR_OUTER - 34),
+  sectorShapes.map((shape) => ({
+    ...shape,
+    color: neighborhoods.value[shape.index]?.color ?? '#999999',
+    name: neighborhoods.value[shape.index]?.name ?? '',
   })),
 )
 
@@ -338,10 +339,12 @@ function reservedHoldingsOn(n) {
   )
 }
 
+// Team colour is the node's message; only dim it when there is a team to
+// contrast against, and never so far that the colour stops reading.
 function holdingOpacity(holding) {
   if (!holding) return 1
-  if (!actingTeam.value) return 0.32
-  return holding.team_code === actingTeam.value.code ? 1 : 0.32
+  if (!actingTeam.value) return 1
+  return holding.team_code === actingTeam.value.code ? 1 : 0.55
 }
 
 function ringFill(n, ringIndexFromOutside) {
@@ -477,6 +480,13 @@ function shapePath(n) {
       >
         <path d="M 0 0 L 10 5 L 0 10 z" fill="#222" />
       </marker>
+      <!-- عوارضی: a gantry with a barrier arm, instead of an anonymous dot. -->
+      <symbol id="toll-gate" viewBox="-10 -10 20 20">
+        <rect x="-8.5" y="-1" width="3" height="9.5" rx="0.6" />
+        <rect x="5.5" y="-1" width="3" height="9.5" rx="0.6" />
+        <rect x="-8.5" y="-5.5" width="17" height="3.2" rx="0.8" />
+        <rect x="-6" y="2.2" width="12" height="2" rx="0.6" />
+      </symbol>
       <pattern
         id="reserve-hatch"
         patternUnits="userSpaceOnUse"
@@ -496,6 +506,8 @@ function shapePath(n) {
         :d="sector.d"
         :fill="sector.color"
         :fill-opacity="tintStrength"
+        :stroke="sector.color"
+        :stroke-opacity="Math.min(1, tintStrength * 2.2)"
         class="sector"
       />
     </g>
@@ -568,10 +580,13 @@ function shapePath(n) {
         @focus="hoveredId = n.id"
         @blur="hoveredId = null"
       >
+        <!-- An opaque plate under the node: the team colour must read against
+             neutral ground, not through the neighbourhood wash. -->
+        <circle class="node-plate" :r="visualRadius(n) + 1.5" />
         <circle
           v-if="haloStrength > 0"
           class="node-halo"
-          :r="visualRadius(n) + 5"
+          :r="visualRadius(n) + 6"
           :stroke="haloColor(n)"
           :stroke-opacity="haloStrength"
           fill="none"
@@ -592,6 +607,20 @@ function shapePath(n) {
               class="node-hatch"
             />
           </template>
+        </template>
+        <template v-else-if="n.type === 'c34' || n.type === 'c45'">
+          <!-- The gantry glyph has gaps; this disc is what actually takes the click. -->
+          <circle :r="n.size * 1.4" fill="transparent" stroke="none" class="node-hit" />
+          <use
+            href="#toll-gate"
+            :x="-n.size * 1.4"
+            :y="-n.size * 1.4"
+            :width="n.size * 2.8"
+            :height="n.size * 2.8"
+            :fill="nodeFill(n)"
+            :opacity="shapeOpacity(n)"
+            class="node-shape node-toll"
+          />
         </template>
         <template v-else-if="n.shape === 'circle'">
           <circle
@@ -799,6 +828,18 @@ function shapePath(n) {
 .sector-label {
   pointer-events: none;
 }
+.sector {
+  stroke-width: 1.6px;
+  vector-effect: non-scaling-stroke;
+  stroke-linejoin: round;
+}
+.node-toll {
+  stroke-width: 0.9px;
+  pointer-events: none;
+}
+.node-hit {
+  pointer-events: all;
+}
 .sector-label {
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -806,8 +847,13 @@ function shapePath(n) {
 }
 
 /* The neighbourhood's "hollow presence" around every house. */
+.node-plate {
+  fill: #f8f7f3;
+  stroke: none;
+  pointer-events: none;
+}
 .node-halo {
-  stroke-width: 2.2px;
+  stroke-width: 1.6px;
   vector-effect: non-scaling-stroke;
   pointer-events: none;
 }

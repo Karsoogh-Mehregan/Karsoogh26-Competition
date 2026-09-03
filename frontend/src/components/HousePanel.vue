@@ -11,7 +11,15 @@
  * A Designer sees one extra block under the floor list: the building type and
  * tier for this node, editable in place with the model as live preview.
  */
-import { ChevronRightIcon, HouseIcon, Loader2Icon, PaintbrushIcon, XIcon } from '@lucide/vue'
+import {
+  ChevronRightIcon,
+  HouseIcon,
+  Loader2Icon,
+  Maximize2Icon,
+  Minimize2Icon,
+  PaintbrushIcon,
+  XIcon,
+} from '@lucide/vue'
 import { useLocalStorage } from '@vueuse/core'
 import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -50,6 +58,8 @@ const attemptStore = useAttemptStore()
 const router = useRouter()
 
 const collapsed = useLocalStorage('karsoogh.house-panel-collapsed', false)
+// A bigger stage for actually looking at the building; the map gives up width for it.
+const expanded = useLocalStorage('karsoogh.house-panel-expanded', false)
 const busy = ref(false)
 
 const isDesigner = computed(() => me.value?.is_designer ?? false)
@@ -167,7 +177,7 @@ async function saveDesign() {
     </Button>
   </aside>
 
-  <aside v-else class="house-panel" dir="rtl" aria-label="نمای خانه">
+  <aside v-else class="house-panel" :class="{ 'is-expanded': expanded }" dir="rtl" aria-label="نمای خانه">
     <header class="house-panel-head">
       <div class="min-w-0">
         <h2 class="truncate text-base font-bold">
@@ -180,6 +190,16 @@ async function saveDesign() {
       </div>
       <div class="flex shrink-0 items-center gap-1">
         <Badge v-if="spec" variant="secondary">{{ spec.levelLabel }}</Badge>
+        <Button
+          variant="ghost"
+          size="icon"
+          :aria-label="expanded ? 'کوچک کردن نما' : 'بزرگ کردن نما'"
+          :title="expanded ? 'کوچک کردن نما' : 'بزرگ کردن نما'"
+          @click="expanded = !expanded"
+        >
+          <Minimize2Icon v-if="expanded" class="size-4" />
+          <Maximize2Icon v-else class="size-4" />
+        </Button>
         <Button
           variant="ghost"
           size="icon"
@@ -317,7 +337,7 @@ async function saveDesign() {
 .house-panel {
   display: flex;
   flex-direction: column;
-  inline-size: 20rem;
+  inline-size: 27rem;
   flex-shrink: 0;
   min-block-size: 0;
   border-inline-start: 1px solid var(--border);
@@ -357,8 +377,16 @@ async function saveDesign() {
 /* The canvas gets the slack: the lists below are content-sized. */
 .house-panel-stage {
   flex: 1 1 auto;
-  min-block-size: 12rem;
+  min-block-size: 22rem;
   padding: 0.6rem;
+}
+
+/* Expanded: the building is the point; take a real share of the row. */
+.house-panel.is-expanded {
+  inline-size: min(46rem, 58vw);
+}
+.house-panel.is-expanded .house-panel-stage {
+  min-block-size: 34rem;
 }
 
 .house-panel-scroll {

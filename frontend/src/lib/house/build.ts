@@ -12,32 +12,19 @@
  * A contest fires board events continuously; if paint rebuilt geometry the
  * panel would churn all afternoon for no visible reason.
  *
- * Composition, bottom to top: the archetype's foundation, the storey stack
- * (one box + trim per seat), instanced windows, the door and sign with the
- * theme's emblem, the archetype's roof, its props (asking the roof where its
- * surface is), and the theme's motif around the plot.
+ * Composition: the type's own builder in `buildings.ts` lays out the plot and
+ * registers its paintable storeys; this file adds the instanced windows, the
+ * contact shadow, the theme's motif around the plot, and scaffolding on any
+ * storey a team has reserved but not yet earned.
  */
-import { Group, InstancedMesh, Mesh, Object3D, type Material } from 'three'
+import { Group, InstancedMesh, Object3D, type Material } from 'three'
 
+import { buildArchetype, type Placement } from './buildings'
 import { geometry, type GeometryKey } from './geometry'
 import { SCAFFOLD, contactShadow, glass as glassMaterial, shade, solid, teamColor } from './materials'
-import {
-  FLOOR_H,
-  HALF,
-  WIDTH,
-  buildEmblem,
-  buildFoundation,
-  buildMotif,
-  buildProp,
-  buildRoof,
-  mesh,
-  type Paint,
-} from './props'
+import { buildMotif, mesh, type Paint } from './props'
 import type { HouseSpec } from './spec'
 import type { Theme } from './themes'
-
-const BODY_H = 0.86
-const TRIM_H = 0.14
 
 export interface HouseHandle {
   group: Group
@@ -45,6 +32,11 @@ export interface HouseHandle {
   height: number
   paint(spec: HouseSpec): void
 }
+
+const GRASS = 0x5f9e4a
+const CROP = 0x86b04c
+const WOOD = 0x8a5a3a
+const METAL = 0x6e747c
 
 function paintFor(theme: Theme): Paint {
   const p = theme.palette
@@ -58,44 +50,11 @@ function paintFor(theme: Theme): Paint {
     ground: solid(p.ground),
     glass: glassMaterial(p.glass),
     scaffold: solid(SCAFFOLD),
+    grass: solid(GRASS),
+    crop: solid(CROP),
+    wood: solid(WOOD),
+    metal: solid(METAL),
   }
-}
-
-function bodyY(floor: number): number {
-  return (floor - 1) * FLOOR_H + BODY_H / 2
-}
-
-function trimY(floor: number): number {
-  return (floor - 1) * FLOOR_H + BODY_H + TRIM_H / 2
-}
-
-// ---- instanced parts -------------------------------------------------------
-
-interface Placement {
-  x: number
-  y: number
-  z: number
-  rotY: number
-}
-
-/** Two panes on each of the four faces, minus the ground-floor doorway. */
-function windowPlacements(capacity: number): Placement[] {
-  const out: Placement[] = []
-  const offset = HALF + 0.02
-  for (let floor = 1; floor <= capacity; floor += 1) {
-    const y = bodyY(floor) + 0.06
-    for (const side of [-1, 1]) {
-      for (const along of [-0.46, 0.46]) {
-        // The doorway takes the whole front of the ground floor.
-        if (floor === 1 && side === 1) continue
-        out.push({ x: along, y, z: side * offset, rotY: 0 })
-      }
-      for (const along of [-0.46, 0.46]) {
-        out.push({ x: side * offset, y, z: along, rotY: Math.PI / 2 })
-      }
-    }
-  }
-  return out
 }
 
 function instanced(
@@ -118,123 +77,102 @@ function instanced(
   return item
 }
 
-/** A reserved seat is a building site: poles at the corners, two planks across. */
-function scaffoldPlacements(spec: HouseSpec): { poles: Placement[]; planks: Placement[] } {
-  const poles: Placement[] = []
-  const planks: Placement[] = []
-  const reach = HALF + 0.12
-  for (const slot of spec.floors) {
-    if (slot.status !== 'reserved') continue
-    const base = (slot.floor - 1) * FLOOR_H
-    for (const x of [-reach, reach]) {
-      for (const z of [-reach, reach]) {
-        poles.push({ x, y: base + FLOOR_H / 2, z, rotY: 0 })
-      }
-    }
-    planks.push({ x: 0, y: base + 0.3, z: reach, rotY: 0 })
-    planks.push({ x: 0, y: base + 0.78, z: reach, rotY: 0 })
-  }
-  return { poles, planks }
-}
-
-// ---- the house -------------------------------------------------------------
-
 export function buildHouse(spec: HouseSpec): HouseHandle {
   const group = new Group()
   const paint = paintFor(spec.theme)
-  const { archetype, theme, capacity } = spec
-
-  const foundation = buildFoundation(archetype.foundation, paint)
-  for (const part of foundation.parts) group.add(part)
+  const built = buildArchetype(spec.archetype, spec.capacity, paint, spec.theme)
 
   // Ground shadow, drawn first and never depth-writing so nothing z-fights it.
+  const span = Math.max(built.plot.w, built.plot.d) + 3.2
   const shadow = mesh(
     'plane',
     contactShadow(),
-    { y: foundation.groundY - 0.012 },
-    { x: 5.2, y: 5.2 },
+    { x: built.plot.x, y: built.groundY - 0.012, z: built.plot.z },
+    { x: span, y: span },
     { x: -Math.PI / 2 },
   )
   shadow.renderOrder = -1
   group.add(shadow)
 
-  // One storey per seat: a body that carries the occupant's colour, capped by a
-  // darker trim band so stacked floors stay legible from any angle.
-  const bodies: Mesh[] = []
-  const trims: Mesh[] = []
-  for (const slot of spec.floors) {
-    const body = mesh('box', paint.wall, { y: bodyY(slot.floor) }, { x: WIDTH, y: BODY_H, z: WIDTH })
-    const trim = mesh(
-      'box',
-      paint.trim,
-      { y: trimY(slot.floor) },
-      { x: WIDTH + 0.16, y: TRIM_H, z: WIDTH + 0.16 },
-    )
-    bodies.push(body)
-    trims.push(trim)
-    group.add(body, trim)
-  }
+  for (const part of built.parts) group.add(part)
 
-  const windows = instanced('box', paint.glass, windowPlacements(capacity), {
-    x: 0.36,
-    y: 0.44,
-    z: 0.08,
-  })
+  const windows = instanced('box', paint.glass, built.windows, { x: 0.34, y: 0.42, z: 0.08 })
   if (windows) group.add(windows)
 
-  // Doorway on the ground floor's front face, the shop sign beside it, and the
-  // neighbourhood's symbol on the sign.
-  group.add(mesh('box', paint.dark, { y: 0.34, z: HALF + 0.03 }, { x: 0.6, y: 0.68, z: 0.1 }))
-  group.add(mesh('box', paint.glass, { y: 0.32, z: HALF + 0.07 }, { x: 0.42, y: 0.54, z: 0.06 }))
-  if (archetype.awning) {
-    group.add(mesh('box', paint.roof, { y: 0.86, z: HALF + 0.2 }, { x: 1.06, y: 0.07, z: 0.5 }, { x: -0.32 }))
-  }
-  group.add(mesh('box', paint.accent, { x: 0.72, y: 0.74, z: HALF + 0.06 }, { x: 0.5, y: 0.34, z: 0.06 }))
-  for (const part of buildEmblem(theme.emblem, paint)) group.add(part)
-
-  const roof = buildRoof(archetype.roof, capacity * FLOOR_H, paint)
-  for (const part of roof.parts) group.add(part)
-
-  let top = roof.top
-  for (const kind of archetype.props) {
-    const parts = buildProp(kind, roof, paint)
-    for (const part of parts) {
-      group.add(part)
-      // Tall yard props (a watchtower, a crane) decide the framing too.
-      top = Math.max(top, part.position.y + part.scale.y / 2)
-    }
-  }
-
-  for (const part of buildMotif(theme.motif, capacity, foundation.groundY, paint)) {
+  let top = built.top
+  for (const part of buildMotif(spec.theme.motif, built.plot, built.groundY, paint, spec.capacity)) {
     group.add(part)
     top = Math.max(top, part.position.y + part.scale.y / 2)
   }
 
-  const scaffold = scaffoldPlacements(spec)
-  const poles = instanced('cylinder', paint.scaffold, scaffold.poles, { x: 0.07, y: FLOOR_H, z: 0.07 })
-  if (poles) group.add(poles)
-  const planks = instanced('box', paint.scaffold, scaffold.planks, { x: WIDTH + 0.3, y: 0.06, z: 0.08 })
-  if (planks) group.add(planks)
+  // A reserved seat is a building site: poles at the corners of that storey's
+  // bounds, two planks across its front.
+  const poles: Placement[] = []
+  const planks: Placement[] = []
+  spec.floors.forEach((slot, index) => {
+    if (slot.status !== 'reserved') return
+    const b = built.floors[index]?.bounds
+    if (!b) return
+    const rx = b.w / 2 + 0.14
+    const rz = b.d / 2 + 0.14
+    const h = b.y1 - b.y0
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        poles.push({ x: b.x + sx * rx, y: b.y0 + h / 2, z: b.z + sz * rz, rotY: 0 })
+      }
+    }
+    planks.push({ x: b.x, y: b.y0 + h * 0.3, z: b.z + rz, rotY: 0 })
+    planks.push({ x: b.x, y: b.y0 + h * 0.75, z: b.z + rz, rotY: 0 })
+  })
+  const scaffoldPoles = instanced('cylinder', paint.scaffold, poles, { x: 0.07, y: 1, z: 0.07 })
+  if (scaffoldPoles) {
+    // Poles are unit-height instances; stretch each to its storey.
+    const dummy = new Object3D()
+    poles.forEach((p, i) => {
+      const b = built.floors.find((f) => Math.abs(f.bounds.y0 + (f.bounds.y1 - f.bounds.y0) / 2 - p.y) < 1e-6)?.bounds
+      const h = b ? b.y1 - b.y0 : 1
+      dummy.position.set(p.x, p.y, p.z)
+      dummy.rotation.set(0, 0, 0)
+      dummy.scale.set(0.07, h, 0.07)
+      dummy.updateMatrix()
+      scaffoldPoles.setMatrixAt(i, dummy.matrix)
+    })
+    scaffoldPoles.instanceMatrix.needsUpdate = true
+    group.add(scaffoldPoles)
+  }
+  const scaffoldPlanks = instanced('box', paint.scaffold, planks, { x: 1, y: 0.06, z: 0.08 })
+  if (scaffoldPlanks) {
+    const dummy = new Object3D()
+    planks.forEach((p, i) => {
+      const b = built.floors.find((f) => Math.abs(f.bounds.z + f.bounds.d / 2 + 0.14 - p.z) < 1e-6)?.bounds
+      dummy.position.set(p.x, p.y, p.z)
+      dummy.rotation.set(0, 0, 0)
+      dummy.scale.set((b?.w ?? 2) + 0.4, 0.06, 0.08)
+      dummy.updateMatrix()
+      scaffoldPlanks.setMatrixAt(i, dummy.matrix)
+    })
+    scaffoldPlanks.instanceMatrix.needsUpdate = true
+    group.add(scaffoldPlanks)
+  }
 
-  const wallColor = theme.palette.wall
-  const trimColor = theme.palette.trim
+  const wallColor = spec.theme.palette.wall
+  const trimColor = spec.theme.palette.trim
 
   const handle: HouseHandle = {
     group,
-    height: top - foundation.groundY + 0.6,
+    height: top - built.groundY + 0.6,
     paint(next: HouseSpec) {
       next.floors.forEach((slot, index) => {
-        const body = bodies[index]
-        const trim = trims[index]
-        if (!body || !trim) return
+        const record = built.floors[index]
+        if (!record) return
         if (slot.status === 'empty') {
-          body.material = solid(wallColor)
-          trim.material = solid(trimColor)
+          for (const body of record.bodies) body.material = solid(wallColor)
+          for (const trim of record.trims) trim.material = solid(trimColor)
           return
         }
         const color = teamColor(slot.color)
-        body.material = solid(color)
-        trim.material = solid(shade(color))
+        for (const body of record.bodies) body.material = solid(color)
+        for (const trim of record.trims) trim.material = solid(shade(color))
       })
     },
   }

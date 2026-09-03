@@ -7,7 +7,14 @@ from django.db import models
 from django.db.models import CheckConstraint, F, Q, UniqueConstraint
 from django.utils import timezone
 
-from .design import ARCHETYPES, SECTOR_COUNT, NeighborhoodTheme, RoadStyle
+from .design import (
+    ARCHETYPES,
+    DEFAULT_HALO_STRENGTH,
+    DEFAULT_TINT_STRENGTH,
+    SECTOR_COUNT,
+    NeighborhoodTheme,
+    RoadStyle,
+)
 from .validators import validate_upload_extension, validate_upload_size
 
 MAX_CAPACITY = 3
@@ -676,10 +683,12 @@ class MapDesign(models.Model):
         max_length=12, choices=RoadStyle.choices, default=RoadStyle.STRAIGHT
     )
     tint_strength = models.PositiveSmallIntegerField(
-        default=8, help_text="How strongly each sector is washed with its colour, 0–100."
+        default=DEFAULT_TINT_STRENGTH,
+        help_text="How strongly each sector is washed with its colour, 0–100.",
     )
     halo_strength = models.PositiveSmallIntegerField(
-        default=45, help_text="Opacity of the neighbourhood ring around every node, 0–100."
+        default=DEFAULT_HALO_STRENGTH,
+        help_text="Opacity of the neighbourhood ring around every node, 0–100.",
     )
 
     class Meta:

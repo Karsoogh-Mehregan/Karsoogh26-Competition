@@ -1,21 +1,21 @@
 /**
- * Everything that is not the storey stack: what a house stands on, what it
- * wears, what sits on and around it.
+ * The shared vocabulary the per-type builders in `buildings.ts` speak:
+ * foundations sized to a footprint, roofs that know where their own surface
+ * is, the neighbourhood emblem for a sign, and the neighbourhood motif that
+ * dresses the plot.
  *
  * All of it is built from the eight pooled geometries in `geometry.ts` by
  * scaling — see that file for why. The one rule this file adds is that a
- * roof-mounted prop asks the roof where its surface is (`RoofInfo.surfaceY`)
+ * roof-mounted piece asks the roof where its surface is (`RoofInfo.surfaceY`)
  * instead of guessing a height, which is what keeps a chimney sitting *on* a
  * slope rather than floating above the ridge.
  */
 import { Mesh, Object3D, type Material } from 'three'
 
-import type { FoundationKind, PropKind, RoofKind } from './archetypes'
+import type { FoundationKind, RoofKind } from './archetypes'
 import { geometry, type GeometryKey } from './geometry'
 import type { EmblemKind, MotifKind } from './themes'
 
-export const WIDTH = 2
-export const HALF = WIDTH / 2
 export const FLOOR_H = 1
 
 interface Vec3 {
@@ -51,6 +51,20 @@ export interface Paint {
   ground: Material
   glass: Material
   scaffold: Material
+  /** Grass and crops: fixed greens, because a pitch is green in every neighbourhood. */
+  grass: Material
+  crop: Material
+  /** Bare timber. */
+  wood: Material
+  /** Iron and steel. */
+  metal: Material
+}
+
+export interface Footprint {
+  x: number
+  z: number
+  w: number
+  d: number
 }
 
 // ---- foundations ------------------------------------------------------------
@@ -61,52 +75,65 @@ export interface FoundationInfo {
   groundY: number
 }
 
-export function buildFoundation(kind: FoundationKind, paint: Paint): FoundationInfo {
+/** A plinth the size of the plot, plus the ground it stands on. */
+export function buildFoundation(kind: FoundationKind, paint: Paint, plot: Footprint): FoundationInfo {
   const parts: Object3D[] = []
-  const plinth = () => mesh('box', paint.base, { y: -0.08 }, { x: WIDTH + 0.28, y: 0.16, z: WIDTH + 0.28 })
+  const { x, z, w, d } = plot
+  const plinth = (pad = 0.28, h = 0.16) =>
+    mesh('box', paint.base, { x, y: -h / 2, z }, { x: w + pad, y: h, z: d + pad })
 
   switch (kind) {
     case 'stepped': {
-      parts.push(mesh('box', paint.ground, { y: -0.42 }, { x: 3.3, y: 0.16, z: 3.3 }))
-      parts.push(mesh('box', paint.base, { y: -0.26 }, { x: 2.9, y: 0.16, z: 2.9 }))
-      parts.push(mesh('box', paint.base, { y: -0.08 }, { x: WIDTH + 0.4, y: 0.2, z: WIDTH + 0.4 }))
+      parts.push(mesh('box', paint.ground, { x, y: -0.42, z }, { x: w + 1.3, y: 0.16, z: d + 1.3 }))
+      parts.push(mesh('box', paint.base, { x, y: -0.26, z }, { x: w + 0.9, y: 0.16, z: d + 0.9 }))
+      parts.push(mesh('box', paint.base, { x, y: -0.1, z }, { x: w + 0.4, y: 0.2, z: d + 0.4 }))
       return { parts, groundY: -0.5 }
     }
     case 'round': {
-      parts.push(mesh('cylinder', paint.ground, { y: -0.3 }, { x: 3.2, y: 0.28, z: 3.2 }))
-      parts.push(mesh('cylinder', paint.base, { y: -0.08 }, { x: 2.6, y: 0.16, z: 2.6 }))
+      const r = Math.max(w, d)
+      parts.push(mesh('cylinder', paint.ground, { x, y: -0.3, z }, { x: r + 1.2, y: 0.28, z: r + 1.2 }))
+      parts.push(mesh('cylinder', paint.base, { x, y: -0.08, z }, { x: r + 0.6, y: 0.16, z: r + 0.6 }))
       return { parts, groundY: -0.44 }
     }
     case 'piers': {
-      parts.push(mesh('box', paint.base, { y: -0.16 }, { x: WIDTH + 0.5, y: 0.16, z: WIDTH + 0.5 }))
-      for (const x of [-1, 1]) {
-        for (const z of [-1, 1]) {
-          parts.push(mesh('cylinder', paint.dark, { x: x * 0.95, y: -0.44, z: z * 0.95 }, { x: 0.22, y: 0.4, z: 0.22 }))
+      parts.push(mesh('box', paint.base, { x, y: -0.16, z }, { x: w + 0.5, y: 0.16, z: d + 0.5 }))
+      for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+          parts.push(
+            mesh('cylinder', paint.wood, { x: x + (sx * (w + 0.1)) / 2, y: -0.44, z: z + (sz * (d + 0.1)) / 2 }, {
+              x: 0.22,
+              y: 0.4,
+              z: 0.22,
+            }),
+          )
         }
       }
-      parts.push(mesh('box', paint.ground, { y: -0.7 }, { x: 3.0, y: 0.12, z: 3.0 }))
+      parts.push(mesh('box', paint.ground, { x, y: -0.7, z }, { x: w + 1.0, y: 0.12, z: d + 1.0 }))
       return { parts, groundY: -0.76 }
     }
     case 'walled': {
-      parts.push(mesh('box', paint.ground, { y: -0.3 }, { x: 3.4, y: 0.28, z: 3.4 }))
+      parts.push(mesh('box', paint.ground, { x, y: -0.3, z }, { x: w + 1.4, y: 0.28, z: d + 1.4 }))
       parts.push(plinth())
-      const reach = 1.62
+      const rx = (w + 1.4) / 2
+      const rz = (d + 1.4) / 2
       // Three full walls and a front wall with a gap for the path to the door.
-      parts.push(mesh('box', paint.base, { y: 0.02, z: -reach }, { x: 3.4, y: 0.34, z: 0.12 }))
-      parts.push(mesh('box', paint.base, { x: -reach, y: 0.02 }, { x: 0.12, y: 0.34, z: 3.4 }))
-      parts.push(mesh('box', paint.base, { x: reach, y: 0.02 }, { x: 0.12, y: 0.34, z: 3.4 }))
-      parts.push(mesh('box', paint.base, { x: -1.15, y: 0.02, z: reach }, { x: 1.1, y: 0.34, z: 0.12 }))
-      parts.push(mesh('box', paint.base, { x: 1.15, y: 0.02, z: reach }, { x: 1.1, y: 0.34, z: 0.12 }))
+      parts.push(mesh('box', paint.base, { x, y: 0.02, z: z - rz }, { x: w + 1.4, y: 0.34, z: 0.12 }))
+      parts.push(mesh('box', paint.base, { x: x - rx, y: 0.02, z }, { x: 0.12, y: 0.34, z: d + 1.4 }))
+      parts.push(mesh('box', paint.base, { x: x + rx, y: 0.02, z }, { x: 0.12, y: 0.34, z: d + 1.4 }))
+      const seg = (w + 1.4) / 2 - 0.45
+      parts.push(mesh('box', paint.base, { x: x - rx + seg / 2, y: 0.02, z: z + rz }, { x: seg, y: 0.34, z: 0.12 }))
+      parts.push(mesh('box', paint.base, { x: x + rx - seg / 2, y: 0.02, z: z + rz }, { x: seg, y: 0.34, z: 0.12 }))
       return { parts, groundY: -0.44 }
     }
     case 'mound': {
-      parts.push(mesh('dome', paint.ground, { y: -0.46 }, { x: 4.0, y: 0.7, z: 4.0 }))
-      parts.push(mesh('cylinder', paint.base, { y: -0.08 }, { x: 2.5, y: 0.22, z: 2.5 }))
+      const r = Math.max(w, d)
+      parts.push(mesh('dome', paint.ground, { x, y: -0.46, z }, { x: r + 2.0, y: 0.7, z: r + 2.0 }))
+      parts.push(mesh('cylinder', paint.base, { x, y: -0.08, z }, { x: r + 0.5, y: 0.22, z: r + 0.5 }))
       return { parts, groundY: -0.46 }
     }
     case 'slab':
     default: {
-      parts.push(mesh('box', paint.ground, { y: -0.3 }, { x: 3.0, y: 0.28, z: 3.0 }))
+      parts.push(mesh('box', paint.ground, { x, y: -0.3, z }, { x: w + 1.0, y: 0.28, z: d + 1.0 }))
       parts.push(plinth())
       return { parts, groundY: -0.44 }
     }
@@ -123,373 +150,170 @@ export interface RoofInfo {
   surfaceY: (x: number, z: number) => number
 }
 
-export function buildRoof(kind: RoofKind, base: number, paint: Paint): RoofInfo {
+/** A roof over a given footprint, with a little overhang. */
+export function roofOn(kind: RoofKind, plot: Footprint, base: number, paint: Paint): RoofInfo {
   const parts: Object3D[] = []
-  const overhang = WIDTH + 0.3
-  const halfOver = overhang / 2
+  const { x, z, w, d } = plot
+  const ow = w + 0.3
+  const od = d + 0.3
 
   switch (kind) {
     case 'gable': {
-      const height = 0.76
-      parts.push(mesh('prism', paint.roof, { y: base + height / 2 }, { x: overhang, y: height, z: overhang }))
+      const height = Math.min(0.9, 0.34 * ow + 0.1)
+      parts.push(mesh('prism', paint.roof, { x, y: base + height / 2, z }, { x: ow, y: height, z: od }))
       return {
         parts,
         top: base + height,
-        surfaceY: (x) => base + height * (1 - Math.min(1, Math.abs(x) / halfOver)),
+        surfaceY: (px) => base + height * (1 - Math.min(1, Math.abs(px - x) / (ow / 2))),
       }
     }
     case 'hip': {
-      const height = 0.84
+      const height = Math.min(0.9, 0.36 * Math.min(ow, od) + 0.1)
       // A 4-segment cone is a diamond on the axes; rotating 45° squares it up,
       // at which point its half-side is radius / √2 — hence the √2 in the scale.
-      const side = (WIDTH + 0.36) * Math.SQRT2
       parts.push(
-        mesh('pyramid', paint.roof, { y: base + height / 2 }, { x: side, y: height, z: side }, { y: Math.PI / 4 }),
+        mesh(
+          'pyramid',
+          paint.roof,
+          { x, y: base + height / 2, z },
+          { x: ow * Math.SQRT2, y: height, z: od * Math.SQRT2 },
+          { y: Math.PI / 4 },
+        ),
       )
-      const halfSide = (WIDTH + 0.36) / 2
       return {
         parts,
         top: base + height,
-        surfaceY: (x, z) =>
-          base + height * (1 - Math.min(1, Math.max(Math.abs(x), Math.abs(z)) / halfSide)),
+        surfaceY: (px, pz) =>
+          base +
+          height *
+            (1 - Math.min(1, Math.max(Math.abs(px - x) / (ow / 2), Math.abs(pz - z) / (od / 2)))),
       }
     }
     case 'dome': {
-      parts.push(mesh('box', paint.base, { y: base + 0.09 }, { x: WIDTH + 0.22, y: 0.18, z: WIDTH + 0.22 }))
-      parts.push(mesh('cylinder', paint.base, { y: base + 0.32 }, { x: 1.5, y: 0.3, z: 1.5 }))
-      const radius = 0.85
-      const rise = 0.6
+      const r = Math.min(ow, od) * 0.42
+      const rise = r * 0.72
+      parts.push(mesh('box', paint.base, { x, y: base + 0.09, z }, { x: w + 0.22, y: 0.18, z: d + 0.22 }))
+      parts.push(mesh('cylinder', paint.base, { x, y: base + 0.32, z }, { x: r * 1.8, y: 0.3, z: r * 1.8 }))
       const centre = base + 0.46
-      parts.push(mesh('dome', paint.roof, { y: centre }, { x: radius * 2, y: rise * 2, z: radius * 2 }))
+      parts.push(mesh('dome', paint.roof, { x, y: centre, z }, { x: r * 2, y: rise * 2, z: r * 2 }))
       return {
         parts,
         top: centre + rise,
-        surfaceY: (x, z) => {
-          const r = Math.hypot(x, z)
-          if (r > radius) return base + 0.18
-          return centre + rise * Math.sqrt(Math.max(0, 1 - (r / radius) ** 2))
+        surfaceY: (px, pz) => {
+          const dist = Math.hypot(px - x, pz - z)
+          if (dist > r) return base + 0.18
+          return centre + rise * Math.sqrt(Math.max(0, 1 - (dist / r) ** 2))
         },
       }
     }
     case 'tiered': {
-      parts.push(mesh('box', paint.base, { y: base + 0.08 }, { x: WIDTH + 0.24, y: 0.16, z: WIDTH + 0.24 }))
-      parts.push(mesh('box', paint.roof, { y: base + 0.4 }, { x: 1.5, y: 0.48, z: 1.5 }))
-      parts.push(mesh('box', paint.base, { y: base + 0.73 }, { x: 0.9, y: 0.18, z: 0.9 }))
+      parts.push(mesh('box', paint.base, { x, y: base + 0.08, z }, { x: w + 0.24, y: 0.16, z: d + 0.24 }))
+      parts.push(mesh('box', paint.roof, { x, y: base + 0.4, z }, { x: w * 0.7, y: 0.48, z: d * 0.7 }))
+      parts.push(mesh('box', paint.base, { x, y: base + 0.73, z }, { x: w * 0.42, y: 0.18, z: d * 0.42 }))
       return {
         parts,
         top: base + 0.82,
-        surfaceY: (x, z) => {
-          const reach = Math.max(Math.abs(x), Math.abs(z))
-          if (reach < 0.45) return base + 0.82
-          if (reach < 0.75) return base + 0.64
+        surfaceY: (px, pz) => {
+          const reach = Math.max(Math.abs(px - x) / (w / 2), Math.abs(pz - z) / (d / 2))
+          if (reach < 0.42) return base + 0.82
+          if (reach < 0.7) return base + 0.64
           return base + 0.16
         },
       }
     }
     case 'tower': {
-      parts.push(mesh('box', paint.base, { y: base + 0.08 }, { x: WIDTH + 0.24, y: 0.16, z: WIDTH + 0.24 }))
-      parts.push(mesh('box', paint.wall, { y: base + 0.86 }, { x: 0.8, y: 1.4, z: 0.8 }))
-      parts.push(mesh('box', paint.trim, { y: base + 1.6 }, { x: 0.92, y: 0.08, z: 0.92 }))
-      const capSide = 0.9 * Math.SQRT2
-      parts.push(mesh('pyramid', paint.roof, { y: base + 1.9 }, { x: capSide, y: 0.52, z: capSide }, { y: Math.PI / 4 }))
+      parts.push(mesh('box', paint.base, { x, y: base + 0.08, z }, { x: w + 0.24, y: 0.16, z: d + 0.24 }))
+      const tw = Math.min(w, d) * 0.42
+      parts.push(mesh('box', paint.wall, { x, y: base + 0.86, z }, { x: tw, y: 1.4, z: tw }))
+      parts.push(mesh('box', paint.trim, { x, y: base + 1.6, z }, { x: tw + 0.12, y: 0.08, z: tw + 0.12 }))
+      const cap = (tw + 0.1) * Math.SQRT2
+      parts.push(mesh('pyramid', paint.roof, { x, y: base + 1.9, z }, { x: cap, y: 0.52, z: cap }, { y: Math.PI / 4 }))
       return {
         parts,
         top: base + 2.16,
-        surfaceY: (x, z) => (Math.max(Math.abs(x), Math.abs(z)) < 0.4 ? base + 2.16 : base + 0.16),
+        surfaceY: (px, pz) =>
+          Math.max(Math.abs(px - x), Math.abs(pz - z)) < tw / 2 ? base + 2.16 : base + 0.16,
       }
     }
     case 'open': {
       // No roof: a rail around the top so the last storey reads as a deck.
-      const rail = WIDTH + 0.16
+      const rw = w + 0.16
+      const rd = d + 0.16
       for (const side of [-1, 1]) {
-        parts.push(mesh('box', paint.trim, { y: base + 0.1, z: (side * rail) / 2 }, { x: rail, y: 0.2, z: 0.08 }))
-        parts.push(mesh('box', paint.trim, { y: base + 0.1, x: (side * rail) / 2 }, { x: 0.08, y: 0.2, z: rail }))
+        parts.push(mesh('box', paint.trim, { x, y: base + 0.1, z: z + (side * rd) / 2 }, { x: rw, y: 0.2, z: 0.08 }))
+        parts.push(mesh('box', paint.trim, { x: x + (side * rw) / 2, y: base + 0.1, z }, { x: 0.08, y: 0.2, z: rd }))
       }
       return { parts, top: base + 0.2, surfaceY: () => base }
     }
     case 'flat':
     default: {
-      const rail = WIDTH + 0.24
-      parts.push(mesh('box', paint.base, { y: base + 0.08 }, { x: rail, y: 0.16, z: rail }))
+      const rw = w + 0.24
+      const rd = d + 0.24
+      parts.push(mesh('box', paint.base, { x, y: base + 0.08, z }, { x: rw, y: 0.16, z: rd }))
       for (const side of [-1, 1]) {
-        parts.push(mesh('box', paint.roof, { y: base + 0.26, z: (side * rail) / 2 }, { x: rail, y: 0.2, z: 0.1 }))
-        parts.push(mesh('box', paint.roof, { y: base + 0.26, x: (side * rail) / 2 }, { x: 0.1, y: 0.2, z: rail }))
+        parts.push(mesh('box', paint.roof, { x, y: base + 0.26, z: z + (side * rd) / 2 }, { x: rw, y: 0.2, z: 0.1 }))
+        parts.push(mesh('box', paint.roof, { x: x + (side * rw) / 2, y: base + 0.26, z }, { x: 0.1, y: 0.2, z: rd }))
       }
       return { parts, top: base + 0.36, surfaceY: () => base + 0.16 }
     }
   }
 }
 
-// ---- props ----------------------------------------------------------------------
-
-/** Ground props stand on the plinth just outside the walls. */
-const YARD = HALF + 0.42
-
-export function buildProp(kind: PropKind, roof: RoofInfo, paint: Paint): Object3D[] {
-  const parts: Object3D[] = []
-  const on = (x: number, z: number) => roof.surfaceY(x, z)
-
-  switch (kind) {
-    case 'coin': {
-      // A big minted disc over the door, not on the roof.
-      parts.push(mesh('cylinder', paint.accent, { y: 1.35, z: HALF + 0.09 }, { x: 0.7, y: 0.08, z: 0.7 }, { x: Math.PI / 2 }))
-      parts.push(mesh('cylinder', paint.dark, { y: 1.35, z: HALF + 0.14 }, { x: 0.42, y: 0.04, z: 0.42 }, { x: Math.PI / 2 }))
-      break
-    }
-    case 'cupola': {
-      const y = on(0, 0)
-      parts.push(mesh('cylinder', paint.base, { y: y + 0.16 }, { x: 0.6, y: 0.32, z: 0.6 }))
-      parts.push(mesh('dome', paint.accent, { y: y + 0.32 }, { x: 0.7, y: 0.5, z: 0.7 }))
-      break
-    }
-    case 'chimney': {
-      const x = 0.62
-      const z = -0.42
-      const foot = on(x, z)
-      parts.push(mesh('box', paint.dark, { x, y: foot + 0.3, z }, { x: 0.32, y: 0.7, z: 0.32 }))
-      parts.push(mesh('box', paint.base, { x, y: foot + 0.68, z }, { x: 0.42, y: 0.1, z: 0.42 }))
-      break
-    }
-    case 'bell': {
-      const y = on(0, 0)
-      for (const side of [-1, 1]) {
-        parts.push(mesh('box', paint.base, { x: side * 0.22, y: y + 0.28 }, { x: 0.08, y: 0.56, z: 0.08 }))
-      }
-      parts.push(mesh('box', paint.base, { y: y + 0.58 }, { x: 0.56, y: 0.06, z: 0.06 }))
-      parts.push(mesh('dome', paint.accent, { y: y + 0.32 }, { x: 0.26, y: 0.3, z: 0.26 }, { x: Math.PI }))
-      break
-    }
-    case 'cone': {
-      const y = on(0, 0)
-      parts.push(mesh('cone', paint.base, { y: y + 0.26 }, { x: 0.44, y: 0.52, z: 0.44 }, { x: Math.PI }))
-      parts.push(mesh('sphere', paint.accent, { y: y + 0.6 }, { x: 0.42, y: 0.42, z: 0.42 }))
-      break
-    }
-    case 'press': {
-      const y = on(0, 0)
-      parts.push(mesh('box', paint.dark, { y: y + 0.16 }, { x: 0.9, y: 0.32, z: 0.5 }))
-      parts.push(mesh('cylinder', paint.accent, { y: y + 0.4 }, { x: 0.3, y: 0.9, z: 0.3 }, { z: Math.PI / 2 }))
-      break
-    }
-    case 'flag': {
-      const x = -0.55
-      const z = -0.2
-      const foot = on(x, z)
-      parts.push(mesh('cylinder', paint.base, { x, y: foot + 0.5, z }, { x: 0.07, y: 1.0, z: 0.07 }))
-      parts.push(mesh('box', paint.accent, { x: x + 0.3, y: foot + 0.82, z }, { x: 0.6, y: 0.34, z: 0.03 }))
-      break
-    }
-    case 'gate': {
-      // Two posts and a lintel at the front of the yard, framing the door.
-      const z = YARD + 0.35
-      for (const side of [-1, 1]) {
-        parts.push(mesh('box', paint.base, { x: side * 0.7, y: 0.45, z }, { x: 0.22, y: 0.9, z: 0.22 }))
-      }
-      parts.push(mesh('box', paint.roof, { y: 0.98, z }, { x: 1.7, y: 0.16, z: 0.3 }))
-      break
-    }
-    case 'goalposts': {
-      const y = on(0, 0)
-      for (const z of [-0.8, 0.8]) {
-        for (const x of [-0.45, 0.45]) {
-          parts.push(mesh('cylinder', paint.base, { x, y: y + 0.32, z }, { x: 0.06, y: 0.64, z: 0.06 }))
-        }
-        parts.push(mesh('box', paint.base, { y: y + 0.64, z }, { x: 0.96, y: 0.06, z: 0.06 }))
-      }
-      // Pitch stripes.
-      for (const z of [-0.4, 0, 0.4]) {
-        parts.push(mesh('box', paint.accent, { y: y + 0.01, z }, { x: 1.8, y: 0.02, z: 0.06 }))
-      }
-      break
-    }
-    case 'plots': {
-      const y = on(0, 0)
-      let i = 0
-      for (const x of [-0.6, 0, 0.6]) {
-        for (const z of [-0.6, 0, 0.6]) {
-          const material = i % 2 === 0 ? paint.accent : paint.ground
-          parts.push(mesh('box', material, { x, y: y + 0.04, z }, { x: 0.5, y: 0.08, z: 0.5 }))
-          i += 1
-        }
-      }
-      break
-    }
-    case 'watchtower': {
-      const x = -YARD + 0.05
-      const z = -YARD + 0.05
-      parts.push(mesh('box', paint.base, { x, y: 1.1, z }, { x: 0.5, y: 2.2, z: 0.5 }))
-      parts.push(mesh('box', paint.trim, { x, y: 2.25, z }, { x: 0.7, y: 0.1, z: 0.7 }))
-      const capSide = 0.7 * Math.SQRT2
-      parts.push(mesh('pyramid', paint.roof, { x, y: 2.5, z }, { x: capSide, y: 0.4, z: capSide }, { y: Math.PI / 4 }))
-      break
-    }
-    case 'telescope': {
-      const y = on(0, 0)
-      parts.push(mesh('cylinder', paint.base, { y: y + 0.08 }, { x: 0.5, y: 0.16, z: 0.5 }))
-      parts.push(mesh('cylinder', paint.dark, { y: y + 0.4, z: 0.12 }, { x: 0.22, y: 0.9, z: 0.22 }, { x: -0.7 }))
-      parts.push(mesh('cylinder', paint.glass, { y: y + 0.76, z: 0.42 }, { x: 0.26, y: 0.06, z: 0.26 }, { x: -0.7 }))
-      break
-    }
-    case 'crates': {
-      const x = YARD
-      parts.push(mesh('box', paint.dark, { x, y: 0.18, z: 0.35 }, { x: 0.36, y: 0.36, z: 0.36 }))
-      parts.push(mesh('box', paint.accent, { x: x - 0.1, y: 0.14, z: -0.2 }, { x: 0.28, y: 0.28, z: 0.28 }, { y: 0.5 }))
-      parts.push(mesh('box', paint.base, { x, y: 0.5, z: 0.35 }, { x: 0.28, y: 0.28, z: 0.28 }, { y: 0.3 }))
-      break
-    }
-    case 'silo': {
-      const x = YARD + 0.1
-      const z = -0.5
-      parts.push(mesh('cylinder', paint.base, { x, y: 0.75, z }, { x: 0.55, y: 1.5, z: 0.55 }))
-      parts.push(mesh('dome', paint.roof, { x, y: 1.5, z }, { x: 0.6, y: 0.5, z: 0.6 }))
-      break
-    }
-    case 'trough': {
-      const z = YARD + 0.15
-      parts.push(mesh('box', paint.dark, { x: -0.9, y: 0.16, z }, { x: 0.9, y: 0.22, z: 0.34 }))
-      parts.push(mesh('box', paint.glass, { x: -0.9, y: 0.25, z }, { x: 0.8, y: 0.06, z: 0.26 }))
-      for (const x of [-1.3, -0.5]) {
-        parts.push(mesh('cylinder', paint.base, { x, y: 0.3, z: z + 0.3 }, { x: 0.06, y: 0.6, z: 0.06 }))
-      }
-      parts.push(mesh('box', paint.base, { x: -0.9, y: 0.5, z: z + 0.3 }, { x: 0.9, y: 0.05, z: 0.05 }))
-      break
-    }
-    case 'cross': {
-      const y = on(0, 0)
-      parts.push(mesh('box', paint.accent, { y: y + 0.36 }, { x: 0.7, y: 0.2, z: 0.16 }))
-      parts.push(mesh('box', paint.accent, { y: y + 0.36 }, { x: 0.2, y: 0.7, z: 0.16 }))
-      break
-    }
-    case 'scales': {
-      const y = on(0, 0)
-      parts.push(mesh('cylinder', paint.dark, { y: y + 0.34 }, { x: 0.09, y: 0.68, z: 0.09 }))
-      parts.push(mesh('box', paint.dark, { y: y + 0.66 }, { x: 1, y: 0.07, z: 0.07 }))
-      for (const side of [-1, 1]) {
-        parts.push(mesh('cylinder', paint.dark, { x: side * 0.44, y: y + 0.6 }, { x: 0.02, y: 0.14, z: 0.02 }))
-        parts.push(mesh('box', paint.accent, { x: side * 0.44, y: y + 0.52 }, { x: 0.26, y: 0.06, z: 0.26 }))
-      }
-      break
-    }
-    case 'columns': {
-      // A colonnade across the front, standing on the plinth.
-      for (const x of [-0.85, -0.3, 0.3, 0.85]) {
-        parts.push(mesh('cylinder', paint.base, { x, y: 0.45, z: HALF + 0.28 }, { x: 0.16, y: 0.9, z: 0.16 }))
-      }
-      parts.push(mesh('box', paint.trim, { y: 0.94, z: HALF + 0.28 }, { x: 2.0, y: 0.1, z: 0.3 }))
-      break
-    }
-    case 'orepile': {
-      const x = YARD + 0.05
-      parts.push(mesh('cone', paint.dark, { x, y: 0.22, z: 0.45 }, { x: 0.6, y: 0.44, z: 0.6 }))
-      parts.push(mesh('cone', paint.accent, { x: x - 0.15, y: 0.16, z: -0.25 }, { x: 0.44, y: 0.32, z: 0.44 }))
-      parts.push(mesh('sphere', paint.accent, { x: x + 0.2, y: 0.08, z: -0.55 }, { x: 0.16, y: 0.16, z: 0.16 }))
-      break
-    }
-    case 'smokestack': {
-      const x = 0.62
-      const z = -0.5
-      const foot = on(x, z)
-      parts.push(mesh('cylinder', paint.dark, { x, y: foot + 0.7, z }, { x: 0.3, y: 1.4, z: 0.3 }))
-      parts.push(mesh('cylinder', paint.trim, { x, y: foot + 1.38, z }, { x: 0.38, y: 0.08, z: 0.38 }))
-      parts.push(mesh('sphere', paint.ground, { x: x + 0.05, y: foot + 1.65, z }, { x: 0.36, y: 0.3, z: 0.36 }))
-      break
-    }
-    case 'logs': {
-      const x = YARD + 0.05
-      for (const [dz, dy] of [
-        [0.3, 0.12],
-        [-0.02, 0.12],
-        [0.14, 0.38],
-      ]) {
-        parts.push(mesh('cylinder', paint.dark, { x, y: dy, z: dz }, { x: 0.28, y: 1.1, z: 0.28 }, { z: Math.PI / 2 }))
-      }
-      break
-    }
-    case 'spool': {
-      const y = on(0, 0)
-      parts.push(mesh('cylinder', paint.accent, { y: y + 0.3 }, { x: 0.5, y: 0.5, z: 0.5 }))
-      parts.push(mesh('cylinder', paint.dark, { y: y + 0.06 }, { x: 0.64, y: 0.08, z: 0.64 }))
-      parts.push(mesh('cylinder', paint.dark, { y: y + 0.56 }, { x: 0.64, y: 0.08, z: 0.64 }))
-      break
-    }
-    case 'anvil': {
-      const x = YARD
-      parts.push(mesh('box', paint.dark, { x, y: 0.14, z: 0.2 }, { x: 0.3, y: 0.28, z: 0.3 }))
-      parts.push(mesh('box', paint.trim, { x, y: 0.36, z: 0.2 }, { x: 0.7, y: 0.16, z: 0.28 }))
-      parts.push(mesh('cone', paint.trim, { x: x + 0.45, y: 0.36, z: 0.2 }, { x: 0.22, y: 0.3, z: 0.22 }, { z: -Math.PI / 2 }))
-      break
-    }
-    case 'books': {
-      const y = on(0, 0)
-      parts.push(mesh('box', paint.accent, { y: y + 0.09 }, { x: 0.8, y: 0.18, z: 0.5 }))
-      parts.push(mesh('box', paint.dark, { y: y + 0.27, x: 0.06 }, { x: 0.72, y: 0.18, z: 0.46 }, { y: 0.3 }))
-      parts.push(mesh('box', paint.base, { y: y + 0.43 }, { x: 0.62, y: 0.14, z: 0.42 }, { y: -0.2 }))
-      break
-    }
-    case 'banner': {
-      const y = on(0, 0)
-      for (const side of [-1, 1]) {
-        parts.push(mesh('cylinder', paint.base, { x: side * 0.62, y: y + 0.3 }, { x: 0.07, y: 0.6, z: 0.07 }))
-      }
-      parts.push(mesh('box', paint.accent, { y: y + 0.44 }, { x: 1.4, y: 0.4, z: 0.05 }))
-      break
-    }
-    case 'antenna': {
-      const y = on(0, 0)
-      parts.push(mesh('cylinder', paint.dark, { y: y + 0.45 }, { x: 0.07, y: 0.9, z: 0.07 }))
-      parts.push(mesh('sphere', paint.accent, { y: y + 0.92 }, { x: 0.2, y: 0.2, z: 0.2 }))
-      break
-    }
-  }
-  return parts
-}
-
 // ---- theme dressing ---------------------------------------------------------------
 
-/** The neighbourhood's symbol, mounted on the shop sign beside the door. */
-export function buildEmblem(kind: EmblemKind, paint: Paint): Object3D[] {
+/** The neighbourhood's symbol, mounted on a sign face at `at`, facing `rotY`. */
+export function buildEmblem(
+  kind: EmblemKind,
+  paint: Paint,
+  at: { x: number; y: number; z: number },
+  rotY = 0,
+): Object3D[] {
   const parts: Object3D[] = []
-  const x = 0.72
-  const y = 0.74
-  const z = HALF + 0.13
+  // Work in the sign's own frame, then rotate every piece about the sign.
+  const local = (dx: number, dy: number, dz: number) => ({
+    x: at.x + dx * Math.cos(rotY) + dz * Math.sin(rotY),
+    y: at.y + dy,
+    z: at.z - dx * Math.sin(rotY) + dz * Math.cos(rotY),
+  })
+  const rot = (extra: { x?: number; z?: number } = {}) => ({ x: extra.x ?? 0, y: rotY, z: extra.z ?? 0 })
 
   switch (kind) {
     case 'drop':
-      parts.push(mesh('sphere', paint.glass, { x, y: y - 0.02, z }, { x: 0.16, y: 0.16, z: 0.12 }))
-      parts.push(mesh('cone', paint.glass, { x, y: y + 0.1, z }, { x: 0.14, y: 0.16, z: 0.1 }))
+      parts.push(mesh('sphere', paint.glass, local(0, -0.02, 0), { x: 0.16, y: 0.16, z: 0.12 }, rot()))
+      parts.push(mesh('cone', paint.glass, local(0, 0.1, 0), { x: 0.14, y: 0.16, z: 0.1 }, rot()))
       break
     case 'flame':
-      parts.push(mesh('cone', paint.accent, { x, y: y + 0.02, z }, { x: 0.18, y: 0.28, z: 0.12 }))
-      parts.push(mesh('cone', paint.glass, { x, y: y - 0.02, z: z + 0.02 }, { x: 0.09, y: 0.16, z: 0.08 }))
+      parts.push(mesh('cone', paint.accent, local(0, 0.02, 0), { x: 0.18, y: 0.28, z: 0.12 }, rot()))
+      parts.push(mesh('cone', paint.glass, local(0, -0.02, 0.02), { x: 0.09, y: 0.16, z: 0.08 }, rot()))
       break
     case 'bolt':
-      parts.push(mesh('box', paint.accent, { x: x + 0.04, y: y + 0.08, z }, { x: 0.07, y: 0.14, z: 0.04 }, { z: 0.5 }))
-      parts.push(mesh('box', paint.accent, { x: x - 0.02, y: y - 0.02, z }, { x: 0.07, y: 0.14, z: 0.04 }, { z: -0.6 }))
-      parts.push(mesh('box', paint.accent, { x: x + 0.02, y: y - 0.12, z }, { x: 0.07, y: 0.12, z: 0.04 }, { z: 0.5 }))
+      parts.push(mesh('box', paint.accent, local(0.04, 0.08, 0), { x: 0.07, y: 0.14, z: 0.04 }, rot({ z: 0.5 })))
+      parts.push(mesh('box', paint.accent, local(-0.02, -0.02, 0), { x: 0.07, y: 0.14, z: 0.04 }, rot({ z: -0.6 })))
+      parts.push(mesh('box', paint.accent, local(0.02, -0.12, 0), { x: 0.07, y: 0.12, z: 0.04 }, rot({ z: 0.5 })))
       break
     case 'lens':
-      parts.push(mesh('cylinder', paint.dark, { x, y: y + 0.02, z }, { x: 0.22, y: 0.04, z: 0.22 }, { x: Math.PI / 2 }))
-      parts.push(mesh('cylinder', paint.glass, { x, y: y + 0.02, z: z + 0.02 }, { x: 0.15, y: 0.04, z: 0.15 }, { x: Math.PI / 2 }))
-      parts.push(mesh('box', paint.dark, { x: x + 0.12, y: y - 0.12, z }, { x: 0.05, y: 0.16, z: 0.04 }, { z: 0.8 }))
+      parts.push(mesh('cylinder', paint.dark, local(0, 0.02, 0), { x: 0.22, y: 0.04, z: 0.22 }, rot({ x: Math.PI / 2 })))
+      parts.push(mesh('cylinder', paint.glass, local(0, 0.02, 0.02), { x: 0.15, y: 0.04, z: 0.15 }, rot({ x: Math.PI / 2 })))
+      parts.push(mesh('box', paint.dark, local(0.12, -0.12, 0), { x: 0.05, y: 0.16, z: 0.04 }, rot({ z: 0.8 })))
       break
     case 'dumbbell':
-      parts.push(mesh('cylinder', paint.dark, { x, y, z }, { x: 0.04, y: 0.26, z: 0.04 }, { z: Math.PI / 2 }))
+      parts.push(mesh('cylinder', paint.dark, local(0, 0, 0), { x: 0.04, y: 0.26, z: 0.04 }, rot({ z: Math.PI / 2 })))
       for (const side of [-1, 1]) {
-        parts.push(mesh('sphere', paint.accent, { x: x + side * 0.13, y, z }, { x: 0.1, y: 0.1, z: 0.1 }))
+        parts.push(mesh('sphere', paint.accent, local(side * 0.13, 0, 0), { x: 0.1, y: 0.1, z: 0.1 }))
       }
       break
     case 'book':
-      parts.push(mesh('box', paint.glass, { x: x - 0.07, y, z }, { x: 0.14, y: 0.18, z: 0.03 }, { y: 0.5 }))
-      parts.push(mesh('box', paint.glass, { x: x + 0.07, y, z }, { x: 0.14, y: 0.18, z: 0.03 }, { y: -0.5 }))
+      parts.push(mesh('box', paint.glass, local(-0.07, 0, 0), { x: 0.14, y: 0.18, z: 0.03 }, { x: 0, y: rotY + 0.5, z: 0 }))
+      parts.push(mesh('box', paint.glass, local(0.07, 0, 0), { x: 0.14, y: 0.18, z: 0.03 }, { x: 0, y: rotY - 0.5, z: 0 }))
       break
     case 'tablet':
-      parts.push(mesh('box', paint.dark, { x, y, z }, { x: 0.18, y: 0.22, z: 0.04 }))
-      parts.push(mesh('box', paint.glass, { x, y: y + 0.05, z: z + 0.02 }, { x: 0.12, y: 0.02, z: 0.02 }))
-      parts.push(mesh('box', paint.glass, { x, y: y - 0.02, z: z + 0.02 }, { x: 0.12, y: 0.02, z: 0.02 }))
+      parts.push(mesh('box', paint.dark, local(0, 0, 0), { x: 0.18, y: 0.22, z: 0.04 }, rot()))
+      parts.push(mesh('box', paint.glass, local(0, 0.05, 0.02), { x: 0.12, y: 0.02, z: 0.02 }, rot()))
+      parts.push(mesh('box', paint.glass, local(0, -0.02, 0.02), { x: 0.12, y: 0.02, z: 0.02 }, rot()))
       break
     case 'seed':
-      parts.push(mesh('sphere', paint.dark, { x, y: y - 0.04, z }, { x: 0.14, y: 0.12, z: 0.1 }))
-      parts.push(mesh('cone', paint.accent, { x: x + 0.02, y: y + 0.1, z }, { x: 0.08, y: 0.16, z: 0.06 }, { z: -0.4 }))
+      parts.push(mesh('sphere', paint.dark, local(0, -0.04, 0), { x: 0.14, y: 0.12, z: 0.1 }))
+      parts.push(mesh('cone', paint.accent, local(0.02, 0.1, 0), { x: 0.08, y: 0.16, z: 0.06 }, rot({ z: -0.4 })))
       break
     case 'none':
     default:
@@ -498,108 +322,142 @@ export function buildEmblem(kind: EmblemKind, paint: Paint): Object3D[] {
   return parts
 }
 
-/** One signature piece per neighbourhood, dressing the plot around the house. */
-export function buildMotif(kind: MotifKind, capacity: number, groundY: number, paint: Paint): Object3D[] {
+/**
+ * One signature piece per neighbourhood, dressing the plot around the house.
+ * Placed at the plot's corners, so it never collides with the building.
+ */
+export function buildMotif(
+  kind: MotifKind,
+  plot: Footprint,
+  groundY: number,
+  paint: Paint,
+  capacity: number,
+): Object3D[] {
   const parts: Object3D[] = []
+  const rx = plot.w / 2 + 0.55
+  const rz = plot.d / 2 + 0.55
+  const nw = { x: plot.x - rx, z: plot.z - rz }
+  const ne = { x: plot.x + rx, z: plot.z - rz }
+  const sw = { x: plot.x - rx, z: plot.z + rz }
+  const se = { x: plot.x + rx, z: plot.z + rz }
 
   switch (kind) {
-    case 'moat': {
-      parts.push(mesh('cylinder', paint.glass, { y: groundY + 0.03 }, { x: 4.1, y: 0.06, z: 4.1 }))
+    case 'well': {
+      // Sorgilesh's trade: a stone ring, two posts, a little roof, a bucket.
+      const { x, z } = se
+      parts.push(mesh('cylinder', paint.base, { x, y: 0.17, z }, { x: 0.62, y: 0.34, z: 0.62 }))
+      parts.push(mesh('cylinder', paint.glass, { x, y: 0.31, z }, { x: 0.46, y: 0.06, z: 0.46 }))
+      for (const side of [-1, 1]) {
+        parts.push(mesh('box', paint.wood, { x: x + side * 0.28, y: 0.6, z }, { x: 0.06, y: 0.7, z: 0.06 }))
+      }
+      parts.push(mesh('prism', paint.roof, { x, y: 1.02, z }, { x: 0.82, y: 0.24, z: 0.6 }))
+      parts.push(mesh('cylinder', paint.wood, { x, y: 0.88, z }, { x: 0.05, y: 0.6, z: 0.05 }, { z: Math.PI / 2 }))
+      parts.push(mesh('cylinder', paint.metal, { x, y: 0.62, z: z + 0.16 }, { x: 0.14, y: 0.14, z: 0.14 }))
       break
     }
-    case 'embers': {
-      for (const x of [-1, 1]) {
-        for (const z of [-1, 1]) {
-          const px = x * 1.35
-          const pz = z * 1.35
-          parts.push(mesh('cone', paint.accent, { x: px, y: 0.18, z: pz }, { x: 0.24, y: 0.36, z: 0.24 }))
-          parts.push(mesh('cone', paint.glass, { x: px, y: 0.14, z: pz }, { x: 0.12, y: 0.22, z: 0.12 }))
-        }
+    case 'spikes': {
+      // Ghargileh's angular temper: spiked finials at every corner, embers at their feet.
+      for (const c of [nw, ne, sw, se]) {
+        parts.push(mesh('cone', paint.dark, { x: c.x, y: 0.5, z: c.z }, { x: 0.18, y: 1.0, z: 0.18 }))
+        parts.push(mesh('cone', paint.accent, { x: c.x, y: 0.2, z: c.z }, { x: 0.32, y: 0.4, z: 0.32 }))
+        parts.push(mesh('cone', paint.glass, { x: c.x, y: 0.14, z: c.z }, { x: 0.16, y: 0.24, z: 0.16 }))
       }
       break
     }
-    case 'sparks': {
-      const x = -YARD - 0.05
-      const z = YARD - 0.1
-      parts.push(mesh('box', paint.accent, { x: x + 0.08, y: 0.9, z }, { x: 0.12, y: 0.5, z: 0.08 }, { z: 0.45 }))
-      parts.push(mesh('box', paint.accent, { x: x - 0.04, y: 0.55, z }, { x: 0.12, y: 0.5, z: 0.08 }, { z: -0.55 }))
-      parts.push(mesh('box', paint.accent, { x: x + 0.06, y: 0.2, z }, { x: 0.12, y: 0.4, z: 0.08 }, { z: 0.45 }))
-      parts.push(mesh('sphere', paint.glass, { x: x + 0.35, y: 1.05, z: z + 0.1 }, { x: 0.1, y: 0.1, z: 0.1 }))
-      parts.push(mesh('sphere', paint.glass, { x: x - 0.3, y: 0.35, z: z - 0.1 }, { x: 0.08, y: 0.08, z: 0.08 }))
+    case 'compass': {
+      // Fergoleh's compass rose on the ground and a bolt-topped signpost.
+      const { x, z } = sw
+      parts.push(mesh('cylinder', paint.base, { x, y: 0.02, z }, { x: 1.0, y: 0.04, z: 1.0 }))
+      parts.push(mesh('box', paint.accent, { x, y: 0.05, z }, { x: 0.9, y: 0.02, z: 0.1 }))
+      parts.push(mesh('box', paint.accent, { x, y: 0.05, z }, { x: 0.1, y: 0.02, z: 0.9 }))
+      parts.push(mesh('box', paint.dark, { x, y: 0.06, z }, { x: 0.5, y: 0.02, z: 0.06 }, { y: Math.PI / 4 }))
+      parts.push(mesh('box', paint.dark, { x, y: 0.06, z }, { x: 0.06, y: 0.02, z: 0.5 }, { y: Math.PI / 4 }))
+      const px = ne.x
+      const pz = ne.z
+      parts.push(mesh('cylinder', paint.wood, { x: px, y: 0.6, z: pz }, { x: 0.08, y: 1.2, z: 0.08 }))
+      parts.push(mesh('box', paint.accent, { x: px, y: 1.05, z: pz }, { x: 0.5, y: 0.16, z: 0.05 }, { y: -0.4 }))
+      parts.push(mesh('box', paint.accent, { x: px + 0.04, y: 1.34, z: pz }, { x: 0.08, y: 0.22, z: 0.05 }, { z: 0.5 }))
+      parts.push(mesh('box', paint.accent, { x: px - 0.03, y: 1.2, z: pz }, { x: 0.08, y: 0.2, z: 0.05 }, { z: -0.6 }))
       break
     }
     case 'ruins': {
-      const x = -YARD - 0.05
-      parts.push(mesh('cylinder', paint.base, { x, y: 0.4, z: 0.5 }, { x: 0.22, y: 0.8, z: 0.22 }))
-      parts.push(mesh('cylinder', paint.base, { x, y: 0.22, z: -0.3 }, { x: 0.22, y: 0.44, z: 0.22 }))
-      parts.push(mesh('cylinder', paint.base, { x: x + 0.1, y: 0.11, z: -0.95 }, { x: 0.2, y: 0.7, z: 0.2 }, { z: Math.PI / 2, y: 0.6 }))
+      const { x, z } = sw
+      parts.push(mesh('cylinder', paint.base, { x, y: 0.4, z }, { x: 0.22, y: 0.8, z: 0.22 }))
+      parts.push(mesh('cylinder', paint.base, { x: x + 0.5, y: 0.22, z: z - 0.1 }, { x: 0.22, y: 0.44, z: 0.22 }))
+      parts.push(
+        mesh('cylinder', paint.base, { x: x + 0.3, y: 0.11, z: z + 0.5 }, { x: 0.2, y: 0.7, z: 0.2 }, { z: Math.PI / 2, y: 0.6 }),
+      )
+      parts.push(mesh('box', paint.base, { x: ne.x, y: 0.06, z: ne.z }, { x: 0.6, y: 0.12, z: 0.4 }, { y: 0.3 }))
       break
     }
-    case 'pillars': {
-      for (const side of [-1, 1]) {
-        const x = side * 0.62
-        const z = HALF + 0.3
-        parts.push(mesh('cylinder', paint.base, { x, y: 0.5, z }, { x: 0.14, y: 0.8, z: 0.14 }))
-        parts.push(mesh('sphere', paint.accent, { x, y: 0.12, z }, { x: 0.26, y: 0.26, z: 0.26 }))
-        parts.push(mesh('sphere', paint.accent, { x, y: 0.9, z }, { x: 0.26, y: 0.26, z: 0.26 }))
+    case 'sun': {
+      // Hogila: sun-shaped and calm. A sun disc on a pole with rays, a bow beneath.
+      const { x, z } = se
+      parts.push(mesh('cylinder', paint.wood, { x, y: 0.7, z }, { x: 0.08, y: 1.4, z: 0.08 }))
+      parts.push(mesh('cylinder', paint.accent, { x, y: 1.55, z }, { x: 0.5, y: 0.06, z: 0.5 }, { x: Math.PI / 2 }))
+      for (let i = 0; i < 8; i += 1) {
+        const a = (i * Math.PI) / 4
+        parts.push(
+          mesh('box', paint.accent, { x: x + Math.cos(a) * 0.36, y: 1.55 + Math.sin(a) * 0.36, z }, { x: 0.16, y: 0.06, z: 0.04 }, { z: a }),
+        )
       }
+      parts.push(mesh('cone', paint.glass, { x: x - 0.08, y: 1.16, z }, { x: 0.12, y: 0.14, z: 0.06 }, { z: Math.PI / 2 }))
+      parts.push(mesh('cone', paint.glass, { x: x + 0.08, y: 1.16, z }, { x: 0.12, y: 0.14, z: 0.06 }, { z: -Math.PI / 2 }))
       break
     }
-    case 'pages': {
-      for (const [x, z, spin] of [
-        [-1.25, 1.2, 0.4],
-        [1.3, -1.1, -0.9],
-      ]) {
-        parts.push(mesh('box', paint.glass, { x: x - 0.14, y: 0.06, z }, { x: 0.32, y: 0.04, z: 0.42 }, { y: spin, z: 0.25 }))
-        parts.push(mesh('box', paint.glass, { x: x + 0.14, y: 0.06, z }, { x: 0.32, y: 0.04, z: 0.42 }, { y: spin, z: -0.25 }))
-      }
+    case 'lectern': {
+      // Geispli the scribe: a lectern with an open scroll and a quill.
+      const { x, z } = se
+      parts.push(mesh('box', paint.wood, { x, y: 0.4, z }, { x: 0.16, y: 0.8, z: 0.16 }))
+      parts.push(mesh('box', paint.wood, { x, y: 0.84, z }, { x: 0.6, y: 0.06, z: 0.44 }, { x: -0.35 }))
+      parts.push(mesh('cylinder', paint.glass, { x, y: 0.92, z: z + 0.06 }, { x: 0.12, y: 0.5, z: 0.12 }, { z: Math.PI / 2 }))
+      parts.push(mesh('cone', paint.glass, { x: x + 0.22, y: 1.08, z: z - 0.05 }, { x: 0.05, y: 0.36, z: 0.05 }, { z: -0.5 }))
       break
     }
     case 'construction': {
-      // Poles up every corner and a crane in the yard: the whole plot is a site.
-      const reach = HALF + 0.14
+      // A site: poles up every corner of the plot, a crane, and one royal flag
+      // for Gilbib, the king whose city this will be.
       const height = capacity * FLOOR_H + 0.4
-      for (const x of [-reach, reach]) {
-        for (const z of [-reach, reach]) {
-          parts.push(mesh('cylinder', paint.scaffold, { x, y: height / 2, z }, { x: 0.07, y: height, z: 0.07 }))
-        }
+      for (const c of [nw, ne, sw, se]) {
+        parts.push(mesh('cylinder', paint.scaffold, { x: c.x, y: height / 2, z: c.z }, { x: 0.07, y: height, z: 0.07 }))
       }
-      parts.push(mesh('box', paint.scaffold, { y: height, z: reach }, { x: reach * 2 + 0.1, y: 0.06, z: 0.08 }))
-      const cx = YARD + 0.15
-      const cz = -YARD
+      parts.push(mesh('box', paint.scaffold, { x: plot.x, y: height, z: sw.z }, { x: rx * 2, y: 0.06, z: 0.08 }))
+      const cx = ne.x + 0.2
+      const cz = ne.z
       parts.push(mesh('cylinder', paint.accent, { x: cx, y: height / 2 + 0.4, z: cz }, { x: 0.12, y: height + 0.8, z: 0.12 }))
-      parts.push(mesh('box', paint.accent, { x: cx - 0.7, y: height + 0.75, z: cz }, { x: 1.8, y: 0.1, z: 0.1 }))
-      parts.push(mesh('cylinder', paint.dark, { x: cx - 1.3, y: height + 0.3, z: cz }, { x: 0.02, y: 0.9, z: 0.02 }))
-      parts.push(mesh('box', paint.dark, { x: cx - 1.3, y: height - 0.2, z: cz }, { x: 0.24, y: 0.2, z: 0.24 }))
+      parts.push(mesh('box', paint.accent, { x: cx - 0.9, y: height + 0.75, z: cz }, { x: 2.0, y: 0.1, z: 0.1 }))
+      parts.push(mesh('cylinder', paint.dark, { x: cx - 1.6, y: height + 0.3, z: cz }, { x: 0.02, y: 0.9, z: 0.02 }))
+      parts.push(mesh('box', paint.dark, { x: cx - 1.6, y: height - 0.2, z: cz }, { x: 0.24, y: 0.2, z: 0.24 }))
+      parts.push(mesh('cylinder', paint.wood, { x: sw.x, y: height + 0.6, z: sw.z }, { x: 0.05, y: 0.5, z: 0.05 }))
+      parts.push(mesh('box', paint.accent, { x: sw.x + 0.16, y: height + 0.76, z: sw.z }, { x: 0.32, y: 0.2, z: 0.03 }))
       break
     }
-    case 'torches': {
-      for (const side of [-1, 1]) {
-        const x = side * 0.62
-        const z = HALF + 0.3
-        parts.push(mesh('cylinder', paint.dark, { x, y: 0.45, z }, { x: 0.08, y: 0.9, z: 0.08 }))
-        parts.push(mesh('cone', paint.accent, { x, y: 1.02, z }, { x: 0.2, y: 0.28, z: 0.2 }))
+    case 'halo': {
+      // Fingeil: torches, a totem, and his floating halo above it.
+      for (const c of [sw, se]) {
+        parts.push(mesh('cylinder', paint.dark, { x: c.x, y: 0.45, z: c.z }, { x: 0.08, y: 0.9, z: 0.08 }))
+        parts.push(mesh('cone', paint.accent, { x: c.x, y: 1.02, z: c.z }, { x: 0.2, y: 0.28, z: 0.2 }))
       }
-      const tx = -YARD - 0.05
-      const tz = -0.6
-      parts.push(mesh('box', paint.dark, { x: tx, y: 0.35, z: tz }, { x: 0.36, y: 0.7, z: 0.36 }))
-      parts.push(mesh('box', paint.accent, { x: tx, y: 0.85, z: tz }, { x: 0.3, y: 0.3, z: 0.3 }, { y: 0.4 }))
-      parts.push(mesh('box', paint.dark, { x: tx, y: 1.15, z: tz }, { x: 0.36, y: 0.3, z: 0.36 }))
+      const { x, z } = nw
+      parts.push(mesh('box', paint.dark, { x, y: 0.35, z }, { x: 0.36, y: 0.7, z: 0.36 }))
+      parts.push(mesh('box', paint.accent, { x, y: 0.85, z }, { x: 0.3, y: 0.3, z: 0.3 }, { y: 0.4 }))
+      parts.push(mesh('box', paint.dark, { x, y: 1.15, z }, { x: 0.36, y: 0.3, z: 0.36 }))
+      parts.push(mesh('cylinder', paint.glass, { x, y: 1.5, z }, { x: 0.5, y: 0.04, z: 0.5 }))
+      parts.push(mesh('cylinder', paint.dark, { x, y: 1.5, z }, { x: 0.36, y: 0.05, z: 0.36 }))
       break
     }
     case 'roots': {
+      // Golmari: roots, sprouts, and the elder farmer's cane and satchel by the gate.
       for (const angle of [0.4, 1.9, 3.4, 4.9]) {
-        const x = Math.cos(angle) * 1.55
-        const z = Math.sin(angle) * 1.55
-        parts.push(
-          mesh('cylinder', paint.dark, { x, y: groundY + 0.12, z }, { x: 0.16, y: 0.9, z: 0.16 }, {
-            z: Math.PI / 2,
-            y: -angle,
-          }),
-        )
+        const x = plot.x + Math.cos(angle) * (rx + 0.2)
+        const z = plot.z + Math.sin(angle) * (rz + 0.2)
+        parts.push(mesh('cylinder', paint.dark, { x, y: groundY + 0.12, z }, { x: 0.16, y: 0.9, z: 0.16 }, { z: Math.PI / 2, y: -angle }))
       }
-      parts.push(mesh('cone', paint.accent, { x: YARD, y: 0.22, z: YARD - 0.2 }, { x: 0.22, y: 0.44, z: 0.22 }))
-      parts.push(mesh('cone', paint.accent, { x: YARD + 0.14, y: 0.14, z: YARD + 0.05 }, { x: 0.14, y: 0.28, z: 0.14 }, { z: -0.4 }))
+      parts.push(mesh('cone', paint.accent, { x: ne.x, y: 0.22, z: ne.z }, { x: 0.22, y: 0.44, z: 0.22 }))
+      parts.push(mesh('cone', paint.accent, { x: ne.x + 0.14, y: 0.14, z: ne.z + 0.05 }, { x: 0.14, y: 0.28, z: 0.14 }, { z: -0.4 }))
+      parts.push(mesh('cylinder', paint.wood, { x: se.x, y: 0.4, z: se.z }, { x: 0.05, y: 0.8, z: 0.05 }, { z: 0.12 }))
+      parts.push(mesh('sphere', paint.wood, { x: se.x + 0.05, y: 0.82, z: se.z }, { x: 0.1, y: 0.1, z: 0.1 }))
+      parts.push(mesh('box', paint.dark, { x: se.x - 0.3, y: 0.14, z: se.z }, { x: 0.3, y: 0.28, z: 0.16 }))
       break
     }
     case 'none':

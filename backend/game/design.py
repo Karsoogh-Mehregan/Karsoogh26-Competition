@@ -65,13 +65,33 @@ class RoadStyle(models.TextChoices):
 # default (the unbuilt one — it is the theme *for* not having an identity yet).
 SECTOR_COUNT = 8
 
+# The first-cut colours, kept so the data migration can tell "still the old
+# default" from "a Designer chose this". The live defaults below are saturated
+# on purpose: they are washed over the map at tint_strength, and a muted hex at
+# 20% reads as grey.
+LEGACY_NEIGHBORHOOD_COLORS = {
+    0: "#3b82c4",
+    1: "#c8402f",
+    2: "#e08a2a",
+    3: "#5f8f4e",
+    4: "#d9b83a",
+    5: "#7b5ea7",
+    6: "#6f6f78",
+    7: "#8a6242",
+}
+
+LEGACY_TINT_STRENGTH = 8
+LEGACY_HALO_STRENGTH = 45
+DEFAULT_TINT_STRENGTH = 22
+DEFAULT_HALO_STRENGTH = 60
+
 DEFAULT_NEIGHBORHOODS = [
-    (0, "محلهٔ آبی", NeighborhoodTheme.WATER, "#3b82c4"),
-    (1, "محلهٔ قرمز", NeighborhoodTheme.FIRE, "#c8402f"),
-    (2, "محلهٔ نارنجی", NeighborhoodTheme.LIGHTNING, "#e08a2a"),
-    (3, "محلهٔ سبز", NeighborhoodTheme.HISTORY, "#5f8f4e"),
-    (4, "محلهٔ زرد", NeighborhoodTheme.SPORT, "#d9b83a"),
-    (5, "محلهٔ بنفش", NeighborhoodTheme.KNOWLEDGE, "#7b5ea7"),
-    (6, "محلهٔ خاکستری", NeighborhoodTheme.TRIBAL, "#6f6f78"),
-    (7, "محلهٔ قهوه‌ای", NeighborhoodTheme.SOIL, "#8a6242"),
+    (0, "محلهٔ آبی", NeighborhoodTheme.WATER, "#2f7fd6"),
+    (1, "محلهٔ قرمز", NeighborhoodTheme.FIRE, "#d6412b"),
+    (2, "محلهٔ نارنجی", NeighborhoodTheme.LIGHTNING, "#ef8f1f"),
+    (3, "محلهٔ سبز", NeighborhoodTheme.HISTORY, "#4f9a3f"),
+    (4, "محلهٔ زرد", NeighborhoodTheme.SPORT, "#e6c21c"),
+    (5, "محلهٔ بنفش", NeighborhoodTheme.KNOWLEDGE, "#7e4fc4"),
+    (6, "محلهٔ خاکستری", NeighborhoodTheme.TRIBAL, "#6b6b7a"),
+    (7, "محلهٔ قهوه‌ای", NeighborhoodTheme.SOIL, "#9a5a2e"),
 ]

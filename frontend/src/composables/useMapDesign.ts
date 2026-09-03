@@ -35,14 +35,14 @@ interface MapNodeLike extends PolarNode {
 
 /** Mirrors `DEFAULT_NEIGHBORHOODS` in the backend, for the moment before the query lands. */
 const FALLBACK_NEIGHBORHOODS: Neighborhood[] = [
-  { index: 0, name: 'محلهٔ آبی', theme: 'water', color: '#3b82c4' },
-  { index: 1, name: 'محلهٔ قرمز', theme: 'fire', color: '#c8402f' },
-  { index: 2, name: 'محلهٔ نارنجی', theme: 'lightning', color: '#e08a2a' },
-  { index: 3, name: 'محلهٔ سبز', theme: 'history', color: '#5f8f4e' },
-  { index: 4, name: 'محلهٔ زرد', theme: 'sport', color: '#d9b83a' },
-  { index: 5, name: 'محلهٔ بنفش', theme: 'knowledge', color: '#7b5ea7' },
-  { index: 6, name: 'محلهٔ خاکستری', theme: 'tribal', color: '#6f6f78' },
-  { index: 7, name: 'محلهٔ قهوه‌ای', theme: 'soil', color: '#8a6242' },
+  { index: 0, name: 'محلهٔ آبی', theme: 'water', color: '#2f7fd6' },
+  { index: 1, name: 'محلهٔ قرمز', theme: 'fire', color: '#d6412b' },
+  { index: 2, name: 'محلهٔ نارنجی', theme: 'lightning', color: '#ef8f1f' },
+  { index: 3, name: 'محلهٔ سبز', theme: 'history', color: '#4f9a3f' },
+  { index: 4, name: 'محلهٔ زرد', theme: 'sport', color: '#e6c21c' },
+  { index: 5, name: 'محلهٔ بنفش', theme: 'knowledge', color: '#7e4fc4' },
+  { index: 6, name: 'محلهٔ خاکستری', theme: 'tribal', color: '#6b6b7a' },
+  { index: 7, name: 'محلهٔ قهوه‌ای', theme: 'soil', color: '#9a5a2e' },
 ]
 
 // The assignment is pure in (pins); cache it across every caller of this
@@ -70,8 +70,8 @@ export function useMapDesign() {
 
   const roadStyle = computed<RoadStyle>(() => design.value?.road_style ?? 'straight')
   /** 0..1, ready to drop into an SVG opacity. */
-  const tintStrength = computed(() => (design.value?.tint_strength ?? 8) / 100)
-  const haloStrength = computed(() => (design.value?.halo_strength ?? 45) / 100)
+  const tintStrength = computed(() => (design.value?.tint_strength ?? 22) / 100)
+  const haloStrength = computed(() => (design.value?.halo_strength ?? 60) / 100)
 
   /** code → the server's row, when it has one. */
   const nodeRows = computed(() => {

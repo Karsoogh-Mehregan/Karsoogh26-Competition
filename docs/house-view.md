@@ -1,240 +1,222 @@
 # The house view — 3D building detail beside the 2D map
 
-Handoff notes for the feature added to `frontend/` on 2026-09-02, and the
-neighbourhoods / Designer role layered on it on 2026-09-03. Written to be read
-cold, by a person or an agent with no memory of the sessions that built it.
+Handoff notes for the feature added to `frontend/` on 2026-09-02, the
+neighbourhoods / Designer role layered on it on 2026-09-03, and the same-day
+rework that gave every building type its own massing. Written to be read cold,
+by a person or an agent with no memory of the sessions that built it.
 
 ---
 
 ## 1. The problem this solves
 
 `frontend/src/data/graph_data.json` is the map: **473 nodes, 780 edges**, laid
-out as a six-layer circular graph with baked-in `x`/`y`/`theta`/`shape`. The SVG
-map draws every node as concentric rings — one ring per capacity slot, filled
-with the occupying team's colour.
+out as a six-layer circular graph with baked-in `x`/`y`/`theta`/`r`/`shape`.
+The SVG map draws every node as concentric rings — one ring per capacity slot,
+filled with the occupying team's colour.
 
 An earlier attempt replaced those rings with illustrated buildings (the
 AI-generated isometric PNGs in `P:\PROJECTS\karsoogh-26-assets\`, ~1.3 MB each).
 It did not survive contact with 473 nodes.
 
 **The diagnosis was not "wrong asset format", it was "detail at the wrong
-scale".** 473 × any detailed illustration is unwinnable in SVG, PNG or WebGL
-alike. The fix moves detail off the map entirely:
+scale".** The fix moves detail off the map entirely:
 
-- The map stays cheap primitives, now with a colour wash per neighbourhood and a
-  thin ring per node. Still static geometry.
+- The map stays cheap primitives, with a colour wash per neighbourhood, a
+  wandering border between them, and a thin ring per node. Static geometry.
 - Clicking any node opens a side panel that renders **exactly one** building
   in 3D, procedurally, reflecting that node's live state.
 
-Because only one building ever exists, "optimised" stops being about the model
-and becomes about three things that actually bite: **bundle weight**, **idle GPU
-drain**, and **rebuild churn on every realtime event**. All three are addressed
-in §3.
+Because only one building ever exists, "optimised" is about **bundle weight**,
+**idle GPU drain**, and **rebuild churn on realtime events** — §4.
 
 ---
 
-## 2. Core idea: house = chassis + type + theme + paint
+## 2. Core idea: every type has its own massing; every theme has a character
 
 There are no 3D model files. A house is generated from data the board already
 has:
 
 | Input | Source | Drives |
 |---|---|---|
-| `capacity` (1/2/3) | `GET /api/map/design/` node row (falls back to map JSON type) | number of storeys |
-| building type | Designer pin, else adjacency-aware assignment (§2.2) | roof, foundation, props, awning |
+| `capacity` (1/2/3) | `GET /api/map/design/` node row (falls back to map JSON type) | number of paintable storeys |
+| building type | Designer pin, else adjacency-aware assignment (§2.2) | the whole plot layout — see §2.1 |
 | neighbourhood theme | `floor(theta / 45)` → sector → `Neighborhood.theme` | palette, sign emblem, one motif around the plot |
 | per-floor occupancy | `GET /api/teams/` holdings | the colour of each storey |
 | `status: reserved` | holding with `grade == null` | scaffolding around that storey |
 
-**Floor 3 is the penthouse.** The backend's `grade_attempt` computes
-`floor = len(ranked) - index` after sorting best-first, so the highest floor
-number is the best unit. The model renders floor N physically highest, so a team
-promoted by a re-rank literally moves up the building.
+**Floor N is the penthouse.** The backend's `grade_attempt` computes
+`floor = len(ranked) - index` after sorting best-first; the model renders floor
+N physically highest (or outermost, for a stadium), so a promoted team moves up.
 
-### 2.1 Twenty-six building types
+### 2.1 Twenty-six building types, each its own builder
 
-`frontend/src/lib/house/archetypes.ts`, keyed identically to
-`backend/game/design.py::ARCHETYPES` (which validates Designer pins): mint,
-cityhall, bakery, restaurant, school, icecream, newspaper, hotel, caravanserai,
-stadium, farm, guardpost, observatory, grocery, dairy, stable, hospital,
-courthouse, ministry, mine, trade, industry, sawmill, tailor, smithy, library.
-Plus two fixed specials for `spawn` and `toll` plots.
+`frontend/src/lib/house/buildings.ts` holds one builder per type. A builder
+lays out its plot from scratch — this is the change from the first cut, which
+gave every type the same box stack and a different hat. Now:
 
-Each is `{ roof, foundation, props[], awning }`:
+| type | what the plot actually is |
+|---|---|
+| farm | a fenced field of twelve plots with crop rows **in front**, a small farmhouse at the back, a windmill, a scarecrow |
+| stadium | a green pitch with goals and pitch markings; the storeys are **tiers of bleachers** on both long sides; four floodlights |
+| caravanserai | a walled courtyard: each storey is a **ring of arcade rooms**, corner domes, an arched gate, a fountain |
+| mine | a mound with a timbered tunnel mouth, a headframe with a wheel, rails, an ore cart, ore piles, an office shack |
+| observatory | a round tower of drums with ring windows, a slit dome and telescope, a spiral of steps, an annex |
+| guardpost | a battlemented wall with a gate arch; the storeys are the **watchtower** rising through it |
+| dairy / stable | barn + silo + paddock with cows; long barn with stall doors + paddock with horses and hay |
+| courthouse / library / ministry | colonnades, steps, pediments, domes, a great open book, wings and a central tower |
+| mint | heavy stepped stone blocks, a giant coin over the door, a press on the roof, coin stacks |
+| hotel | a tall narrow tower with a balcony on every floor and an entrance canopy |
+| toll (عوارضی) | a **road through the plot** with a dashed centre line, a booth, a striped barrier arm, an overhead gantry with a sign |
+| spawn | a pavilion whose base **and flag** wear the team colour |
+| bakery, restaurant, school, icecream, newspaper, grocery, hospital, trade, industry, sawmill, tailor, smithy | each with its own trade props: oven and bread, terrace and umbrellas, bell tower and flagpole, cone roof and scoop, sawtooth roof and billboard, produce stand, ambulance canopy and helipad, loading dock and crane, smokestacks and gear, saw bench and log piles, mannequin and fabric rolls, forge and anvil |
 
-- **Roofs:** gable · hip · dome · flat · tiered · tower · open.
-- **Foundations** (the "unique foundation" ask): slab · stepped · round · piers ·
-  walled · mound.
-- **Props** (26 kinds, 2–6 primitives each) in `lib/house/props.ts`.
+Two rules hold across all of them:
+
+1. **Every type registers exactly `capacity` paintable storeys** through
+   `Ctx.storey()`, whatever a storey means for it (a bleacher tier, a ring of
+   rooms, a tower drum). That is what `paint()` colours and what the scaffolding
+   stands around.
+2. **Everything is the eight pooled geometries, scaled** — cows, cranes and
+   windmills included (§4.1).
+
+Reference for the massing came from isometric low-poly farm packs (barn, silo,
+fields, fence, windmill as separate props), e.g. the
+[Synty POLYGON Farm Pack](https://syntystore.com/products/polygon-farm-pack),
+the [Low-poly Isometric Farm on CGTrader](https://www.cgtrader.com/3d-models/exterior/house/low-poly-isometric-farm-1)
+and the [stylized windmill on OpenGameArt](https://opengameart.org/content/stylized-wildmill-isometric-with-parts-to-build-animationand-blend).
 
 ### 2.2 No two neighbours alike
 
-`frontend/src/lib/mapArchetypes.ts` is a greedy graph colouring with 26
-colours: nodes in fixed order, each takes the first type in its own hash-rotated
-preference list that no already-decided neighbour took. The densest node (an L6:
-K8 + three L5s + CENTER) has degree 11, so greedy never fails. Designer pins are
-placed first and never moved — a pin wins over the tidiness rule. Deterministic
-on (order, adjacency, pins), so every client agrees and nothing is stored;
-memoised in `useMapDesign` so it runs once per design change.
+`lib/mapArchetypes.ts`: greedy graph colouring with 26 colours, nodes in
+fixed order, each taking the first type in its own hash-rotated preference list
+that no decided neighbour took. The densest node has degree 11. Designer pins
+are placed first and never moved. Deterministic; memoised in `useMapDesign`.
 
-### 2.3 Eight sectors, nine themes
+### 2.3 Eight sectors, nine themes, each a character
 
-The map has eight 45° sectors. Every connectivity group in `generateGraph.mjs`
-(L3 → C34 → L4 → C45 → L5 → L6) sits inside one, and with the baked layer
-offsets `floor(theta / 45)` puts a team's whole tree in the same slice with no
-node on a boundary. So **sector membership is geometry the client computes**
-(`lib/mapNeighborhoods.ts`); the server only stores what each sector is called,
-which theme it wears, and its 2D colour.
+Sector membership is exact: `floor(theta / 45)`. Every connectivity group in
+`generateGraph.mjs` sits inside one, no node on a boundary. The brief lists
+nine themes for eight neighbourhoods; the Designer picks which eight, and the
+seed leaves out **سفید / unbuilt**.
 
-The brief lists nine themes (آبی، قرمز، نارنجی، سبز، زرد، بنفش، سفید، خاکستری،
-قهوه‌ای) for "eight neighbourhoods". Resolution: eight sectors, nine themes, the
-Designer picks which eight. The seed leaves out **سفید / unbuilt** — the theme
-for not having an identity yet.
+Each theme carries the feel of the character who wears its colour in the story
+(`karsoogh-mehregan-characters.md`), through its motif on the plot:
 
-A theme (`lib/house/themes.ts`) is `{ palette, emblem, motif }`:
-
-| theme | emblem on the sign | motif around the plot |
-|---|---|---|
-| water | drop | moat ring under the base |
-| fire | flame | ember cones on the corners |
-| lightning | bolt | standing zigzag + sparks |
-| history | lens | broken columns, one fallen |
-| sport | dumbbell | dumbbell pillars flanking the door |
-| knowledge | book | open books on the ground |
-| unbuilt | — | scaffold poles on every corner + a crane |
-| tribal | tablet | torches flanking the door + a totem |
-| soil | seed | root logs radiating + sprouts |
+| theme | character | palette feel | motif around the plot |
+|---|---|---|---|
+| water | سورگیلش the well-digger | cool blues | a stone **well** with posts, roof and bucket |
+| fire | غرگیله, angular and anxious | red, dark | **spiked** finials on every corner, embers at their feet |
+| lightning | فرگوله the explorer | amber, orange | a **compass rose** on the ground, a bolt-topped signpost |
+| history | — | olive, stone | ruins: broken columns, one fallen |
+| sport | هوگیلا, sun-shaped and calm | golden yellow | a **sun** on a pole with rays, a bow beneath |
+| knowledge | گیسپلی the scribe | violet | a **lectern** with an open scroll and a quill |
+| unbuilt | گیلبیب the king | greys, one gold | a site: scaffold poles, a crane, **one royal flag** |
+| tribal | فینگیل, the only grey one | stone grey, dark violet | torches, a totem, his floating **halo** above it |
+| soil | گلمری the elder farmer | earth browns | roots, sprouts, and his **cane and satchel** by the gate |
 
 `palette.wall` is the colour of an *unclaimed* storey; claimed storeys always
-wear the team's colour, so a theme never hides who owns what.
-
-> The brief's per-building-per-neighbourhood prose (~90 descriptions) is the
-> reference these motifs were chosen from, not a spec each one reproduces.
-> Modelling them literally from primitives that still run on a weak laptop was
-> judged not worth it; the theme layer is where that fidelity would go.
+wear the team's colour.
 
 ---
 
-## 3. The three optimisations
+## 3. The 2D map
 
-### 3.1 Eight geometries, shared forever
+- **Sector wash.** Eight paths behind everything, `fill-opacity = tint_strength`
+  (default now **22%**, was 8% — which read as grey) with a stroke along the
+  border at double that. Default colours were resaturated for the same reason;
+  a guarded data migration (`0018`) only rewrites rows still on the old defaults.
+- **Wandering borders.** `lib/mapNeighborhoods.ts::sectorGeometries()` does not
+  cut at 45°. On every ring it finds the gap between the last node of one
+  sector and the first of the next (1.9° on L1, 45° on L6), takes its midpoint,
+  lets the line swing up to 28% of the gap alternating by ring, and threads a
+  Catmull-Rom spline through the points. The border therefore hugs the real
+  groups and **never crosses a node**. Computed once from the JSON.
+- **Halo.** One ring per node in its sector's colour, `halo_strength` opacity
+  (default now 60%).
+- **Roads.** `<path>` per edge; straight / curved (bowed away from the centre) /
+  dashed, from `road_style`.
+- **Toll glyph.** `c34`/`c45` nodes draw a gantry `<symbol>` instead of a dot,
+  with an invisible disc behind it so the click lands (the symbol has gaps).
 
-`src/lib/house/geometry.ts` builds **eight** `BufferGeometry` objects lazily,
-caches them in a module-level `Map`, and never disposes them:
+---
 
-```
-box · cylinder · cone · pyramid · dome · sphere · prism · plane
-```
+## 4. The three optimisations
 
-A **scaled unit cube** is the base slab, every storey, every trim band, every
-window, the door, crates, signs, the hospital cross and the arms of the
-courthouse scales. Scale lives in the object matrix and costs nothing, so
-variety goes into `mesh.scale`, never into new geometry. Twenty-six types × nine
-themes come out of those eight shapes.
+### 4.1 Eight geometries, shared forever
 
-`src/lib/house/materials.ts` pools materials by colour (`solid()` for Lambert,
-`glass()` for the unlit panes), never disposed. `flatShading: true` matches the
-faceted hand-drawn reference style and costs nothing.
+`lib/house/geometry.ts`: `box · cylinder · cone · pyramid · dome · sphere ·
+prism · plane`, built once, never disposed. A scaled unit cube is a storey, a
+crate, a bleacher, a fence rail, the arms of the courthouse scales. Materials
+are pooled by colour in `materials.ts` (`solid()`, `glass()`), `flatShading`
+on. Windows and scaffolding are `InstancedMesh`. No shadow maps — one 128 px
+radial-gradient plane fakes the contact shadow.
 
-Windows and scaffolding use `InstancedMesh`. No shadow maps: one 128 px
-radial-gradient `CanvasTexture` on a ground plane fakes the contact shadow.
-
-### 3.2 Rebuild vs. repaint — the `structureKey`
-
-This is the most important invariant in the feature.
+### 4.2 Rebuild vs. repaint — the `structureKey`
 
 `HouseSpec.structureKey` encodes **only what changes geometry**:
 
 ```
-`${archetype.key}:${theme.key}:${capacity}:${reservedMask}`   e.g. "observatory:water:3:100"
+`${archetype.key}:${theme.key}:${capacity}:${reservedMask}`   e.g. "farm:soil:3:100"
 ```
 
-`stage.ts::setSpec` compares it against the standing model: **match → `paint()`**
-(material reassignment, zero allocation); **differ → rebuild**.
+`stage.ts::setSpec`: **match → `paint()`** (material reassignment, zero
+allocation); **differ → rebuild**. Every SSE board frame recomputes the spec
+for the open node; almost all concern other nodes, so the key matches and the
+cost is one material swap plus one frame.
 
-| Board event | key transition | path |
-|---|---|---|
-| empty → reserved | `…:000` → `…:100` | rebuild (scaffolding is geometry) |
-| reserved → graded | `…:100` → `…:000` | rebuild (scaffolding comes down) |
-| owned → bought out / duel loss | unchanged | **paint only** |
-| floors re-ranked after a grade | unchanged | **paint only** |
-| any event on an *unrelated* node | unchanged | **paint only** |
-| Designer pins a different type | `observatory:…` → `mint:…` | rebuild (as it should) |
+> **If you change `structureKey`, re-check this.** Widening it (e.g. team
+> codes) silently turns every grade in the hall into a rebuild.
 
-Every SSE board frame invalidates `queryKeys.teams()`, which recomputes the
-spec for the open node too. Almost all such frames concern other nodes, so the
-key matches and the cost is one material swap plus one frame.
+### 4.3 One context, zero idle frames
 
-> **If you change `structureKey`, re-check this table.** Widening it (e.g. to
-> include team codes) silently turns every grade in the hall into a rebuild.
+`lib/house/stage.ts` is a singleton. It owns its `<canvas>` and re-parents it
+(Chrome caps live WebGL contexts at 16); `mount()`/`unmount()`, never
+`dispose()`; render on demand with no standing rAF loop; **zoom** by wheel and
+± buttons (0.6×–2.6×); suspends on `visibilitychange`.
 
-### 3.3 One context, zero idle frames
+### 4.4 Bundle
 
-`src/lib/house/stage.ts` is a module-level singleton like `useGraph()`.
-
-- **The stage owns its `<canvas>`.** Vue destroys component DOM on route
-  changes; a renderer bound to a destroyed canvas is dead. The canvas is created
-  once and re-parented into whatever container mounts. Browsers cap live WebGL
-  contexts (Chrome: 16) and silently drop the oldest.
-- **`mount()` / `unmount()`, never `dispose()`.** Pools survive.
-- **Render on demand.** No standing rAF loop; `invalidate()` schedules one
-  frame; the loop self-stops after the entry tween. Idle = zero frames.
-- **Zoom** (added 2026-09-03): wheel on the canvas and ± buttons scale the
-  orthographic frustum, clamped 0.6×–2.6×; reset restores yaw, pitch and zoom.
-- Suspends on `visibilitychange`; handles context loss/restore.
-
-### 3.4 Bundle: three.js is lazy
-
-`HouseCanvas.vue` is the **only** file that imports `three`; `HousePanel.vue`
-loads it via `defineAsyncComponent`. Vite splits it into its own chunk.
+`HouseCanvas.vue` is the only importer of `three`, loaded through
+`defineAsyncComponent`, so Vite splits it.
 
 ---
 
-## 4. The Designer role
+## 5. The Designer role
 
-A third permission tier beside mentors and game gods, and deliberately narrower
-than both: a Designer changes how the board **looks**, never who holds what or
-whether the clock runs.
+A third permission tier, narrower than mentor or game god: it changes how the
+board **looks**, never who holds what or whether the clock runs.
 
-**Backend** (`game/design.py`, `game/views_design.py`, migrations 0016–0017):
-
-- `game.design_map` permission; `Designers` group seeded; `is_designer` on
-  `GET /api/auth/me/`.
-- `Neighborhood` rows 0–7: `name`, `theme` (nine choices), `color` (`#rrggbb`).
-- `MapDesign` singleton: `road_style` (straight/curved/dashed), `tint_strength`,
-  `halo_strength` (0–100).
-- `Node.archetype`: a pin, blank = renderer chooses.
+**Backend** (`game/design.py`, `game/views_design.py`, migrations 0016–0018):
+`game.design_map` permission, `Designers` group, `is_designer` on `/api/auth/me/`;
+`Neighborhood` rows 0–7 (`name`, `theme`, `color`); `MapDesign` singleton
+(`road_style`, `tint_strength`, `halo_strength`); `Node.archetype` pin.
 
 | Endpoint | Who | Does |
 |---|---|---|
 | `GET /api/map/design/` | any logged-in user | settings + 8 neighbourhoods + every node's `{level, capacity, archetype}` |
-| `PATCH /api/map/design/` | Designer | any subset of settings; `neighborhoods: [{index, …}]` patched by index |
+| `PATCH /api/map/design/` | Designer | any subset of settings; `neighborhoods: [{index, …}]` by index |
 | `PATCH /api/map/nodes/<code>/` | Designer | `archetype` pin/unpin; `level` move — **409 while any team holds a seat there** |
 
-A write publishes a `map.design` SSE frame; clients invalidate `mapDesign`.
+A write publishes a `map.design` SSE frame. **The level-of-record moved:** the
+SVG map now reads level/capacity from this endpoint, with the JSON type only as
+the fallback before it answers.
 
-**The level-of-record moved.** Before this, the SVG map derived capacity from
-the JSON `type`. Now it reads `GET /api/map/design/` and falls back to the JSON
-only until that answers. Otherwise a Designer moving a node between tiers would
-change entry cost and capacity on the server while the map kept drawing the old
-ring count. `lib/mapLevels.ts` still mirrors `TYPE_TO_LEVEL` as that fallback.
-
-**Frontend:**
-
-- `/design` (`pages/DesignPage.vue`, `requiresDesigner`): road style, the two
-  strength sliders, and eight rows of name / theme / colour.
-- Per-node pins live in the **house panel**: a Designer sees a "طراحی" block
-  under the floor list with a type picker (26 + "خودکار — <what the renderer
-  chose>") and a tier picker, the model doubling as live preview. The tier
-  picker is disabled while the node is occupied, matching the server's 409.
-
-The shadcn `select` component could not be added (registry unreachable), so
-both pickers are native `<select>` styled to match `Input`. Swap them when the
-CLI is reachable.
+**Frontend:** `/design` for the map-wide knobs (tint slider now goes to 60);
+per-node pins in the **house panel** under a "طراحی" block, model as live
+preview, tier picker disabled while occupied. Native `<select>`s — the shadcn
+registry was unreachable.
 
 ---
 
-## 5. File map
+## 6. The panel
+
+`HousePanel.vue`: **27 rem** wide by default (was 20), stage at least 22 rem
+tall (was 12), and an **expand** toggle (persisted) that takes the column to
+`min(46rem, 58vw)` with a 34 rem stage. Under 1024 px it is a bottom sheet.
+
+---
+
+## 7. File map
 
 **`frontend/src/lib/house/`**
 
@@ -242,164 +224,107 @@ CLI is reachable.
 |---|---|
 | `geometry.ts` | Eight cached geometries + the contact-shadow texture |
 | `materials.ts` | Colour-keyed pools: `solid()`, `glass()`, `shade()`, `teamColor()` |
-| `archetypes.ts` | 26 building types + spawn/toll; `hashCode()` |
-| `themes.ts` | 9 themes: palette, emblem, motif |
-| `props.ts` | Foundations, roofs (with `surfaceY`), props, emblems, motifs |
+| `archetypes.ts` | 26 types `{roof, foundation, props, awning}` + spawn/toll; `hashCode()` |
+| `themes.ts` | 9 themes: palette, emblem, motif, character |
+| `props.ts` | Footprint-aware foundations and roofs (`surfaceY`), positioned emblem, character motifs |
+| `buildings.ts` | **`Ctx` + one builder per type**; `buildArchetype()` |
 | `spec.ts` | `buildSpec(code, meta, holdings)` → `HouseSpec`; owns `structureKey` |
-| `build.ts` | `buildHouse(spec)` → `{ group, height, paint() }`; `disposeHouse()` |
+| `build.ts` | Orchestration: builder → windows → motif → scaffolding from floor bounds → `paint()` |
 | `stage.ts` | Singleton renderer: mount/unmount, resize, zoom, setSpec, render-on-demand |
 
-**Elsewhere in `frontend/src/`**
-
-| File | Role |
-|---|---|
-| `lib/mapLevels.ts` | Mirror of the backend's `TYPE_TO_LEVEL`; the fallback before the design query |
-| `lib/mapNeighborhoods.ts` | `sectorOf(node)`, `wedgePath()`, `sectorLabelPoint()` |
-| `lib/mapArchetypes.ts` | `assignArchetypes()` — the greedy no-two-alike colouring |
-| `composables/useMapDesign.ts` | The design query resolved per node: level, capacity, neighbourhood, theme, archetype |
-| `composables/useHouseSpec.ts` | Inspected node + design meta + teams → reactive `HouseSpec` |
-| `stores/inspector.ts` | Which node the panel shows + the player's intent (discriminated union) |
-| `components/HouseCanvas.vue` | The lazy chunk; mount/resize/watch; zoom buttons |
-| `components/HousePanel.vue` | Header, canvas, floor list, Designer block, action button |
-| `pages/DesignPage.vue` | Map-wide Designer knobs |
-| `services/design.ts`, `queries/design.ts` | Transport + TanStack layer for the design API |
-
-**Modified:** `GraphView.vue` (sector wedges + labels, per-node halo, `<path>`
-roads with `edgeD()`, capacity from the design query, clicks → inspector, old
-confirm dialog removed), `MapPage.vue` (two columns), `router.ts` (`/design`),
-`InfoPanel.vue` (nav link), `useBoardStream.ts` (`map.design` route),
-`types/api.ts`, `queries/keys.ts`.
+**Elsewhere in `frontend/src/`**: `lib/mapLevels.ts` (fallback tiers),
+`lib/mapNeighborhoods.ts` (sector + wandering borders), `lib/mapArchetypes.ts`
+(assignment), `composables/useMapDesign.ts`, `composables/useHouseSpec.ts`,
+`stores/inspector.ts`, `components/HouseCanvas.vue`, `components/HousePanel.vue`,
+`pages/DesignPage.vue`, `services/design.ts`, `queries/design.ts`.
+`GraphView.vue` carries the wedges, halos, roads, toll glyph and click → inspector.
 
 **Dependency added:** `three` (+ `@types/three`).
 
 ---
 
-## 6. Data flow
+## 8. Measured numbers
 
-```
-graph_data.json (theta, type) ─┐
-GET /api/map/design/ ──────────┼─► useMapDesign().metaOf(node) ─┐
-   (level, pins, neighbourhoods)│                                ├─► buildSpec() ─► HouseCanvas ─► stage.setSpec()
-GET /api/teams/ (holdings) ─────┘────────────────────────────────┘                       ├─ key match  → paint()
-        ▲                                                                                └─ key differs → buildHouse()
-        └── invalidated by SSE: board.* → teams, map.design → mapDesign
+Live app, `L6_0` (hard, three floors: two owned, one reserved), water theme:
 
-GraphView.onNodeClick ─► inspectorStore.inspect(nodeCode, intent, occupancyId?)
-```
-
-### Intent
-
-`GraphView` decides what the player may do (adjacency and entry-sheet rules
-live there); `HousePanel` only renders the right button and calls the matching
-`useActing()` method.
-
-| Intent | Button | Action |
+| pinned type | draw calls | triangles |
 |---|---|---|
-| `reserve` | رزرو این خانه | `assignQuestion()` → `/solve` |
-| `claim_start` | ورود به خانهٔ شروع | `claimStart()` |
-| `solve` | رفتن به سؤال | select attempt → `/solve` |
-| `entry_gate` | پاسخ به سؤال‌های ورودی | `openEntrySheet()` |
-| `view` | *(none)* | — |
+| newspaper (auto) | 43 | 840 |
+| mine | 53 | 1 298 |
+| stable | 69 | 1 272 |
+| toll (`C45_0`) | 43 | 610 |
 
----
-
-## 7. Measured numbers
-
-Live app, `L6_0` pinned to observatory, water theme, three floors (two owned,
-one reserved):
+`0` requestAnimationFrame calls while idle · `1` WebGL context · `473` halo rings
+· `8` sector paths · `780` road paths (static SVG).
 
 ```
-25 draw calls · 1102 triangles · 6 GPU geometries · 6 shader programs
-0 requestAnimationFrame calls while idle
-1 canvas / 1 WebGL context on the page
-473 halo rings · 8 sector wedges · 780 road paths (static SVG)
+dist/assets/index-*.js         485 kB │ gzip 144 kB   ← main bundle, no three.js
+dist/assets/HouseCanvas-*.js   568 kB │ gzip 144 kB   ← lazy, first house only
 ```
 
-From `npm run build`:
-
-```
-dist/assets/index-*.js         483 kB │ gzip 143 kB   ← main bundle, no three.js
-dist/assets/HouseCanvas-*.js   546 kB │ gzip 138 kB   ← lazy, first house only
-```
-
-Backend: 285 tests pass (19 new in `tests/test_map_design.py`), ruff clean, no
+Backend: 285 tests pass (19 in `tests/test_map_design.py`), ruff clean, no
 migration drift.
 
 ---
 
-## 8. Invariants to preserve
+## 9. Invariants to preserve
 
-1. **`structureKey` encodes geometry only.** §3.2.
-2. **Never `dispose()` the renderer or the pools** on panel close.
-3. **The stage owns the canvas.** `HouseCanvas.vue` supplies a container div.
-4. **`three` stays confined to `HouseCanvas.vue` and `lib/house/`.**
-5. **Archetype keys are duplicated on purpose** — `backend/game/design.py` and
-   `frontend/src/lib/house/archetypes.ts`. Add to both or a pin will 400.
-6. **Sector = `floor(theta/45)`.** If `generateGraph.mjs` ever changes layer
-   offsets, re-check that no node lands on a 45° boundary.
-7. **Roof-mounted props ask `roof.surfaceY(x, z)`.** That is what fixed the
-   floating chimney. A new prop should never guess a height.
-8. **Add variety with `mesh.scale`, not new geometry.**
+1. **`structureKey` encodes geometry only.** §4.2.
+2. **Every builder registers `capacity` storeys via `Ctx.storey()`.** Miss one
+   and that floor can neither be painted nor scaffolded.
+3. **Never `dispose()` the renderer or the pools** on panel close.
+4. **The stage owns the canvas.**
+5. **`three` stays confined to `HouseCanvas.vue` and `lib/house/`.**
+6. **Archetype keys are duplicated on purpose** — `backend/game/design.py` and
+   `frontend/src/lib/house/archetypes.ts`. Add to both, and add a builder.
+7. **Sector = `floor(theta/45)`; borders come from the real ring gaps.** If
+   `generateGraph.mjs` changes layer offsets, re-check `sectorGeometries()`.
+8. **Roof-mounted pieces ask `roof.surfaceY(x, z)`.** Never guess a height.
+9. **Add variety with `mesh.scale`, not new geometry.**
 
 ---
 
-## 9. How to run and verify
+## 10. How to run and verify
 
 ```bash
 cd backend && uv run manage.py migrate && uv run manage.py runserver   # :8000
 cd frontend && npm run dev                                             # :3000
 ```
 
-Make a Designer: add a user to the `Designers` group in admin (or
-`user.groups.add(Group.objects.get(name="Designers"))`). Log in, open `/design`
-for the map-wide knobs, click any node on the map for the per-node pin.
+Make a Designer (add a user to the `Designers` group). Log in, click any node;
+use the "طراحی" picker to walk through all 26 types on one node — the model
+rebuilds on save. `/design` for the map-wide knobs.
 
-Verified by eye: observatory (water), newspaper (water), and the three from the
-first session under the old flat palette. The other types and themes are built
-from the same primitives; risk is cosmetic (a prop intersecting a roof edge),
-not structural.
+Verified by eye this round: stable, farm, stadium, caravanserai, mine,
+newspaper, toll, plus observatory and newspaper from the round before. The
+other types share the same primitives and helpers; risk is cosmetic.
 
-**Known quirk, pre-existing:** the very first click on a node after a full page
-load sometimes does not register (the map's drag-slop guard); the second always
-does. Not introduced by this work; worth a look in `useMapViewport.ts`.
-
-Rebuild/repaint check in the dev console:
-
-```js
-const { buildSpec } = await import('/src/lib/house/spec.ts')
-const { THEMES } = await import('/src/lib/house/themes.ts')
-const { ARCHETYPES } = await import('/src/lib/house/archetypes.ts')
-const meta = { level: 'hard', capacity: 3, archetype: ARCHETYPES[0], theme: THEMES.water, neighborhoodName: '' }
-const h = (team, color, slot, floor, grade) => ({ node_code: 'L6_0', level: 'hard', slot, floor, grade, is_spawn: false, color, team_code: team })
-buildSpec('L6_0', meta, [h('a', '#d92121', 1, 3, 90)]).structureKey     // "mint:water:3:000"
-buildSpec('L6_0', meta, [h('b', '#21d94d', 1, 3, 90)]).structureKey     // same → paint only
-buildSpec('L6_0', meta, [h('a', '#d92121', 1, null, null)]).structureKey // "mint:water:3:100" → rebuild
-```
+**On clicking nodes from browser automation:** a synthetic click that moves the
+pointer *while* the button is down reads as a drag to the map's slop guard and
+is dropped, by design. Hover to the node first and the click lands every time.
+A real mouse is already at the node when the button goes down, so this does not
+affect players.
 
 ---
 
-## 10. Known gaps and follow-ups
+## 11. Known gaps and follow-ups
 
-- **Per-building-per-theme prose is not modelled.** See §2.3. The theme layer
-  is where to add fidelity: e.g. a `water` observatory could swap its dome for a
-  glass one by checking `spec.theme.key` inside `buildRoof`.
-- **No duel or buyout affordance.** The backend has no endpoint for either.
-- **Road style is global.** The brief describes per-neighbourhood road
-  character (zigzag for lightning, cobbles for history…). `edgeD()` already has
-  both endpoints; a per-sector style is a `sectorOf(a)` lookup away.
-- **House glyphs on the map itself — still not built.** Keep rings at low zoom;
-  above `LABEL_ZOOM` swap in a `<symbol>`/`<use>` silhouette, viewport-culled
-  like `labelledNodes`.
-- **`prompts given.txt` in the assets folder is 0 bytes.**
+- **Fence posts are one mesh each.** Stable/dairy/farm reach 60–70 draw calls
+  because every post is its own `Mesh`. Still cheap, but an `InstancedMesh`
+  for fence posts would halve it. Same for the stadium's floodlights.
+- **Per-building-per-theme prose is not modelled.** The theme layer (palette +
+  emblem + character motif) is where that fidelity goes; a builder can also
+  branch on `c.theme.key` for one-off touches.
+- **Road style is global**, not per neighbourhood.
+- **No duel or buyout affordance** — the backend has no endpoint for either.
+- **House glyphs on the map itself** are still rings; the plan (a `<symbol>`
+  silhouette above `LABEL_ZOOM`, viewport-culled) is unchanged.
 
-## 11. Local dev state you may inherit
+## 12. Local dev state you may inherit
 
-`backend/db.sqlite3` on this machine has: a `designer` / `demo1234` login in
-the `Designers` group; `L6_0` pinned to `observatory`; road style set to
-`curved`; three seeded `Occupancy` rows on `L6_0` (البرز floor 3, دریا floor 2,
-هما reserved) with colours on those teams. **کنترل بازی → restart** clears the
-occupancies and colours; the pin and road style are design data and survive a
-restart by design — change them on `/design` or in admin.
-
-`InfoPanel.vue` was missing its `Card` imports (Vue resolve warnings on every
-render); that was being fixed in a separate session.
+`backend/db.sqlite3` on this machine: `designer / demo1234` in the `Designers`
+group; `L6_0` **unpinned** (back on auto); road style `curved`; three seeded
+holdings on `L6_0` (البرز floor 3, دریا floor 2, هما reserved) with colours on
+those teams. Sector colours and strengths are on the new defaults via migration
+0018. **کنترل بازی → restart** clears the holdings and colours; design data
+survives a restart by design.
