@@ -9,6 +9,7 @@ from datetime import datetime
 from django.db import transaction
 from django.utils import timezone
 
+from game.models import Node
 from minesweeper.exceptions import (
     CannotFlagRevealed,
     CellAlreadyRevealed,
@@ -137,11 +138,14 @@ def _finish(game: MinesweeperGame, board: dict, *, won: bool) -> None:
 
 
 @transaction.atomic
-def create_game(team: Team, difficulty: str) -> MinesweeperGame:
+def create_game(team: Team, node: Node, difficulty: str) -> MinesweeperGame:
     """Create one in-progress game with a newly generated board.
 
     ``difficulty`` must be a key of ``DIFFICULTY_LAYOUTS``. Width, height, and
     mine count come from that mapping — they are not caller-supplied.
+
+    ``node`` is stored as association only. This service does not check who
+    holds the node and does not change map occupancy.
     """
     try:
         layout = DIFFICULTY_LAYOUTS[difficulty]
@@ -153,6 +157,7 @@ def create_game(team: Team, difficulty: str) -> MinesweeperGame:
     mine_count = layout["mine_count"]
     return MinesweeperGame.objects.create(
         team=team,
+        node=node,
         difficulty=difficulty,
         width=width,
         height=height,

@@ -46,10 +46,13 @@ export function useMinesweeper(gameId: Ref<number | null> | ComputedRef<number |
     return gameQuery.error.value ? messageOf(gameQuery.error.value) : ''
   })
 
-  async function create(difficulty: MinesweeperDifficulty): Promise<MinesweeperGame | null> {
+  async function create(
+    node: number,
+    difficulty: MinesweeperDifficulty,
+  ): Promise<MinesweeperGame | null> {
     actionError.value = ''
     try {
-      return await createMutation.mutateAsync({ difficulty })
+      return await createMutation.mutateAsync({ node, difficulty })
     } catch (err) {
       actionError.value = messageOf(err)
       return null

@@ -6,8 +6,11 @@ import type {
   MinesweeperGame,
 } from '@/types/api'
 
-export function createGame(difficulty: MinesweeperDifficulty): Promise<MinesweeperGame> {
-  const body: CreateMinesweeperGameRequest = { difficulty }
+export function createGame(
+  node: number,
+  difficulty: MinesweeperDifficulty,
+): Promise<MinesweeperGame> {
+  const body: CreateMinesweeperGameRequest = { node, difficulty }
   return post<MinesweeperGame>('/minesweeper/games/', body)
 }
 

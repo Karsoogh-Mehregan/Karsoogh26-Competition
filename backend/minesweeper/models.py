@@ -60,6 +60,11 @@ class MinesweeperGame(models.Model):
         on_delete=models.PROTECT,
         related_name="minesweeper_games",
     )
+    node = models.ForeignKey(
+        "game.Node",
+        on_delete=models.PROTECT,
+        related_name="minesweeper_games",
+    )
     difficulty = models.CharField(max_length=8, choices=MinesweeperDifficulty.choices)
     width = models.PositiveSmallIntegerField()
     height = models.PositiveSmallIntegerField()

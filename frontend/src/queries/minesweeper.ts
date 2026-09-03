@@ -20,13 +20,15 @@ function cacheGame(queryClient: QueryClient, game: MinesweeperGame): void {
 }
 
 export interface CreateMinesweeperGameVariables {
+  node: number
   difficulty: MinesweeperDifficulty
 }
 
 export function useCreateMinesweeperGameMutation() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ difficulty }: CreateMinesweeperGameVariables) => createGame(difficulty),
+    mutationFn: ({ node, difficulty }: CreateMinesweeperGameVariables) =>
+      createGame(node, difficulty),
     onSuccess: (game: MinesweeperGame) => {
       cacheGame(queryClient, game)
     },

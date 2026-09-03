@@ -1,10 +1,12 @@
 from rest_framework import serializers
 
 from core.openapi import extend_schema_field
+from game.models import Node
 from minesweeper.models import MinesweeperDifficulty, MinesweeperGame, MinesweeperStatus
 
 
 class CreateGameSerializer(serializers.Serializer):
+    node = serializers.PrimaryKeyRelatedField(queryset=Node.objects.all())
     difficulty = serializers.ChoiceField(choices=MinesweeperDifficulty.choices)
 
 
@@ -42,6 +44,7 @@ def public_board(game: MinesweeperGame) -> dict:
 
 class PublicGameSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True)
+    node = serializers.IntegerField(source="node_id", read_only=True)
     difficulty = serializers.CharField(read_only=True)
     width = serializers.IntegerField(read_only=True)
     height = serializers.IntegerField(read_only=True)

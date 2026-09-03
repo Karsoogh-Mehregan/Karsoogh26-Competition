@@ -7,6 +7,7 @@ import {
   PlayIcon,
 } from '@lucide/vue'
 import { computed, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { toast } from 'vue-sonner'
 import MinesweeperBoard from '@/components/minesweeper/MinesweeperBoard.vue'
 import { Badge } from '@/components/ui/badge'
@@ -62,6 +63,14 @@ const DIFFICULTY_LABEL: Record<MinesweeperDifficulty, string> = {
 const gameId = ref<number | null>(null)
 const difficulty = ref<MinesweeperDifficulty>('easy')
 const flagMode = ref(false)
+const route = useRoute()
+
+const nodeId = computed(() => {
+  const raw = route.query.node
+  const value = Array.isArray(raw) ? raw[0] : raw
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+})
 
 const { game, loading, creating, revealing, flagging, error, create, reveal, toggleFlag } =
   useMinesweeper(gameId)
@@ -82,7 +91,11 @@ const remainingFlags = computed(() => {
 
 async function startGame(): Promise<void> {
   if (creating.value) return
-  const created = await create(difficulty.value)
+  if (nodeId.value == null) {
+    toast.error('خانه مشخص نشده است.')
+    return
+  }
+  const created = await create(nodeId.value, difficulty.value)
   if (!created) {
     toast.error(error.value || 'ساخت بازی ناموفق بود.')
     return

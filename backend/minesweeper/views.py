@@ -29,6 +29,7 @@ _GAME_PK = OpenApiParameter("pk", int, OpenApiParameter.PATH, description="Mines
 
 _PUBLIC_IN_PROGRESS = {
     "id": 1,
+    "node": 25,
     "difficulty": "easy",
     "width": 9,
     "height": 9,
@@ -83,11 +84,15 @@ class CreateGameView(APIView):
     @extend_schema(
         tags=["minesweeper"],
         summary="Start a Minesweeper game",
-        description="Creates a game for the caller's own team. Difficulty is required.",
+        description="Creates a game for the caller's own team. Node id and difficulty are required.",
         request=CreateGameSerializer,
         responses={201: PublicGameSerializer},
         examples=[
-            OpenApiExample("request", value={"difficulty": "medium"}, request_only=True),
+            OpenApiExample(
+                "request",
+                value={"node": 25, "difficulty": "medium"},
+                request_only=True,
+            ),
             OpenApiExample("created", value=_PUBLIC_IN_PROGRESS, response_only=True),
         ],
     )
@@ -95,7 +100,11 @@ class CreateGameView(APIView):
         payload = CreateGameSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         try:
-            game = create_game(request.user.team, payload.validated_data["difficulty"])
+            game = create_game(
+                request.user.team,
+                payload.validated_data["node"],
+                payload.validated_data["difficulty"],
+            )
         except MinesweeperServiceError as exc:
             _map_service_error(exc)
         return Response(PublicGameSerializer(game).data, status=status.HTTP_201_CREATED)

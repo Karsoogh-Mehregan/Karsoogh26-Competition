@@ -2,7 +2,7 @@
 
 Django app that owns competition Minesweeper: the `MinesweeperGame` model, gameplay services, REST API, and public-board sanitization.
 
-It is **not** a standalone project. It lives inside Karsoogh 26 (`INSTALLED_APPS` → `minesweeper`), uses the existing session-auth / `Team` identity, and follows the contest clock via `GameIsRunning`.
+It is **not** a standalone project. It lives inside Karsoogh 26 (`INSTALLED_APPS` → `minesweeper`), uses the existing session-auth / `Team` identity, stores an association to a map `Node`, and follows the contest clock via `GameIsRunning`.
 
 Gameplay is server-authoritative. The Vue client talks only to this API and must render the sanitized response; it must not place mines, flood-fill, score, or infer hidden mines.
 
@@ -24,10 +24,10 @@ database
 
 | Layer | Responsibility |
 | ----- | -------------- |
-| `serializers.py` | Request validation (`difficulty`, `row`/`col`) and the **public** game JSON. Builds the client board from scratch; does not strip fields after dumping the stored JSON. |
+| `serializers.py` | Request validation (`node`, `difficulty`, `row`/`col`) and the **public** game JSON. Builds the client board from scratch; does not strip fields after dumping the stored JSON. |
 | `views.py` | Session auth, team membership, contest-running gate, ownership lookup, calls into services, maps domain exceptions to HTTP. No gameplay. |
 | `services.py` | All mutations. HTTP-unaware. Raises `minesweeper.exceptions` (or `MinesweeperGame.DoesNotExist`). |
-| `models.py` | Stored board (including hidden mines), layout/status constraints, `Team` FK. |
+| `models.py` | Stored board (including hidden mines), layout/status constraints, `Team` FK, `Node` FK. |
 
 `game.api_exceptions.Conflict` (409) and `Unprocessable` (422) are reused. OpenAPI uses `core.openapi.extend_schema`.
 
@@ -35,12 +35,15 @@ database
 
 ## Game model
 
-`MinesweeperGame` (`related_name="minesweeper_games"`). Default ordering: `-started_at`.
+`MinesweeperGame` (`related_name="minesweeper_games"` on both `Team` and `Node`). Default ordering: `-started_at`.
+
+The game belongs to a map `Node` through a required foreign key. That only **identifies which node the instance is associated with**. Minesweeper does not check who occupies the node, does not capture it, and does not change `Occupancy` or any other map/economy state when a game is won or lost.
 
 | Field | Type | Purpose |
 | ----- | ---- | ------- |
 | `id` | `BigAutoField` | Primary key; this is the `game_id` in URLs. |
 | `team` | FK → `teams.Team`, **`PROTECT`** | Owning team. Matches other historical competition rows (`Occupancy`, etc.): deleting a team must not silently drop game records. |
+| `node` | FK → `game.Node`, **`PROTECT`** | Associated map node. Historical: deleting a node must not drop games. Not an ownership record. |
 | `difficulty` | `easy` / `medium` / `hard` | Layout key. Width/height/mine count are **not** caller-chosen. |
 | `width`, `height`, `mine_count` | positive small ints | Copied from `DIFFICULTY_LAYOUTS` at create; constrained to match `difficulty`. |
 | `board` | JSON | Full server-side grid. Default `{"cells": []}` until `create_game` fills it. |
@@ -59,7 +62,7 @@ database
 
 There is **no** uniqueness constraint of one in-progress game per team. `create_game` always inserts a new row.
 
-Django admin lists games (filter by difficulty/status, search team code/name). `started_at` and `created_at` are read-only there; the stored board (including mines) is visible to staff.
+Django admin lists games (filter by difficulty/status, search team or node). `started_at` and `created_at` are read-only there; the stored board (including mines) is visible to staff.
 
 ---
 
@@ -208,12 +211,13 @@ This app does **not** credit `Team.balance`.
 ## Game lifecycle
 
 ```text
-create_game
-    → status=in_progress, score=0, finished_at=null, started_at stamped
+create_game(team, node, difficulty)
+    → status=in_progress, score=0, finished_at=null, started_at stamped; node stored
 reveal / flag
     → still in_progress, or won / lost
 won | lost
     → finished_at set, score written; further reveal/flag → GameFinished
+    → node row is unchanged
 ```
 
 Mutating endpoints (`create`, `reveal`, `flag`) require `GameSettings.is_running` (`status == running`). **GET of an owned game remains allowed** when the contest is not running.
@@ -241,6 +245,7 @@ Session cookies + CSRF (`X-CSRFToken`). Same as the rest of the API: `GET /api/a
 
 - Auth: Django session (`SessionAuthentication`). No JWT.
 - Team: **`request.user.team` only**. The create body has no team field; extra keys such as `"team"` are ignored.
+- Node: create accepts a node **id** and checks that the row exists. There is **no** occupancy/ownership check on that node.
 - Players: `IsTeamMember` requires `request.user.team_id`.
 - Mentors typically have `team=None`. They cannot create or play. The SPA “acting team” (`localStorage`) is not sent and is not trusted.
 - Anonymous users: **403** (project convention for unauthenticated API calls).
@@ -254,10 +259,10 @@ POST /api/minesweeper/games/
 ```
 
 ```json
-{ "difficulty": "easy" }
+{ "node": 25, "difficulty": "easy" }
 ```
 
-`201` + public game. `difficulty` must be one of the `MinesweeperDifficulty` choices.
+`201` + public game. `difficulty` must be one of the `MinesweeperDifficulty` choices. `node` must be the primary key of an existing `game.Node`. Missing or unknown node → **400** field error. The service does not verify that the caller holds that node.
 
 ### Get game
 
@@ -284,13 +289,14 @@ Coordinates are integers; out-of-bounds is a domain `422`, not serializer valida
 
 ### API responses
 
-Public game fields: `id`, `difficulty`, `width`, `height`, `mine_count`, `status`, `score`, `started_at`, `finished_at`, `board`. **No `team`.**
+Public game fields: `id`, `node`, `difficulty`, `width`, `height`, `mine_count`, `status`, `score`, `started_at`, `finished_at`, `board`. **No `team`.** `node` is the integer id only — not code, name, or occupancy.
 
 In-progress example (truncated board):
 
 ```json
 {
   "id": 1,
+  "node": 25,
   "difficulty": "easy",
   "width": 9,
   "height": 9,
@@ -316,7 +322,7 @@ Domain exceptions stay in `minesweeper.exceptions`. Views map them in `_map_serv
 
 | Condition | HTTP | `detail` / body |
 | --------- | ---: | --------------- |
-| Invalid JSON / unknown `difficulty` (serializer) | 400 | DRF field errors, e.g. `{"difficulty": ["..."]}` |
+| Invalid JSON / unknown `difficulty` / missing or unknown `node` (serializer) | 400 | DRF field errors, e.g. `{"difficulty": ["..."]}` or `{"node": ["..."]}` |
 | Missing or other-team game | 404 | `بازی پیدا نشد.` |
 | Contest not running (create / reveal / flag) | 403 | `The game is not running.` (`GameIsRunning.message`) |
 | Anonymous / no team / mentor | 403 | DRF permission denied (not a Minesweeper domain exception) |
@@ -439,7 +445,7 @@ That lock is real on PostgreSQL. SQLite does not apply it; do not treat SQLite p
 Briefly, the SPA is a client of this API:
 
 ```text
-MinesweeperPage.vue  (local gameId ref, no Pinia / localStorage)
+MinesweeperPage.vue  (local gameId; create sends node id, e.g. `?node=`)
     ↓
 useMinesweeper(gameId)
     ↓
@@ -458,7 +464,8 @@ Relevant paths: `frontend/src/services/minesweeper.ts`, `queries/minesweeper.ts`
 
 ## Design decisions
 
-- **`Team` is `PROTECT`.** Games are competition history, same idea as `Occupancy.team`.
+- **`Team` and `Node` are `PROTECT`.** Games are competition history, same idea as `Occupancy`.
+- **`node` is association only.** Create stores the provided Node. Win/loss do not modify `Node`, occupancy, or `Team.balance`.
 - **`DIFFICULTY_LAYOUTS` is the only layout table.** Width/height/mines are not request fields; a DB check constraint backs that up.
 - **`random.sample` for mines.** Adjacency is computed once at create.
 - **Iterative BFS** for zeros, not recursion, so large opens cannot blow the stack.
@@ -474,7 +481,8 @@ Relevant paths: `frontend/src/services/minesweeper.ts`, `queries/minesweeper.ts`
 
 - No WebSocket/SSE for Minesweeper; no live sync across tabs.
 - Multiple in-progress games per team are allowed.
-- No list/delete/resume-last-game endpoints. The SPA keeps `gameId` only in page state (lost on refresh/navigation).
+- No list/delete/resume-last-game endpoints. The SPA keeps `gameId` only in page state (lost on refresh/navigation). Create sends `node` (the page currently reads it from `?node=`).
+- Winning or losing does not capture the node or change occupancy.
 - Mutating routes follow the contest clock; GET does not.
 - `GameIsRunning` returns English `"The game is not running."` (shared permission). Other Minesweeper API errors are Persian.
 - No flag limit; no chord/middle-click API.

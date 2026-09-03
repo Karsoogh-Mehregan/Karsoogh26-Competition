@@ -7,8 +7,13 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from rest_framework.test import APIClient
 
-from game.models import GameSettings, GameStatus
-from minesweeper.models import DIFFICULTY_LAYOUTS, MinesweeperDifficulty, MinesweeperStatus
+from game.models import GameSettings, GameStatus, LevelConfig, Node
+from minesweeper.models import (
+    DIFFICULTY_LAYOUTS,
+    MinesweeperDifficulty,
+    MinesweeperGame,
+    MinesweeperStatus,
+)
 from minesweeper.services import create_game, reveal_cell
 from teams.models import Team
 
@@ -60,6 +65,15 @@ def alpha():
 @pytest.fixture
 def beta():
     return Team.objects.create(code="beta", name="Beta")
+
+
+@pytest.fixture
+def node():
+    return Node.objects.create(
+        code="ms1",
+        name="MS 1",
+        level=LevelConfig.objects.get(level="easy"),
+    )
 
 
 @pytest.fixture
@@ -124,8 +138,8 @@ def _install_board(game, mines, flags=frozenset()):
     game.refresh_from_db()
 
 
-def _split_game(team):
-    game = create_game(team, MinesweeperDifficulty.EASY)
+def _split_game(team, node):
+    game = create_game(team, node, MinesweeperDifficulty.EASY)
     _install_board(game, SPLIT_MINES)
     return game
 
@@ -186,15 +200,18 @@ class TestAuthentication:
 class TestCreateGame:
     @pytest.mark.parametrize("difficulty", list(MinesweeperDifficulty))
     def test_creates_for_the_authenticated_team(
-        self, alpha_client, alpha, running_contest, difficulty
+        self, alpha_client, alpha, node, running_contest, difficulty
     ):
         layout = DIFFICULTY_LAYOUTS[difficulty]
         response = alpha_client.post(
-            CREATE_URL, {"difficulty": difficulty, "team": "beta"}, format="json"
+            CREATE_URL,
+            {"node": node.pk, "difficulty": difficulty, "team": "beta"},
+            format="json",
         )
         assert response.status_code == 201
         body = response.json()
         assert body["difficulty"] == difficulty
+        assert body["node"] == node.pk
         assert body["width"] == layout["width"]
         assert body["height"] == layout["height"]
         assert body["mine_count"] == layout["mine_count"]
@@ -204,33 +221,53 @@ class TestCreateGame:
         assert "team" not in body
         assert len(body["board"]["cells"]) == layout["height"]
         _assert_no_hidden_mines(body["board"])
+        stored = MinesweeperGame.objects.get(pk=body["id"])
+        assert stored.team_id == alpha.pk
+        assert stored.node_id == node.pk
 
-    def test_invalid_difficulty_is_rejected(self, alpha_client, running_contest):
-        response = alpha_client.post(CREATE_URL, {"difficulty": "expert"}, format="json")
+    def test_missing_node_is_rejected(self, alpha_client, running_contest):
+        response = alpha_client.post(CREATE_URL, {"difficulty": "easy"}, format="json")
+        assert response.status_code == 400
+        assert "node" in response.json()
+
+    def test_unknown_node_is_rejected(self, alpha_client, running_contest):
+        response = alpha_client.post(
+            CREATE_URL, {"node": 999_999, "difficulty": "easy"}, format="json"
+        )
+        assert response.status_code == 400
+        assert "node" in response.json()
+
+    def test_invalid_difficulty_is_rejected(self, alpha_client, node, running_contest):
+        response = alpha_client.post(
+            CREATE_URL, {"node": node.pk, "difficulty": "expert"}, format="json"
+        )
         assert response.status_code == 400
         assert "difficulty" in response.json()
 
-    def test_create_rejected_when_contest_is_not_running(self, alpha_client, running_contest):
+    def test_create_rejected_when_contest_is_not_running(self, alpha_client, node, running_contest):
         running_contest.status = GameStatus.NOT_STARTED
         running_contest.save(update_fields=["status"])
-        response = alpha_client.post(CREATE_URL, {"difficulty": "easy"}, format="json")
+        response = alpha_client.post(
+            CREATE_URL, {"node": node.pk, "difficulty": "easy"}, format="json"
+        )
         assert response.status_code == 403
 
 
 class TestGameDetail:
     def test_owner_can_read_sanitized_board(
-        self, alpha, alpha_client, running_contest, monkeypatch
+        self, alpha, node, alpha_client, running_contest, monkeypatch
     ):
         def first_k(population, k):
             return population[:k]
 
         monkeypatch.setattr("minesweeper.services.random.sample", first_k)
-        game = create_game(alpha, MinesweeperDifficulty.EASY)
+        game = create_game(alpha, node, MinesweeperDifficulty.EASY)
 
         response = alpha_client.get(_detail(game.pk))
         assert response.status_code == 200
         body = response.json()
         assert body["id"] == game.pk
+        assert body["node"] == node.pk
         _assert_no_hidden_mines(body["board"])
         # Known mine at (0, 0) is indistinguishable from any other unrevealed cell.
         assert body["board"]["cells"][0][0] == {"revealed": False, "flagged": False}
@@ -240,14 +277,16 @@ class TestGameDetail:
         response = alpha_client.get(_detail(999_999))
         assert response.status_code == 404
 
-    def test_other_team_gets_404(self, alpha, alpha_client, beta_client, running_contest):
-        game = create_game(alpha, MinesweeperDifficulty.EASY)
+    def test_other_team_gets_404(self, alpha, node, alpha_client, beta_client, running_contest):
+        game = create_game(alpha, node, MinesweeperDifficulty.EASY)
         response = beta_client.get(_detail(game.pk))
         assert response.status_code == 404
         assert response.json() == alpha_client.get(_detail(999_999)).json()
 
-    def test_revealed_cell_exposes_adjacent_not_mine(self, alpha, alpha_client, running_contest):
-        game = _split_game(alpha)
+    def test_revealed_cell_exposes_adjacent_not_mine(
+        self, alpha, node, alpha_client, running_contest
+    ):
+        game = _split_game(alpha, node)
         reveal_cell(game.pk, 0, 3)
         response = alpha_client.get(_detail(game.pk))
         assert response.status_code == 200
@@ -257,8 +296,8 @@ class TestGameDetail:
         assert "mine" not in cell
         _assert_no_hidden_mines(response.json()["board"])
 
-    def test_finished_game_exposes_mines(self, alpha, alpha_client, running_contest):
-        game = _split_game(alpha)
+    def test_finished_game_exposes_mines(self, alpha, node, alpha_client, running_contest):
+        game = _split_game(alpha, node)
         reveal_cell(game.pk, 0, 4)
         response = alpha_client.get(_detail(game.pk))
         assert response.status_code == 200
@@ -271,8 +310,10 @@ class TestGameDetail:
         assert hidden_mine["mine"] is True
         assert hidden_mine["revealed"] is False
 
-    def test_get_allowed_when_contest_is_not_running(self, alpha, alpha_client, running_contest):
-        game = create_game(alpha, MinesweeperDifficulty.EASY)
+    def test_get_allowed_when_contest_is_not_running(
+        self, alpha, node, alpha_client, running_contest
+    ):
+        game = create_game(alpha, node, MinesweeperDifficulty.EASY)
         running_contest.status = GameStatus.NOT_STARTED
         running_contest.save(update_fields=["status"])
         response = alpha_client.get(_detail(game.pk))
@@ -280,8 +321,8 @@ class TestGameDetail:
 
 
 class TestTeamIsolation:
-    def test_other_team_cannot_reveal_or_flag(self, alpha, beta_client, running_contest):
-        game = _split_game(alpha)
+    def test_other_team_cannot_reveal_or_flag(self, alpha, node, beta_client, running_contest):
+        game = _split_game(alpha, node)
         assert (
             beta_client.post(_reveal(game.pk), {"row": 0, "col": 3}, format="json").status_code
             == 404
@@ -295,8 +336,8 @@ class TestTeamIsolation:
 
 
 class TestRevealApi:
-    def test_safe_reveal(self, alpha, alpha_client, running_contest):
-        game = _split_game(alpha)
+    def test_safe_reveal(self, alpha, node, alpha_client, running_contest):
+        game = _split_game(alpha, node)
         response = alpha_client.post(_reveal(game.pk), {"row": 0, "col": 3}, format="json")
         assert response.status_code == 200
         body = response.json()
@@ -308,25 +349,25 @@ class TestRevealApi:
         assert "mine" not in cell
         _assert_no_hidden_mines(body["board"])
 
-    def test_invalid_coordinates(self, alpha, alpha_client, running_contest):
-        game = _split_game(alpha)
+    def test_invalid_coordinates(self, alpha, node, alpha_client, running_contest):
+        game = _split_game(alpha, node)
         response = alpha_client.post(_reveal(game.pk), {"row": -1, "col": 0}, format="json")
         assert response.status_code == 422
 
-    def test_already_revealed(self, alpha, alpha_client, running_contest):
-        game = _split_game(alpha)
+    def test_already_revealed(self, alpha, node, alpha_client, running_contest):
+        game = _split_game(alpha, node)
         alpha_client.post(_reveal(game.pk), {"row": 0, "col": 3}, format="json")
         response = alpha_client.post(_reveal(game.pk), {"row": 0, "col": 3}, format="json")
         assert response.status_code == 409
 
-    def test_flagged_cell(self, alpha, alpha_client, running_contest):
-        game = _split_game(alpha)
+    def test_flagged_cell(self, alpha, node, alpha_client, running_contest):
+        game = _split_game(alpha, node)
         alpha_client.post(_flag(game.pk), {"row": 0, "col": 0}, format="json")
         response = alpha_client.post(_reveal(game.pk), {"row": 0, "col": 0}, format="json")
         assert response.status_code == 409
 
-    def test_mine_causes_loss(self, alpha, alpha_client, running_contest):
-        game = _split_game(alpha)
+    def test_mine_causes_loss(self, alpha, node, alpha_client, running_contest):
+        game = _split_game(alpha, node)
         response = alpha_client.post(_reveal(game.pk), {"row": 0, "col": 4}, format="json")
         assert response.status_code == 200
         body = response.json()
@@ -335,8 +376,8 @@ class TestRevealApi:
         assert body["finished_at"] is not None
         assert body["board"]["cells"][0][4]["mine"] is True
 
-    def test_win_after_final_safe_cell(self, alpha, alpha_client, running_contest):
-        game = _split_game(alpha)
+    def test_win_after_final_safe_cell(self, alpha, node, alpha_client, running_contest):
+        game = _split_game(alpha, node)
         _reveal_all_safe_except(game, {(0, 3)})
         response = alpha_client.post(_reveal(game.pk), {"row": 0, "col": 3}, format="json")
         assert response.status_code == 200
@@ -346,8 +387,8 @@ class TestRevealApi:
         assert body["finished_at"] is not None
         assert body["board"]["cells"][0][4]["mine"] is True
 
-    def test_flood_fill_response(self, alpha, alpha_client, running_contest):
-        game = _split_game(alpha)
+    def test_flood_fill_response(self, alpha, node, alpha_client, running_contest):
+        game = _split_game(alpha, node)
         response = alpha_client.post(_reveal(game.pk), {"row": 0, "col": 0}, format="json")
         assert response.status_code == 200
         cells = response.json()["board"]["cells"]
@@ -357,16 +398,16 @@ class TestRevealApi:
         assert response.json()["status"] == MinesweeperStatus.IN_PROGRESS
         _assert_no_hidden_mines(response.json()["board"])
 
-    def test_finished_game_rejects_reveal(self, alpha, alpha_client, running_contest):
-        game = _split_game(alpha)
+    def test_finished_game_rejects_reveal(self, alpha, node, alpha_client, running_contest):
+        game = _split_game(alpha, node)
         alpha_client.post(_reveal(game.pk), {"row": 0, "col": 4}, format="json")
         response = alpha_client.post(_reveal(game.pk), {"row": 0, "col": 3}, format="json")
         assert response.status_code == 409
 
     def test_reveal_rejected_when_contest_is_not_running(
-        self, alpha, alpha_client, running_contest
+        self, alpha, node, alpha_client, running_contest
     ):
-        game = _split_game(alpha)
+        game = _split_game(alpha, node)
         running_contest.status = GameStatus.NOT_STARTED
         running_contest.save(update_fields=["status"])
         response = alpha_client.post(_reveal(game.pk), {"row": 0, "col": 3}, format="json")
@@ -374,8 +415,8 @@ class TestRevealApi:
 
 
 class TestFlagApi:
-    def test_flag_and_unflag(self, alpha, alpha_client, running_contest):
-        game = _split_game(alpha)
+    def test_flag_and_unflag(self, alpha, node, alpha_client, running_contest):
+        game = _split_game(alpha, node)
         flagged = alpha_client.post(_flag(game.pk), {"row": 0, "col": 0}, format="json")
         assert flagged.status_code == 200
         cell = flagged.json()["board"]["cells"][0][0]
@@ -386,25 +427,27 @@ class TestFlagApi:
         unflagged = alpha_client.post(_flag(game.pk), {"row": 0, "col": 0}, format="json")
         assert unflagged.json()["board"]["cells"][0][0] == {"revealed": False, "flagged": False}
 
-    def test_revealed_cell_cannot_be_flagged(self, alpha, alpha_client, running_contest):
-        game = _split_game(alpha)
+    def test_revealed_cell_cannot_be_flagged(self, alpha, node, alpha_client, running_contest):
+        game = _split_game(alpha, node)
         alpha_client.post(_reveal(game.pk), {"row": 0, "col": 3}, format="json")
         response = alpha_client.post(_flag(game.pk), {"row": 0, "col": 3}, format="json")
         assert response.status_code == 409
 
-    def test_invalid_coordinates(self, alpha, alpha_client, running_contest):
-        game = _split_game(alpha)
+    def test_invalid_coordinates(self, alpha, node, alpha_client, running_contest):
+        game = _split_game(alpha, node)
         response = alpha_client.post(_flag(game.pk), {"row": 9, "col": 0}, format="json")
         assert response.status_code == 422
 
-    def test_finished_game_rejects_flag(self, alpha, alpha_client, running_contest):
-        game = _split_game(alpha)
+    def test_finished_game_rejects_flag(self, alpha, node, alpha_client, running_contest):
+        game = _split_game(alpha, node)
         alpha_client.post(_reveal(game.pk), {"row": 0, "col": 4}, format="json")
         response = alpha_client.post(_flag(game.pk), {"row": 0, "col": 0}, format="json")
         assert response.status_code == 409
 
-    def test_flag_rejected_when_contest_is_not_running(self, alpha, alpha_client, running_contest):
-        game = _split_game(alpha)
+    def test_flag_rejected_when_contest_is_not_running(
+        self, alpha, node, alpha_client, running_contest
+    ):
+        game = _split_game(alpha, node)
         running_contest.status = GameStatus.NOT_STARTED
         running_contest.save(update_fields=["status"])
         response = alpha_client.post(_flag(game.pk), {"row": 0, "col": 0}, format="json")
