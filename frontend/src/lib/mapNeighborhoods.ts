@@ -99,9 +99,10 @@ function borderAngles(nodes: PolarNode[]): Map<number, number[]>[] {
       }
       const gap = after - before
       const mid = (before + after) / 2
-      // Swing inside the gap, never out of it: 28% of the gap, alternating by
-      // ring so the line meanders instead of leaning one way.
-      const swing = 0.28 * gap * Math.sin(ringIndex * 1.9 + b * 0.7)
+      // A gentle meander: a tenth of the gap, and never more than 2.5° even on
+      // the inner rings where the gaps are wide. Enough to read as hand-drawn,
+      // not enough to look like the border is wandering off.
+      const swing = Math.min(2.5, 0.1 * gap) * Math.sin(ringIndex * 1.9 + b * 0.7)
       perRing.set(r, [mid + swing])
     })
     borders.push(perRing)
