@@ -141,6 +141,16 @@ const showTeamPicker = computed(() => isMentor.value || isPlayer.value)
             جدول امتیازات
           </RouterLink>
         </Button>
+        <Button
+          v-if="me.is_designer"
+          as-child
+          size="sm"
+          :variant="route.path === '/design' ? 'default' : 'outline'"
+        >
+          <RouterLink to="/design" :aria-current="route.path === '/design' ? 'page' : undefined">
+            طراحی
+          </RouterLink>
+        </Button>
       </nav>
     </header>
 

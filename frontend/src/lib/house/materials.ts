@@ -32,11 +32,15 @@ export function solid(color: number): MeshLambertMaterial {
   return material
 }
 
-/** Windows: unlit so they read as glowing panes without a second light. */
-let glassMaterial: MeshBasicMaterial | null = null
-export function glass(): MeshBasicMaterial {
-  glassMaterial ??= new MeshBasicMaterial({ color: GLASS })
-  return glassMaterial
+/** Windows: unlit so they read as glowing panes without a second light. Pooled per colour like `solid`. */
+const glasses = new Map<number, MeshBasicMaterial>()
+export function glass(color: number = GLASS): MeshBasicMaterial {
+  let material = glasses.get(color)
+  if (material === undefined) {
+    material = new MeshBasicMaterial({ color })
+    glasses.set(color, material)
+  }
+  return material
 }
 
 let shadowMaterial: MeshBasicMaterial | null = null

@@ -9,4 +9,5 @@ export const queryKeys = {
   gameState: () => ['game-state'] as const,
   gameSettings: () => ['game-settings'] as const,
   entrySheet: () => ['entry-sheet'] as const,
+  mapDesign: () => ['map-design'] as const,
 }

@@ -6,7 +6,7 @@
  * and the renderer with it — into its own chunk. A mentor who never opens a
  * house, or a team still on the entry sheet, never downloads any of it.
  */
-import { RotateCcwIcon } from '@lucide/vue'
+import { MinusIcon, PlusIcon, RotateCcwIcon } from '@lucide/vue'
 import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 
 import { Button } from '@/components/ui/button'
@@ -60,28 +60,31 @@ onBeforeUnmount(() => {
   // next time a house is opened.
   stage.unmount()
 })
-
-function resetView() {
-  stage.resetView()
-}
 </script>
 
 <template>
   <div class="house-stage">
     <div ref="host" class="house-stage-canvas" />
 
-    <Button
-      variant="ghost"
-      size="icon"
-      class="house-stage-reset"
-      aria-label="بازگرداندن زاویهٔ دید"
-      title="بازگرداندن زاویهٔ دید"
-      @click="resetView"
-    >
-      <RotateCcwIcon class="size-4" />
-    </Button>
+    <div class="house-stage-controls" dir="ltr">
+      <Button variant="ghost" size="icon" aria-label="بزرگ‌نمایی" title="بزرگ‌نمایی" @click="stage.zoomIn()">
+        <PlusIcon class="size-4" />
+      </Button>
+      <Button variant="ghost" size="icon" aria-label="کوچک‌نمایی" title="کوچک‌نمایی" @click="stage.zoomOut()">
+        <MinusIcon class="size-4" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="بازگرداندن زاویهٔ دید"
+        title="بازگرداندن زاویهٔ دید"
+        @click="stage.resetView()"
+      >
+        <RotateCcwIcon class="size-4" />
+      </Button>
+    </div>
 
-    <p class="house-stage-hint" aria-hidden="true">برای چرخاندن، بکشید</p>
+    <p class="house-stage-hint" aria-hidden="true">بکشید تا بچرخد · چرخ ماوس برای زوم</p>
 
     <p v-if="showStats && stats" class="house-stage-stats" dir="ltr">
       {{ stats.drawCalls }} draws · {{ stats.triangles }} tris · {{ stats.geometries }} geo ·
@@ -112,13 +115,19 @@ function resetView() {
   cursor: grabbing;
 }
 
-.house-stage-reset {
+.house-stage-controls {
   position: absolute;
   inset-block-start: 0.4rem;
   inset-inline-end: 0.4rem;
-  opacity: 0.55;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  border-radius: 0.6rem;
+  background: color-mix(in oklab, var(--card) 80%, transparent);
+  backdrop-filter: blur(6px);
+  opacity: 0.75;
 }
-.house-stage-reset:hover {
+.house-stage-controls:hover {
   opacity: 1;
 }
 

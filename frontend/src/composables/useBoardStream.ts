@@ -20,6 +20,8 @@ const ROUTES: Record<string, () => QueryKey[]> = {
   'mentor.submission.created': () => [queryKeys.submissions()],
   // An admin flipped the game state; everyone's clock and stage bar are stale.
   'game.state': () => [queryKeys.gameState(), queryKeys.gameSettings()],
+  // A Designer repainted something; every open map is stale.
+  'map.design': () => [queryKeys.mapDesign()],
 }
 
 const RESYNC_KEYS: QueryKey[] = [
@@ -28,6 +30,7 @@ const RESYNC_KEYS: QueryKey[] = [
   queryKeys.submissions(),
   queryKeys.gameState(),
   queryKeys.attemptsRoot(),
+  queryKeys.mapDesign(),
 ]
 
 function createBoardStream() {
