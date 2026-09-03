@@ -1,5 +1,13 @@
-import { get, post } from '@/lib/http'
-import type { AssignQuestionResult, GradeResult, SubmissionRow } from '@/types/api'
+import { get, patch, post } from '@/lib/http'
+import type {
+  AssignQuestionResult,
+  GameRestartResult,
+  GameSettings,
+  GameState,
+  GradeResult,
+  LevelConfigRow,
+  SubmissionRow,
+} from '@/types/api'
 
 export function assignQuestion(
   teamCode: string,
@@ -17,4 +25,24 @@ export function listSubmissions(signal?: AbortSignal): Promise<SubmissionRow[]> 
 
 export function gradeSubmission(submissionId: number, grade: number): Promise<GradeResult> {
   return post<GradeResult>(`/submissions/${submissionId}/grade/`, { grade })
+}
+
+export function getGameState(signal?: AbortSignal): Promise<GameState> {
+  return get<GameState>('/game/state/', signal)
+}
+
+export function getGameSettings(signal?: AbortSignal): Promise<GameSettings> {
+  return get<GameSettings>('/game/settings/', signal)
+}
+
+export function updateGameSettings(changes: Partial<GameSettings>): Promise<GameSettings> {
+  return patch<GameSettings>('/game/settings/', changes)
+}
+
+export function restartGame(): Promise<GameRestartResult> {
+  return post<GameRestartResult>('/game/restart/', { confirm: true })
+}
+
+export function listLevels(signal?: AbortSignal): Promise<LevelConfigRow[]> {
+  return get<LevelConfigRow[]>('/levels/', signal)
 }

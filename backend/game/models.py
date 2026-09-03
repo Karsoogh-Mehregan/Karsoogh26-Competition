@@ -1,10 +1,20 @@
+from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.conf import settings
+from django.core.validators import RegexValidator
 from django.db import models
 from django.db.models import CheckConstraint, F, Q, UniqueConstraint
 from django.utils import timezone
 
+from .design import (
+    ARCHETYPES,
+    DEFAULT_HALO_STRENGTH,
+    DEFAULT_TINT_STRENGTH,
+    SECTOR_COUNT,
+    NeighborhoodTheme,
+    RoadStyle,
+)
 from .validators import validate_upload_extension, validate_upload_size
 
 MAX_CAPACITY = 3
@@ -52,6 +62,10 @@ class LevelConfig(models.Model):
     networth_factor = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0"))
     duel_factor = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("2"))
     buyout_factor = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("4"))
+    attempt_ttl_minutes = models.PositiveSmallIntegerField(
+        default=15,
+        help_text="Minutes the team has to answer after a question is assigned on this level.",
+    )
 
     class Meta:
         verbose_name = "level config"
@@ -60,6 +74,10 @@ class LevelConfig(models.Model):
             CheckConstraint(
                 condition=Q(capacity__gte=1, capacity__lte=MAX_CAPACITY),
                 name="levelconfig_capacity_range",
+            ),
+            CheckConstraint(
+                condition=Q(attempt_ttl_minutes__gte=1),
+                name="levelconfig_attempt_ttl_positive",
             ),
         ]
 
@@ -132,6 +150,9 @@ class Node(models.Model):
     level = models.ForeignKey(
         LevelConfig, on_delete=models.PROTECT, related_name="nodes", db_column="level"
     )
+    # A Designer's pin. Blank means the renderer picks, and it picks so that no
+    # two neighbours look alike; a pin is honoured even if it breaks that.
+    archetype = models.CharField(max_length=32, blank=True, choices=ARCHETYPES)
 
     class Meta:
         ordering = ["code"]
@@ -259,22 +280,117 @@ class Occupancy(models.Model):
 class GameSettings(models.Model):
     id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
 
-    attempt_ttl_minutes = models.PositiveSmallIntegerField(default=15)
     duel_cooldown_minutes = models.PositiveSmallIntegerField(default=10)
     duel_deadline_minutes = models.PositiveSmallIntegerField(default=15)
-    initial_balance = models.PositiveIntegerField(default=500)
+    initial_balance = models.PositiveIntegerField(
+        default=400,
+        help_text="Every team starts here, entry sheet cleared or not.",
+    )
     status = models.CharField(
         max_length=12, choices=GameStatus.choices, default=GameStatus.NOT_STARTED
     )
     leaderboard_public = models.BooleanField(default=False)
 
+    # The run ledger. Elapsed time is accumulated running time, not wall time
+    # since kick-off, so pausing the game genuinely pauses every team's timer.
+    accumulated_seconds = models.PositiveIntegerField(
+        default=0,
+        help_text="Seconds the game has spent in the running state, excluding pauses.",
+    )
+    running_since = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Start of the current running stretch; null whenever the game is not running.",
+    )
+    duration_minutes = models.PositiveSmallIntegerField(
+        default=180,
+        help_text="Total playing time. The countdown is this minus elapsed; 0 turns it off.",
+    )
+    # Entry phase: every team answers a short sheet before it may take a spawn.
+    entry_question_count = models.PositiveSmallIntegerField(
+        default=3, help_text="How many questions land on each team's entry sheet."
+    )
+    entry_required_correct = models.PositiveSmallIntegerField(
+        default=2, help_text="Correct answers needed to unlock the start node."
+    )
+    entry_grace_minutes = models.PositiveSmallIntegerField(
+        default=20,
+        help_text="Minutes after kick-off when every team may take a spawn regardless.",
+    )
+    entry_max_retries = models.PositiveSmallIntegerField(
+        default=3,
+        help_text=(
+            "Extra attempts a team may take on wrongly-answered entry questions, across "
+            "the whole sheet. Raise it to be more forgiving; 0 makes every answer final."
+        ),
+    )
+    started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Stamped the first time status becomes running; anchors the entry grace.",
+    )
+
     class Meta:
         verbose_name = "game settings"
         verbose_name_plural = "game settings"
-        constraints = [CheckConstraint(condition=Q(id=1), name="gamesettings_singleton")]
+        # Separate from act_as_mentor on purpose: a mentor grades, a game god
+        # starts, pauses and restarts the whole event.
+        permissions = [("control_game", "Can start, pause, restart and configure the game")]
+        constraints = [
+            CheckConstraint(condition=Q(id=1), name="gamesettings_singleton"),
+            CheckConstraint(
+                condition=Q(entry_required_correct__lte=F("entry_question_count")),
+                name="gamesettings_entry_required_within_sheet",
+            ),
+        ]
 
     def __str__(self):
         return f"Game settings ({self.get_status_display()})"
+
+    def save(self, *args, **kwargs):
+        """Roll the run ledger on every status change, whatever changed it.
+
+        Done here rather than in the view so the admin, a shell session and the
+        API all keep the same books.
+        """
+        previous_status = None
+        if not self._state.adding:
+            previous_status = (
+                type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
+            )
+        touched = self._roll_clock(previous_status)
+        update_fields = kwargs.get("update_fields")
+        if touched and update_fields is not None:
+            kwargs["update_fields"] = {*update_fields, *touched}
+        super().save(*args, **kwargs)
+
+    def _roll_clock(self, previous_status) -> tuple:
+        """Bank the stretch that just ended, and open a new one if now running."""
+        if previous_status == self.status:
+            # Self-heal a row that claims to be running but never opened a
+            # stretch — a hand-edited database, or a migration that added the
+            # ledger while the game was already running.
+            if self.status == GameStatus.RUNNING and self.running_since is None:
+                self.running_since = timezone.now()
+                return ("running_since",)
+            return ()
+
+        now = timezone.now()
+        touched = set()
+
+        if previous_status == GameStatus.RUNNING and self.running_since is not None:
+            self.accumulated_seconds += max(0, int((now - self.running_since).total_seconds()))
+            self.running_since = None
+            touched |= {"accumulated_seconds", "running_since"}
+
+        if self.status == GameStatus.RUNNING:
+            self.running_since = now
+            touched.add("running_since")
+            if self.started_at is None:
+                self.started_at = now
+                touched.add("started_at")
+
+        return tuple(touched)
 
     @classmethod
     def load(cls) -> "GameSettings":
@@ -287,6 +403,57 @@ class GameSettings(models.Model):
     @property
     def is_paused(self) -> bool:
         return self.status == GameStatus.PAUSED
+
+    @property
+    def elapsed_seconds(self) -> int | None:
+        """Running time so far, frozen while paused. None before kick-off."""
+        if self.started_at is None:
+            return None
+        total = self.accumulated_seconds
+        if self.is_running and self.running_since is not None:
+            total += max(0, int((timezone.now() - self.running_since).total_seconds()))
+        return total
+
+    @property
+    def duration_seconds(self) -> int:
+        return self.duration_minutes * 60
+
+    @property
+    def remaining_seconds(self) -> int | None:
+        """Time left of the allotted duration, or None when no limit is set."""
+        if self.duration_minutes == 0:
+            return None
+        return max(0, self.duration_seconds - (self.elapsed_seconds or 0))
+
+    @property
+    def entry_grace_seconds(self) -> int:
+        return self.entry_grace_minutes * 60
+
+    @property
+    def entry_grace_remaining_seconds(self) -> int | None:
+        """Grace left on the run clock, so a pause freezes it. None before kick-off."""
+        elapsed = self.elapsed_seconds
+        if elapsed is None:
+            return None
+        return max(0, self.entry_grace_seconds - elapsed)
+
+    @property
+    def entry_grace_ends_at(self):
+        """Projected wall-clock end of the grace, for the client's countdown.
+
+        A projection, not a stored deadline: the grace burns run time, not wall
+        time, so a paused game has no end to point at and the answer is None
+        until it resumes.
+        """
+        remaining = self.entry_grace_remaining_seconds
+        if remaining is None or not self.is_running:
+            return None
+        return timezone.now() + timedelta(seconds=remaining)
+
+    @property
+    def entry_grace_over(self) -> bool:
+        remaining = self.entry_grace_remaining_seconds
+        return remaining == 0
 
 
 class Question(models.Model):
@@ -370,3 +537,175 @@ class Submission(models.Model):
 
     def __str__(self):
         return f"Submission for {self.occupancy_id}"
+
+
+class EntryQuestion(models.Model):
+    """A pre-game sheet question. Answers are integers, so they grade themselves.
+
+    Deliberately not a `Question`: those hang off an `Occupancy` through
+    `TeamQuestion`, and the entry sheet is answered before a team holds any node.
+    """
+
+    code = models.SlugField(max_length=32, unique=True)
+    title = models.CharField(max_length=200)
+    body = models.TextField(help_text="Markdown")
+    answer = models.IntegerField(help_text="Never serialised to a team.")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["code"]
+        indexes = [models.Index(fields=["is_active"], name="entryquestion_active_idx")]
+
+    def __str__(self):
+        return self.title or self.code
+
+
+class EntryAttemptQuerySet(models.QuerySet):
+    def current(self):
+        """The sheet as it stands now — superseded tries are history."""
+        return self.filter(superseded_at__isnull=True)
+
+
+class EntryAttempt(models.Model):
+    """One try at one question on one team's entry sheet.
+
+    A wrong answer is not the end of that question: the team may take another
+    run at *the same question* while its retry budget lasts
+    (`GameSettings.entry_max_retries`). Retrying supersedes this row and opens a
+    fresh one for the same question at the same position, rather than clearing
+    the columns — append-and-soft-retire, the same shape as `Occupancy`, so
+    every guess a team made stays on the record.
+    """
+
+    team = models.ForeignKey("teams.Team", on_delete=models.CASCADE, related_name="entry_attempts")
+    question = models.ForeignKey(EntryQuestion, on_delete=models.PROTECT, related_name="attempts")
+    position = models.PositiveSmallIntegerField(help_text="Slot on the sheet, 1-based.")
+
+    answer = models.IntegerField(null=True, blank=True)
+    is_correct = models.BooleanField(null=True, blank=True)
+    assigned_at = models.DateTimeField(auto_now_add=True)
+    answered_at = models.DateTimeField(null=True, blank=True)
+    superseded_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Set when the team spent a retry and started a fresh try at this question.",
+    )
+
+    objects = EntryAttemptQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["team", "position"]
+        constraints = [
+            # Scoped to current rows: retrying stacks tries at the same question,
+            # but only one of them is ever live.
+            UniqueConstraint(
+                fields=["team", "question"],
+                condition=Q(superseded_at__isnull=True),
+                name="entryattempt_no_repeat",
+            ),
+            UniqueConstraint(
+                fields=["team", "position"],
+                condition=Q(superseded_at__isnull=True),
+                name="entryattempt_one_per_position",
+            ),
+            CheckConstraint(condition=Q(position__gte=1), name="entryattempt_position_positive"),
+            # Answering writes all three columns at once; nothing half-recorded.
+            CheckConstraint(
+                condition=(
+                    Q(answered_at__isnull=True, answer__isnull=True, is_correct__isnull=True)
+                    | Q(
+                        answered_at__isnull=False,
+                        answer__isnull=False,
+                        is_correct__isnull=False,
+                    )
+                ),
+                name="entryattempt_answer_recorded_together",
+            ),
+            # Only a wrong answer is retryable, so a superseded row is always one.
+            CheckConstraint(
+                condition=Q(superseded_at__isnull=True) | Q(is_correct=False),
+                name="entryattempt_only_wrong_is_superseded",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["team", "is_correct"], name="entryattempt_team_correct_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.team} sheet #{self.position}: {self.question.code}"
+
+    @property
+    def is_answered(self) -> bool:
+        return self.answered_at is not None
+
+    @property
+    def is_superseded(self) -> bool:
+        return self.superseded_at is not None
+
+
+class Neighborhood(models.Model):
+    """One of the map's eight pizza slices.
+
+    Membership is geometry, not data: a node belongs to sector
+    `floor(theta / 45)`, which the frontend computes from the map JSON. This row
+    only says what that sector is called and how it is painted, which is what a
+    Designer is allowed to change.
+    """
+
+    index = models.PositiveSmallIntegerField(unique=True)
+    name = models.CharField(max_length=64)
+    theme = models.CharField(max_length=16, choices=NeighborhoodTheme.choices)
+    color = models.CharField(
+        max_length=7,
+        validators=[RegexValidator(r"^#[0-9a-f]{6}$", "Color must be a lowercase #rrggbb hex.")],
+    )
+
+    class Meta:
+        ordering = ["index"]
+        constraints = [
+            CheckConstraint(
+                condition=Q(index__gte=0, index__lt=SECTOR_COUNT),
+                name="neighborhood_index_range",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.index}: {self.name}"
+
+
+class MapDesign(models.Model):
+    """The handful of map-wide knobs a Designer turns. Singleton, like GameSettings."""
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+
+    road_style = models.CharField(
+        max_length=12, choices=RoadStyle.choices, default=RoadStyle.STRAIGHT
+    )
+    tint_strength = models.PositiveSmallIntegerField(
+        default=DEFAULT_TINT_STRENGTH,
+        help_text="How strongly each sector is washed with its colour, 0–100.",
+    )
+    halo_strength = models.PositiveSmallIntegerField(
+        default=DEFAULT_HALO_STRENGTH,
+        help_text="Opacity of the neighbourhood ring around every node, 0–100.",
+    )
+
+    class Meta:
+        verbose_name = "map design"
+        verbose_name_plural = "map design"
+        # Distinct from both mentor and game-god rights: a Designer changes how
+        # the board looks, never who holds what or whether the clock runs.
+        permissions = [("design_map", "Can edit the map's look")]
+        constraints = [
+            CheckConstraint(condition=Q(id=1), name="mapdesign_singleton"),
+            CheckConstraint(condition=Q(tint_strength__lte=100), name="mapdesign_tint_range"),
+            CheckConstraint(condition=Q(halo_strength__lte=100), name="mapdesign_halo_range"),
+        ]
+
+    def __str__(self):
+        return "Map design"
+
+    @classmethod
+    def load(cls) -> "MapDesign":
+        return cls.objects.get_or_create(pk=1)[0]

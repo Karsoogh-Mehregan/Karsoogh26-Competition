@@ -1,50 +1,61 @@
 <script setup>
-import { computed, ref } from 'vue'
-import { toast } from 'vue-sonner'
-import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import QuestionDialog from './QuestionDialog.vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import MapHud from './MapHud.vue'
 import { useActing } from '../composables/useActing'
+import { useEntry } from '../composables/useEntry'
+import { useMapDesign } from '../composables/useMapDesign'
+import { sectorGeometries } from '../lib/mapNeighborhoods'
+import { useInspectorStore } from '../stores/inspector'
 import { useGraph } from '../composables/useGraph.js'
+import { useMapViewport } from '../composables/useMapViewport'
 
-const HOUSE_FILL = '#E8D5B0'
+const HOUSE_FILL = '#E2CFA6'
 
-const { me, teams, actingTeam, isPlayer, claimStart, assignQuestion } = useActing()
+const { me, teams, actingTeam, isPlayer } = useActing()
+const { canClaimStart } = useEntry()
+const inspector = useInspectorStore()
 const { nodes, edges, nodeById, adjacency, startEligibleIds } = useGraph()
+const design = useMapDesign()
+const { neighborhoods, roadStyle, tintStrength, haloStrength } = design
+
+// ---- neighbourhoods ----
+// Eight wedges painted behind everything, and one ring per node in its sector's
+// colour. Both are static geometry: nothing here re-renders on a board event.
+const SECTOR_OUTER = 1075
+const SECTOR_INNER = 120
+// The borders follow the real gaps between groups on every ring, so they
+// wander a little instead of cutting straight. Geometry only; computed once.
+const sectorShapes = sectorGeometries(nodes, SECTOR_OUTER, SECTOR_INNER)
+const sectors = computed(() =>
+  sectorShapes.map((shape) => ({
+    ...shape,
+    color: neighborhoods.value[shape.index]?.color ?? '#999999',
+    name: neighborhoods.value[shape.index]?.name ?? '',
+  })),
+)
+
+function haloColor(n) {
+  return design.neighborhoodOf(n).color
+}
 
 const loggedIn = computed(() => !!me.value)
 const hasTeam = computed(() => !!actingTeam.value)
 // A mentor can pick a team to view its state on the map, but only the team
 // itself can move — mentors would otherwise see clickable nodes that 403.
 const canAct = computed(() => loggedIn.value && hasTeam.value && isPlayer.value)
-const pendingNode = ref(null)
-const dialogOpen = computed({
-  get: () => pendingNode.value !== null,
-  set: (open) => {
-    if (!open) pendingNode.value = null
-  },
-})
-const pendingOccupancyId = ref(null)
-
 function isStartNode(n) {
   return !!n && (n.type === 'start' || n.shape === 'diamond')
 }
 
-const paintedHoldings = computed(() => {
-  if (actingTeam.value) {
-    const color = actingTeam.value.color
-    return actingTeam.value.holdings.map((holding) => ({ ...holding, color }))
-  }
-  return teams.value.flatMap((team) =>
-    team.holdings.map((holding) => ({ ...holding, color: team.color })),
-  )
-})
+const paintedHoldings = computed(() =>
+  teams.value.flatMap((team) =>
+    team.holdings.map((holding) => ({
+      ...holding,
+      color: team.color,
+      team_code: team.code,
+    })),
+  ),
+)
 
 const holdingsByNode = computed(() => {
   const map = new Map()
@@ -93,15 +104,25 @@ const expandableHeldIds = computed(() => {
   )
 })
 
-function isHeld(id) {
+function isHeldByAnyone(id) {
   return holdingsByNode.value.has(id)
+}
+
+// A team that has not cleared the entry sheet cannot take a spawn yet, so the
+// start nodes stay unselectable and route the click to the sheet instead.
+function isFreeStart(id) {
+  return startEligibleIds.has(id) && !claimedStartIds.value.has(id)
+}
+
+function isEntryGate(n) {
+  return canAct.value && !canClaimStart.value && actingHeldIds.value.size === 0 && isFreeStart(n.id)
 }
 
 function isNodeSelectable(id) {
   if (!canAct.value) return false
   const held = actingHeldIds.value
   if (held.size === 0) {
-    return startEligibleIds.has(id) && !claimedStartIds.value.has(id)
+    return canClaimStart.value && isFreeStart(id)
   }
   if (held.has(id)) return false
   const expandable = expandableHeldIds.value
@@ -113,7 +134,7 @@ function isNodeSelectable(id) {
 }
 
 function isNodeSelected(id) {
-  return isHeld(id)
+  return actingHeldIds.value.has(id)
 }
 
 function answerableHolding(id) {
@@ -131,7 +152,9 @@ function isNodeAnswerable(id) {
 
 const hoveredId = ref(null)
 
-// ---- viewBox / bounds ----
+// ---- camera ----
+// The viewBox is the camera; useMapViewport owns it. `bounds` is only the
+// whole-map framing it starts from and returns to.
 const PAD = 90
 const bounds = computed(() => {
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
@@ -148,15 +171,90 @@ const bounds = computed(() => {
     height: maxY - minY + PAD * 2,
   }
 })
-const viewBox = computed(
-  () => `${bounds.value.minX} ${bounds.value.minY} ${bounds.value.width} ${bounds.value.height}`
-)
+
+const svgRef = ref(null)
+const viewport = useMapViewport()
+const { viewBox, box, labelsVisible, unitsPerPx, isPanning, consumedByDrag } = viewport
+const searchHit = ref(null)
+
+onMounted(() => {
+  viewport.attach(svgRef.value)
+  viewport.setHome({
+    x: bounds.value.minX,
+    y: bounds.value.minY,
+    w: bounds.value.width,
+    h: bounds.value.height,
+  })
+})
+
+onBeforeUnmount(() => viewport.detach())
+
+function onSearchHighlight(id) {
+  searchHit.value = id
+}
+
+// Only label what is actually on screen: 473 <text> nodes would cost more than
+// they are worth, and off-screen ones are unreadable anyway.
+const labelledNodes = computed(() => {
+  if (!labelsVisible.value) return []
+  const { x, y, w, h } = box.value
+  const margin = Math.max(w, h) * 0.08
+  return nodes.filter(
+    (n) =>
+      n.x >= x - margin &&
+      n.x <= x + w + margin &&
+      n.y >= y - margin &&
+      n.y <= y + h + margin,
+  )
+})
+
+// Text has no `vector-effect`, so labels are sized in map units converted from
+// the pixel size we actually want on screen.
+function px(value) {
+  return value * unitsPerPx.value
+}
+
+// One dot every GRID_UNITS map units. Translating the pattern by the camera
+// origin pins the dots to the map, so they slide under your finger as you pan
+// and spread apart as you zoom in.
+const GRID_UNITS = 120
+const gridStyle = computed(() => {
+  const perPx = unitsPerPx.value || 1
+  const cell = GRID_UNITS / perPx
+  return {
+    backgroundSize: `${cell}px ${cell}px`,
+    backgroundPosition: `${-box.value.x / perPx}px ${-box.value.y / perPx}px`,
+  }
+})
 
 // ---- edge helpers ----
 function edgePath(e) {
   const a = nodeById.get(e.source)
   const b = nodeById.get(e.target)
   return { x1: a.x, y1: a.y, x2: b.x, y2: b.y }
+}
+
+// One <path> per road, so the Designer's road style is a `d` string and a
+// class rather than a different element. Curved roads bow away from the map's
+// centre, which reads as streets wrapping around the rings.
+function edgeD(e) {
+  const { x1, y1 } = edgePath(e)
+  const end = e.directed ? shrunkTarget(e) : { x: edgePath(e).x2, y: edgePath(e).y2 }
+  if (roadStyle.value !== 'curved') {
+    return `M ${x1} ${y1} L ${end.x} ${end.y}`
+  }
+  const mx = (x1 + end.x) / 2
+  const my = (y1 + end.y) / 2
+  const len = Math.hypot(end.x - x1, end.y - y1) || 1
+  // Perpendicular, pointing away from the origin.
+  let nx = -(end.y - y1) / len
+  let ny = (end.x - x1) / len
+  if (nx * mx + ny * my < 0) {
+    nx = -nx
+    ny = -ny
+  }
+  const bulge = Math.min(22, len * 0.16)
+  return `M ${x1} ${y1} Q ${mx + nx * bulge} ${my + ny * bulge} ${end.x} ${end.y}`
 }
 
 // shrink a directed edge's endpoint back so the arrowhead doesn't overlap the node circle
@@ -189,51 +287,74 @@ function nodeState(n) {
   if (isNodeAnswerable(n.id)) return 'answerable'
   if (isNodeSelected(n.id)) return 'visited'
   if (isNodeSelectable(n.id)) return 'selectable'
+  if (isEntryGate(n)) return 'gated'
   if (isStartNode(n) && !claimedStartIds.value.has(n.id)) return 'idle'
+  if (isHeldByAnyone(n.id)) return 'occupied'
   return 'disabled'
 }
 
-function isNodeInteractive(n) {
-  return isNodeAnswerable(n.id) || isNodeSelectable(n.id)
+function isNodeInteractive() {
+  return loggedIn.value
+}
+
+function isNodeInspected(n) {
+  return inspector.inspection?.nodeCode === n.id
 }
 
 function nodeLabel(n) {
   const state = nodeState(n)
   if (state === 'answerable') return `${n.id} — پاسخ به سؤال`
   if (state === 'selectable') return `${n.id} — قابل انتخاب`
+  if (state === 'gated') return `${n.id} — ابتدا سؤال‌های ورودی را پاسخ دهید`
   return n.id
 }
 
-function onNodeClick(n) {
-  const holding = answerableHolding(n.id)
-  if (holding) {
-    pendingOccupancyId.value = holding.id
-    return
-  }
-  if (!isNodeSelectable(n.id)) return
-  pendingNode.value = n
+function isGatewayNode(n) {
+  return design.levelOf(n.id, n.type) === 'toll'
 }
 
-const pendingIsStart = computed(
-  () => isStartNode(pendingNode.value) && actingHeldIds.value.size === 0,
-)
-
-async function confirmNodeAction() {
-  const node = pendingNode.value
-  const claimStartNode = pendingIsStart.value
-  pendingNode.value = null
-  if (!node || !hasTeam.value) return
-  try {
-    if (claimStartNode) {
-      await claimStart(node.id)
-      toast.success('خانهٔ شروع ثبت شد')
-      return
-    }
-    const result = await assignQuestion(node.id)
-    toast.success(`سؤال ${result.question_id ?? ''} رزرو شد`)
-  } catch (err) {
-    toast.error(err.message || 'عملیات ناموفق بود.')
+function inspectIntent(n) {
+  const holding = answerableHolding(n.id)
+  if (holding) return { intent: 'solve', occupancyId: holding.id }
+  if (isEntryGate(n)) return { intent: 'entry_gate', occupancyId: null }
+  // A gateway is played, not answered: it never offers a question, and only
+  // offers a board where the server actually has one configured.
+  if (isGatewayNode(n)) {
+    const playable = canAct.value && design.hasMinesweeper(n.id)
+    return { intent: playable ? 'minesweeper' : 'view', occupancyId: null }
   }
+  if (isNodeSelectable(n.id)) {
+    const claimingStart = isStartNode(n) && actingHeldIds.value.size === 0
+    return { intent: claimingStart ? 'claim_start' : 'reserve', occupancyId: null }
+  }
+  return { intent: 'view', occupancyId: null }
+}
+
+/**
+ * Every node opens the detail panel, even one this team can do nothing with —
+ * seeing who holds a building and how full it is is worth a click on its own.
+ * What the panel *offers* is the intent, decided here where the adjacency and
+ * entry-sheet rules already live.
+ */
+function onNodeClick(n) {
+  // A click that ended a pan is a camera move, not a move on the board.
+  if (consumedByDrag()) return
+  const { intent, occupancyId } = inspectIntent(n)
+  inspector.inspect(n.id, intent, occupancyId)
+}
+
+function reservedHoldingsOn(n) {
+  return (holdingsByNode.value.get(n.id) ?? []).filter(
+    (holding) => !holding.is_spawn && holding.grade == null,
+  )
+}
+
+// Team colour is the node's message; only dim it when there is a team to
+// contrast against, and never so far that the colour stops reading.
+function holdingOpacity(holding) {
+  if (!holding) return 1
+  if (!actingTeam.value) return 1
+  return holding.team_code === actingTeam.value.code ? 1 : 0.55
 }
 
 function ringFill(n, ringIndexFromOutside) {
@@ -241,11 +362,25 @@ function ringFill(n, ringIndexFromOutside) {
   const floor = ringIndexFromOutside + 1
   const onFloor = holdings.find((holding) => holding.floor === floor)
   if (onFloor?.color) return onFloor.color
-  if (ringIndexFromOutside === 0) {
-    const pending = holdings.find((holding) => holding.floor == null)
-    if (pending?.color) return pending.color
-  }
+  const reserved = reservedHoldingsOn(n)[ringIndexFromOutside]
+  if (reserved?.color) return reserved.color
   return HOUSE_FILL
+}
+
+function ringOpacity(n, ringIndexFromOutside) {
+  const holdings = holdingsByNode.value.get(n.id) ?? []
+  const floor = ringIndexFromOutside + 1
+  const onFloor = holdings.find((holding) => holding.floor === floor)
+  const reserved = reservedHoldingsOn(n)[ringIndexFromOutside]
+  return holdingOpacity(onFloor ?? reserved)
+}
+
+function ringIsHatched(n, ringIndexFromOutside) {
+  return ringIndexFromOutside < reservedHoldingsOn(n).length
+}
+
+function isShapeHatched(n) {
+  return slotCount(n) === 1 && reservedHoldingsOn(n).length > 0
 }
 
 function nodeFill(n) {
@@ -258,15 +393,14 @@ function nodeFill(n) {
   return HOUSE_FILL
 }
 
-function startDuel() {
-  pendingNode.value = null
-  toast.info('دوئل هنوز فعال نشده است.')
+function shapeOpacity(n) {
+  const holdings = holdingsByNode.value.get(n.id) ?? []
+  const colored = holdings.find((holding) => holding.color)
+  return holdingOpacity(colored)
 }
 
 function slotCount(n) {
-  if (n.type === 'l3' || n.type === 'l4') return 2
-  if (n.type === 'l5' || n.type === 'l6' || n.type === 'center') return 3
-  return 1
+  return design.capacityOf(n.id, n.type)
 }
 
 function visualRadius(n) {
@@ -297,15 +431,37 @@ function shapePath(n) {
 
 <template>
   <div class="graph-wrap">
-    <svg class="graph-svg" :viewBox="viewBox" preserveAspectRatio="xMidYMid meet">
+    <!-- A near-neutral ground with a faint dot grid pinned to map coordinates:
+         it gives the glass something to refract and makes panning read as
+         motion, without colouring over the nodes. -->
+    <div class="map-ground" aria-hidden="true" />
+    <div class="map-grid" aria-hidden="true" :style="gridStyle" />
+
+    <svg
+      ref="svgRef"
+      class="graph-svg"
+      :class="{ panning: isPanning }"
+      :viewBox="viewBox"
+      preserveAspectRatio="xMidYMid meet"
+      tabindex="0"
+      role="application"
+      aria-label="نقشهٔ بازی — با کشیدن جابه‌جا و با چرخ ماوس بزرگ‌نمایی کنید"
+    >
     <defs>
+      <!-- Fake glass: a lit top edge fading to nothing, laid over the node fill. -->
+      <linearGradient id="glass-sheen" x1="0" y1="0" x2="0.35" y2="1">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.34" />
+        <stop offset="38%" stop-color="#ffffff" stop-opacity="0.03" />
+        <stop offset="100%" stop-color="#2c4661" stop-opacity="0.1" />
+      </linearGradient>
       <marker
         id="arrow"
         viewBox="0 0 10 10"
-        refX="8"
+        refX="9"
         refY="5"
-        markerWidth="6"
-        markerHeight="6"
+        markerUnits="userSpaceOnUse"
+        markerWidth="12"
+        markerHeight="12"
         orient="auto-start-reverse"
       >
         <path d="M 0 0 L 10 5 L 0 10 z" fill="#6fa8d0" />
@@ -313,10 +469,11 @@ function shapePath(n) {
       <marker
         id="arrow-active"
         viewBox="0 0 10 10"
-        refX="8"
+        refX="9"
         refY="5"
-        markerWidth="7"
-        markerHeight="7"
+        markerUnits="userSpaceOnUse"
+        markerWidth="13"
+        markerHeight="13"
         orient="auto-start-reverse"
       >
         <path d="M 0 0 L 10 5 L 0 10 z" fill="#2b6ca8" />
@@ -324,15 +481,61 @@ function shapePath(n) {
       <marker
         id="arrow-out"
         viewBox="0 0 10 10"
-        refX="8"
+        refX="9"
         refY="5"
-        markerWidth="6"
-        markerHeight="6"
+        markerUnits="userSpaceOnUse"
+        markerWidth="12"
+        markerHeight="12"
         orient="auto-start-reverse"
       >
         <path d="M 0 0 L 10 5 L 0 10 z" fill="#222" />
       </marker>
+      <!-- عوارضی: a gantry with a barrier arm, instead of an anonymous dot. -->
+      <symbol id="toll-gate" viewBox="-10 -10 20 20">
+        <rect x="-8.5" y="-1" width="3" height="9.5" rx="0.6" />
+        <rect x="5.5" y="-1" width="3" height="9.5" rx="0.6" />
+        <rect x="-8.5" y="-5.5" width="17" height="3.2" rx="0.8" />
+        <rect x="-6" y="2.2" width="12" height="2" rx="0.6" />
+      </symbol>
+      <pattern
+        id="reserve-hatch"
+        patternUnits="userSpaceOnUse"
+        width="6"
+        height="6"
+        patternTransform="rotate(45)"
+      >
+        <line x1="0" y1="0" x2="0" y2="6" stroke="#1a1a1a" stroke-width="2.2" />
+      </pattern>
     </defs>
+
+    <!-- neighbourhood wedges: a wash of colour per sector, never a hit target -->
+    <g v-if="tintStrength > 0" class="sectors" aria-hidden="true">
+      <path
+        v-for="sector in sectors"
+        :key="'sector-' + sector.index"
+        :d="sector.d"
+        :fill="sector.color"
+        :fill-opacity="tintStrength"
+        :stroke="sector.color"
+        :stroke-opacity="Math.min(1, tintStrength * 2.2)"
+        class="sector"
+      />
+    </g>
+    <g v-if="tintStrength > 0 && labelsVisible" class="sector-labels" aria-hidden="true">
+      <text
+        v-for="sector in sectors"
+        :key="'sector-label-' + sector.index"
+        :x="sector.label.x"
+        :y="sector.label.y"
+        :font-size="px(11)"
+        :fill="sector.color"
+        class="sector-label"
+        text-anchor="middle"
+        dominant-baseline="middle"
+      >
+        {{ sector.name }}
+      </text>
+    </g>
 
     <!-- outward direction markers: yellow diamond start nodes only -->
     <g class="out-arrows">
@@ -350,14 +553,12 @@ function shapePath(n) {
     </g>
 
     <!-- edges -->
-    <g class="edges">
-      <line
+    <g class="edges" :class="'road-' + roadStyle">
+      <path
         v-for="(e, i) in edges"
         :key="'e-' + i"
-        :x1="edgePath(e).x1"
-        :y1="edgePath(e).y1"
-        :x2="e.directed ? shrunkTarget(e).x : edgePath(e).x2"
-        :y2="e.directed ? shrunkTarget(e).y : edgePath(e).y2"
+        :d="edgeD(e)"
+        fill="none"
         :class="[
           'edge',
           { active: isEdgeActive(e), traversed: isEdgeTraversed(e) },
@@ -372,10 +573,15 @@ function shapePath(n) {
         v-for="n in nodes"
         :key="n.id"
         :transform="`translate(${n.x}, ${n.y})`"
-        :class="['node', 'state-' + nodeState(n), 'shape-' + n.shape]"
-        :role="isNodeInteractive(n) ? 'button' : undefined"
-        :tabindex="isNodeInteractive(n) ? 0 : undefined"
-        :aria-label="isNodeInteractive(n) ? nodeLabel(n) : undefined"
+        :class="[
+          'node',
+          'state-' + nodeState(n),
+          'shape-' + n.shape,
+          { 'search-hit': searchHit === n.id, 'is-inspected': isNodeInspected(n) },
+        ]"
+        :role="isNodeInteractive() ? 'button' : undefined"
+        :tabindex="isNodeInteractive() ? 0 : undefined"
+        :aria-label="isNodeInteractive() ? nodeLabel(n) : undefined"
         @click="onNodeClick(n)"
         @keydown.enter.prevent="onNodeClick(n)"
         @keydown.space.prevent="onNodeClick(n)"
@@ -384,23 +590,98 @@ function shapePath(n) {
         @focus="hoveredId = n.id"
         @blur="hoveredId = null"
       >
+        <!-- An opaque plate under the node: the team colour must read against
+             neutral ground, not through the neighbourhood wash. -->
+        <circle class="node-plate" :r="visualRadius(n) + 1.5" />
+        <circle
+          v-if="haloStrength > 0"
+          class="node-halo"
+          :r="visualRadius(n) + 6"
+          :stroke="haloColor(n)"
+          :stroke-opacity="haloStrength"
+          fill="none"
+        />
         <template v-if="slotCount(n) > 1">
-          <circle
-            v-for="(r, i) in slotRadii(n)"
-            :key="i"
-            :r="r"
-            :fill="ringFill(n, i)"
-            class="node-shape"
+          <template v-for="(r, i) in slotRadii(n)" :key="n.id + '-ring-' + i">
+            <circle
+              :r="r"
+              :fill="ringFill(n, i)"
+              :opacity="ringOpacity(n, i)"
+              class="node-shape"
+            />
+            <circle
+              v-if="ringIsHatched(n, i)"
+              :r="r"
+              fill="url(#reserve-hatch)"
+              :opacity="ringOpacity(n, i)"
+              class="node-hatch"
+            />
+          </template>
+        </template>
+        <template v-else-if="n.type === 'c34' || n.type === 'c45'">
+          <!-- The gantry glyph has gaps; this disc is what actually takes the click. -->
+          <circle :r="n.size * 1.4" fill="transparent" stroke="none" class="node-hit" />
+          <use
+            href="#toll-gate"
+            :x="-n.size * 1.4"
+            :y="-n.size * 1.4"
+            :width="n.size * 2.8"
+            :height="n.size * 2.8"
+            :fill="nodeFill(n)"
+            :opacity="shapeOpacity(n)"
+            class="node-shape node-toll"
           />
         </template>
-        <circle
-          v-else-if="n.shape === 'circle'"
-          :r="visualRadius(n)"
-          :fill="nodeFill(n)"
-          class="node-shape"
-        />
-        <path v-else :d="shapePath(n)" :fill="nodeFill(n)" class="node-shape" />
+        <template v-else-if="n.shape === 'circle'">
+          <circle
+            :r="visualRadius(n)"
+            :fill="nodeFill(n)"
+            :opacity="shapeOpacity(n)"
+            class="node-shape"
+          />
+          <circle
+            v-if="isShapeHatched(n)"
+            :r="visualRadius(n)"
+            fill="url(#reserve-hatch)"
+            :opacity="shapeOpacity(n)"
+            class="node-hatch"
+          />
+        </template>
+        <template v-else>
+          <path
+            :d="shapePath(n)"
+            :fill="nodeFill(n)"
+            :opacity="shapeOpacity(n)"
+            class="node-shape"
+          />
+          <path
+            v-if="isShapeHatched(n)"
+            :d="shapePath(n)"
+            fill="url(#reserve-hatch)"
+            :opacity="shapeOpacity(n)"
+            class="node-hatch"
+          />
+        </template>
 
+        <!-- Only on nodes big enough to show it; 473 sheens would be noise. -->
+        <circle
+          v-if="slotCount(n) > 1"
+          :r="visualRadius(n)"
+          class="node-sheen"
+          fill="url(#glass-sheen)"
+        />
+        <path
+          v-else-if="n.shape !== 'circle'"
+          :d="shapePath(n)"
+          class="node-sheen"
+          fill="url(#glass-sheen)"
+        />
+
+        <circle
+          v-if="searchHit === n.id"
+          :r="visualRadius(n) + 14"
+          class="ring-search"
+        />
         <circle
           v-if="isNodeSelected(n.id)"
           :r="visualRadius(n) + 5"
@@ -413,21 +694,36 @@ function shapePath(n) {
         />
 
         <text
-          v-if="hoveredId === n.id"
-          :y="-(visualRadius(n) + 12)"
+          v-if="hoveredId === n.id && !labelsVisible"
+          :y="-(visualRadius(n) + px(10))"
+          :style="{ fontSize: `${px(14)}px`, strokeWidth: `${px(4)}px` }"
           class="node-label"
           text-anchor="middle"
         >
           {{ n.id }}
         </text>
       </g>
+
+      <!-- Zoomed-in labels, drawn once over the nodes so they never sit under one. -->
+      <text
+        v-for="n in labelledNodes"
+        :key="'label-' + n.id"
+        :x="n.x"
+        :y="n.y + visualRadius(n) + px(13)"
+        :style="{ fontSize: `${px(11)}px`, strokeWidth: `${px(3)}px` }"
+        class="node-label zoom-label"
+        text-anchor="middle"
+      >
+        {{ n.id }}
+      </text>
     </g>
 
     <!-- center label -->
     <text
-      v-if="nodeById.get('CENTER')"
+      v-if="nodeById.get('CENTER') && !labelsVisible"
       :x="nodeById.get('CENTER').x"
-      :y="nodeById.get('CENTER').y + visualRadius(nodeById.get('CENTER')) + 22"
+      :y="nodeById.get('CENTER').y + visualRadius(nodeById.get('CENTER')) + px(18)"
+      :style="{ fontSize: `${px(14)}px` }"
       text-anchor="middle"
       class="center-label"
     >
@@ -435,31 +731,12 @@ function shapePath(n) {
     </text>
   </svg>
 
-    <Dialog v-model:open="dialogOpen">
-      <DialogContent class="sm:max-w-xs" dir="rtl" :show-close-button="false">
-        <DialogHeader class="text-center sm:text-center">
-          <DialogTitle>این خانه</DialogTitle>
-          <DialogDescription>
-            {{ pendingNode ? pendingNode.id : '' }}
-          </DialogDescription>
-        </DialogHeader>
-        <div class="flex flex-col gap-2">
-          <Button class="w-full" @click="confirmNodeAction">
-            {{ pendingIsStart ? 'ورود به این خانه' : 'رزرو این خانه' }}
-          </Button>
-          <Button class="w-full" variant="outline" @click="startDuel">دویل</Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <MapHud :nodes="nodes" @highlight="onSearchHighlight" />
 
-    <QuestionDialog
-      :occupancy-id="pendingOccupancyId"
-      @close="pendingOccupancyId = null"
-    />
-
-    <ul v-if="canAct" class="legend" aria-label="راهنمای رنگ خانه‌ها">
+    <ul v-if="canAct" class="legend glass-panel" aria-label="راهنمای رنگ خانه‌ها">
       <li><span class="legend-dot legend-answerable" />پاسخ به سؤال</li>
       <li><span class="legend-dot legend-selectable" />قابل رزرو</li>
+      <li v-if="!canClaimStart"><span class="legend-dot legend-gated" />نیازمند سؤال ورودی</li>
       <li><span class="legend-dot legend-visited" />در اختیار شما</li>
     </ul>
   </div>
@@ -470,10 +747,37 @@ function shapePath(n) {
   position: relative;
   width: 100%;
   height: 100%;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--background);
+}
+
+/* ---- backdrop ----
+   Deliberately almost colourless. The map has 473 nodes to read; anything
+   saturated back here competes with them and tires the eye at high zoom. */
+.map-ground {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 90% at 50% 0%, #ffffff 0%, #f7f9fc 55%, #eff3f8 100%);
+}
+.map-grid {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: radial-gradient(
+    circle,
+    color-mix(in oklab, #2c4661 22%, transparent) 1px,
+    transparent 1px
+  );
 }
 
 .legend {
   position: absolute;
+  z-index: 2;
   inset-block-end: 1rem;
   inset-inline-start: 1rem;
   display: flex;
@@ -482,12 +786,8 @@ function shapePath(n) {
   margin: 0;
   padding: 0.5rem 0.75rem;
   list-style: none;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: color-mix(in oklab, var(--card) 92%, transparent);
   font-size: 0.75rem;
   color: var(--muted-foreground);
-  backdrop-filter: blur(4px);
 }
 .legend li {
   display: flex;
@@ -506,39 +806,148 @@ function shapePath(n) {
 .legend-selectable {
   background: #2b6ca8;
 }
+.legend-gated {
+  background: #b8860b;
+}
 .legend-visited {
   background: v-bind('actingTeam?.color || HOUSE_FILL');
 }
 
 .graph-svg {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 100%;
   display: block;
-  background: radial-gradient(circle at center, #ffffff 0%, #fafbfd 60%, #f4f6f9 100%);
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+  outline: none;
+}
+.graph-svg.panning {
+  cursor: grabbing;
+}
+.graph-svg.panning .node {
+  cursor: grabbing;
+}
+.graph-svg:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--ring);
+}
+
+.sector,
+.sector-label {
+  pointer-events: none;
+}
+.sector {
+  stroke-width: 1.6px;
+  vector-effect: non-scaling-stroke;
+  stroke-linejoin: round;
+}
+.node-toll {
+  stroke-width: 0.9px;
+  pointer-events: none;
+}
+.node-hit {
+  pointer-events: all;
+}
+.sector-label {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  opacity: 0.55;
+}
+
+/* The neighbourhood's "hollow presence" around every house. */
+.node-plate {
+  fill: #f8f7f3;
+  stroke: none;
+  pointer-events: none;
+}
+.node-halo {
+  stroke-width: 1.6px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.road-dashed .edge {
+  stroke-dasharray: 6 5;
 }
 
 .edge {
-  stroke: #bcdcf0;
-  stroke-width: 1.35;
+  stroke: #8fb9d6;
+  stroke-width: 0.8px;
+  vector-effect: non-scaling-stroke;
   transition: stroke 0.2s ease, stroke-width 0.2s ease, opacity 0.2s ease;
 }
 .edge.traversed {
   stroke: #4a90c4;
-  stroke-width: 3.2;
+  stroke-width: 2.2px;
 }
 .edge.active {
   stroke: #2b6ca8;
-  stroke-width: 3.2;
+  stroke-width: 2.2px;
 }
 
 .node {
   cursor: default;
   transition: opacity 0.25s ease;
 }
+/* Which node the house panel is showing. Deliberately louder than hover: the
+   detail beside the map is useless if you lose track of what it belongs to. */
+.is-inspected .node-shape {
+  stroke: #1d4ed8;
+  stroke-width: 3px;
+}
+.is-inspected {
+  filter: drop-shadow(0 0 9px rgba(29, 78, 216, 0.55));
+}
+.search-hit .node-shape {
+  stroke: #b45309;
+  stroke-width: 2.6px;
+}
 .node-shape {
-  stroke: #1a1a1a;
-  stroke-width: 1.4;
+  stroke: #33506b;
+  stroke-width: 1.1px;
+  vector-effect: non-scaling-stroke;
   transition: filter 0.2s ease, stroke-width 0.15s ease;
+}
+.node-hatch {
+  stroke: none;
+  pointer-events: none;
+}
+
+.state-occupied {
+  opacity: 1;
+  cursor: default;
+}
+
+.node:hover .node-shape {
+  stroke: #10243a;
+  stroke-width: 1.8px;
+}
+
+/* The lit edge that reads as glass. Never a hit target. */
+.node-sheen {
+  pointer-events: none;
+}
+
+.zoom-label {
+  pointer-events: none;
+  fill: #1d3145;
+  opacity: 0.85;
+}
+
+.ring-search {
+  fill: none;
+  stroke: #e0761f;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+  animation: search-ping 1.4s ease-out infinite;
+}
+
+@keyframes search-ping {
+  0% { opacity: 0.95; transform: scale(0.82); }
+  70% { opacity: 0; transform: scale(1.35); }
+  100% { opacity: 0; transform: scale(1.35); }
 }
 
 .node-label {
@@ -566,6 +975,17 @@ function shapePath(n) {
 .state-idle {
   opacity: 1;
   cursor: default;
+}
+
+.state-gated {
+  cursor: pointer;
+}
+.state-gated .node-shape {
+  filter: drop-shadow(0 0 6px rgba(184, 134, 11, 0.7));
+}
+.state-gated:hover .node-shape,
+.state-gated:focus-visible .node-shape {
+  stroke-width: 2.2;
 }
 
 .state-selectable {
@@ -664,6 +1084,7 @@ function shapePath(n) {
 @media (prefers-reduced-motion: reduce) {
   .ring-current,
   .ring-selectable,
+  .ring-search,
   .state-answerable .node-shape {
     animation: none;
   }

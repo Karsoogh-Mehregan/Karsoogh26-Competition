@@ -8,7 +8,10 @@ The `urlpatterns` list routes URLs to views. For more information see:
 from django.contrib import admin
 from django.urls import include, path
 
+from core.health import healthz
+
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/", include("core.api_urls")),
+    path("healthz", healthz, name="healthz"),
 ]

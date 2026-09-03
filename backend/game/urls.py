@@ -1,16 +1,44 @@
 from django.urls import path
 
-from game import views
+from game import sse, views, views_design
 
 app_name = "game"
 
 _HOLDING = "teams/<slug:team_code>/nodes/<slug:node_code>/"
 
 urlpatterns = [
+    # Clock and stage: every client polls state; only mentors may change it.
+    path("game/state/", views.GameStateView.as_view(), name="game-state"),
+    path("game/settings/", views.GameSettingsView.as_view(), name="game-settings"),
+    path("game/restart/", views.GameRestartView.as_view(), name="game-restart"),
+    # How the map looks. Everyone reads it; only Designers write it.
+    path("map/design/", views_design.MapDesignView.as_view(), name="map-design"),
+    path(
+        "map/nodes/<slug:node_code>/",
+        views_design.NodeDesignView.as_view(),
+        name="map-node-design",
+    ),
     # Mentor actions on a holding, addressed by (team, node).
     path(f"{_HOLDING}assign-question/", views.AssignQuestionView.as_view(), name="assign-question"),
     path(f"{_HOLDING}grade/", views.GradeView.as_view(), name="grade"),
     path(f"{_HOLDING}release/", views.ReleaseView.as_view(), name="release"),
+    # Pre-game entry sheet, always the caller's own team.
+    path("entry/sheet/", views.EntrySheetView.as_view(), name="entry-sheet"),
+    path(
+        "entry/questions/<slug:code>/answer/",
+        views.EntryAnswerView.as_view(),
+        name="entry-answer",
+    ),
+    path(
+        "entry/questions/<slug:code>/retry/",
+        views.EntryRetryView.as_view(),
+        name="entry-retry",
+    ),
+    path(
+        "teams/<slug:team_code>/attempts/",
+        views.TeamAttemptsView.as_view(),
+        name="team-attempts",
+    ),
     # Team-facing question + submission flow, addressed by occupancy id.
     path(
         "occupancies/<int:pk>/question/",
@@ -39,4 +67,8 @@ urlpatterns = [
         views.QuestionMediaView.as_view(),
         name="question-media",
     ),
+    # Level configuration: entry_cost and capacity per level.
+    path("levels/", views.LevelListView.as_view(), name="level-list"),
+    # Plain async view, not DRF: APIView.dispatch is sync-only in DRF 3.18.
+    path("realtime/stream/", sse.board_stream, name="board-stream"),
 ]

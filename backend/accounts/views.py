@@ -20,6 +20,9 @@ _ME = {
     "username": "mentor",
     "is_staff": False,
     "is_mentor": True,
+    "is_game_god": False,
+    "is_announcer": False,
+    "is_designer": False,
     "team": None,
 }
 

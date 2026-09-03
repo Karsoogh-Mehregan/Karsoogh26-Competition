@@ -17,11 +17,18 @@ from game.exceptions import (
 from game.models import (
     AnswerType,
     GameSettings,
+    Node,
     Occupancy,
     Question,
     ReleaseReason,
     Submission,
     TeamQuestion,
+)
+from game.services.events import (
+    BOARD_RELEASED,
+    QUESTION_ASSIGNED,
+    SUBMISSION_CREATED,
+    publish_on_commit,
 )
 from game.services.mentor import grade_attempt, release_attempt
 
@@ -72,8 +79,7 @@ def assign_question(occupancy: Occupancy) -> Question:
             raise NoQuestionAvailable("No unused questions remain for this level.")
 
         now = timezone.now()
-        settings_row = GameSettings.load()
-        expires_at = now + timedelta(minutes=settings_row.attempt_ttl_minutes)
+        expires_at = now + timedelta(minutes=occupancy.node.level.attempt_ttl_minutes)
 
         TeamQuestion.objects.create(
             team=occupancy.team,
@@ -86,8 +92,41 @@ def assign_question(occupancy: Occupancy) -> Question:
         occupancy.save(
             update_fields=["question", "question_assigned_at", "expires_at"],
         )
+        publish_on_commit(
+            QUESTION_ASSIGNED,
+            {"occupancy": occupancy.pk, "team": occupancy.team.code},
+        )
 
     return question
+
+
+def release_expired_attempts(*, node: Node | None = None) -> int:
+    """Soft-release unanswered attempts whose clock has run out.
+
+    The slot becomes free for another reservation. TeamQuestion is left
+    alone, so the same question is never served to that team again.
+    Occupancies that already have a submission stay put for grading.
+    """
+    now = timezone.now()
+    qs = Occupancy.objects.active().filter(
+        question_id__isnull=False,
+        grade__isnull=True,
+        expires_at__lte=now,
+        floor__isnull=True,
+        submission__isnull=True,
+    )
+    if node is not None:
+        qs = qs.filter(node=node)
+    ids = list(qs.values_list("pk", flat=True))
+    if not ids:
+        return 0
+    released = Occupancy.objects.filter(pk__in=ids).update(
+        released_at=now,
+        release_reason=ReleaseReason.EXPIRED,
+    )
+    if released:
+        publish_on_commit(BOARD_RELEASED, {"reason": ReleaseReason.EXPIRED})
+    return released
 
 
 def submit_answer(
@@ -109,7 +148,13 @@ def submit_answer(
     if occupancy.team_id != user.team_id:
         raise NotTeamMember("Occupancy belongs to another team.")
 
+    timed_out = occupancy.is_expired and occupancy.grade is None
+    release_expired_attempts()
+    occupancy.refresh_from_db()
+
     if occupancy.released_at is not None:
+        if timed_out or occupancy.release_reason == ReleaseReason.EXPIRED:
+            raise SubmissionWindowClosed("تایم شما تموم شد.")
         raise OccupancyNotActive("Occupancy is released.")
 
     if not GameSettings.load().is_running:
@@ -120,19 +165,24 @@ def submit_answer(
 
     now = timezone.now()
     if occupancy.expires_at is not None and occupancy.expires_at <= now:
-        raise SubmissionWindowClosed("Answer window has expired.")
+        raise SubmissionWindowClosed("تایم شما تموم شد.")
 
-    body = body or ""
+    body = "" if body is None else str(body)
     _validate_answer_payload(occupancy.question, body=body, file=file)
 
     try:
         with transaction.atomic():
-            return Submission.objects.create(
+            submission = Submission.objects.create(
                 occupancy=occupancy,
                 body=body,
                 file=file or "",
                 submitted_by=user,
             )
+            publish_on_commit(
+                SUBMISSION_CREATED,
+                {"submission": submission.pk, "team": occupancy.team.code},
+            )
+            return submission
     except IntegrityError as exc:
         if Submission.objects.filter(occupancy=occupancy).exists():
             raise AlreadySubmitted("A submission already exists for this occupancy.") from exc

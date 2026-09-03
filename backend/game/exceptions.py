@@ -36,3 +36,27 @@ class AlreadyGraded(GameServiceError):
 
 class MissingFloor(GameServiceError):
     """Cannot grade before the occupancy floor is assigned."""
+
+
+class NoEntryQuestions(GameServiceError):
+    """The active entry pool is too small to fill a team's sheet."""
+
+
+class NotOnEntrySheet(GameServiceError):
+    """The team was never served this entry question."""
+
+
+class EntryAlreadyAnswered(GameServiceError):
+    """Entry questions are one shot; this one is already spent."""
+
+
+class EntryNotAnswered(GameServiceError):
+    """Only a question the team has already answered can be retried."""
+
+
+class EntryAnswerWasCorrect(GameServiceError):
+    """A correct answer needs no second try."""
+
+
+class NoEntryRetriesLeft(GameServiceError):
+    """The team has spent its entry-question retries."""

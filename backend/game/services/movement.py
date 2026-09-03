@@ -1,12 +1,14 @@
 from django.db import IntegrityError, transaction
-from django.db.models import F, Q
+from django.db.models import Q
 
 from game.models import Edge, GameSettings, Level, Node, Occupancy
-from teams.models import Team
+from teams.ledger import InsufficientFunds, apply_balance_change
+from teams.models import BalanceReason, Team
 from teams.start_colors import color_for_start
 
+from .events import BOARD_NODE_CLAIMED, BOARD_SPAWN_CLAIMED, publish_on_commit
 from .mentor import Conflict
-from .questions import assign_question
+from .questions import assign_question, release_expired_attempts
 
 
 def is_reachable(node: Node, held_ids: set[int]) -> bool:
@@ -51,12 +53,15 @@ def _reserve(team: Team, node: Node) -> Occupancy:
         raise Conflict("ظرفیت این خانه پر شده است.")
 
     if level.entry_cost:
-        paid = Team.objects.filter(pk=team.pk, balance__gte=level.entry_cost).update(
-            balance=F("balance") - level.entry_cost
-        )
-        if not paid:
+        try:
+            apply_balance_change(
+                team,
+                -level.entry_cost,
+                reason=BalanceReason.ENTRY,
+                detail=node.code,
+            )
+        except InsufficientFunds:
             raise Conflict("موجودی تیم برای ورود به این خانه کافی نیست.")
-        team.refresh_from_db(fields=["balance"])
 
     try:
         holding = Occupancy.objects.create(
@@ -83,9 +88,11 @@ def claim_spawn(team: Team, node: Node) -> Occupancy:
     if holding is not None:
         return holding
     try:
-        return Occupancy.objects.create(team=team, node=node, slot=1, is_spawn=True)
+        holding = Occupancy.objects.create(team=team, node=node, slot=1, is_spawn=True)
     except IntegrityError as exc:
         raise Conflict("این خانهٔ شروع قبلاً گرفته شده است.") from exc
+    publish_on_commit(BOARD_SPAWN_CLAIMED, {"team": team.code, "node": node.code})
+    return holding
 
 
 @transaction.atomic
@@ -98,6 +105,8 @@ def claim_node(team: Team, node: Node) -> Occupancy:
     """
     if not GameSettings.load().is_running:
         raise Conflict("بازی در حال اجرا نیست.")
+
+    release_expired_attempts()
 
     holding = (
         Occupancy.objects.active()
@@ -112,4 +121,5 @@ def claim_node(team: Team, node: Node) -> Occupancy:
 
     assign_question(holding)
     holding.refresh_from_db()
+    publish_on_commit(BOARD_NODE_CLAIMED, {"team": team.code, "node": node.code})
     return holding

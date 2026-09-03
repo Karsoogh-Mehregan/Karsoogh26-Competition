@@ -1,7 +1,6 @@
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import F
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import APIException
@@ -14,7 +13,10 @@ from game.models import (
     ReleaseReason,
     _round_half_up,
 )
-from teams.models import Team
+from teams.ledger import apply_balance_change
+from teams.models import BalanceReason
+
+from .events import BOARD_GRADED, BOARD_RELEASED, publish_on_commit
 
 # TODO: duel / buyout flow should be implemented later.
 MENTOR_RELEASE_REASONS = (ReleaseReason.ZERO_GRADE, ReleaseReason.EXPIRED)
@@ -62,6 +64,8 @@ def grade_attempt(holding: Occupancy, grade: int) -> Occupancy:
     holding.grade = grade
     holding.grade_multiplier = GradeMultiplier.factor_for(grade)
     holding.save(update_fields=["grade", "grade_multiplier"])
+    # Registered before the floor re-rank so the early return below still announces.
+    publish_on_commit(BOARD_GRADED, {"node": node.code})
 
     ranked = [occupancy for occupancy in locked.values() if occupancy.grade]
     if not ranked:
@@ -90,7 +94,12 @@ def grade_attempt(holding: Occupancy, grade: int) -> Occupancy:
             - before[occupancy.pk]
         )
         if delta > 0:
-            Team.objects.filter(pk=occupancy.team_id).update(balance=F("balance") + delta)
+            apply_balance_change(
+                occupancy.team,
+                delta,
+                reason=BalanceReason.GRADE,
+                detail=node.code,
+            )
 
     holding.team.refresh_from_db(fields=["balance"])
     return holding
@@ -100,7 +109,11 @@ def grade_attempt(holding: Occupancy, grade: int) -> Occupancy:
 def release_attempt(holding: Occupancy, reason: str) -> Occupancy:
     """Retire a failed attempt and free its slot. Floors and balances are untouched."""
     locked = (
-        Occupancy.objects.active().select_for_update(of=("self",)).filter(pk=holding.pk).first()
+        Occupancy.objects.active()
+        .select_related("node", "team")
+        .select_for_update(of=("self",))
+        .filter(pk=holding.pk)
+        .first()
     )
     if locked is None:
         raise Conflict("این واحد قبلاً آزاد شده است.")
@@ -113,6 +126,10 @@ def release_attempt(holding: Occupancy, reason: str) -> Occupancy:
     locked.released_at = timezone.now()
     locked.release_reason = reason
     locked.save(update_fields=["released_at", "release_reason"])
+    publish_on_commit(
+        BOARD_RELEASED,
+        {"team": locked.team.code, "node": locked.node.code, "reason": reason},
+    )
 
     holding.released_at = locked.released_at
     holding.release_reason = locked.release_reason

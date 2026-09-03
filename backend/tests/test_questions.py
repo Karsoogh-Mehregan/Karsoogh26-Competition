@@ -105,6 +105,14 @@ class TestAssignQuestion:
         second = assign_question(occ)
         assert first.pk == second.pk
 
+    def test_expiry_follows_the_node_level_ttl(self, node, teams, questions, running_game, easy):
+        easy.attempt_ttl_minutes = 7
+        easy.save(update_fields=["attempt_ttl_minutes"])
+        occ = occupy(node, teams[0])
+        assign_question(occ)
+        occ.refresh_from_db()
+        assert occ.expires_at - occ.question_assigned_at == timedelta(minutes=7)
+
 
 class TestOccupancyQuestionAPI:
     def test_team_can_read_assigned_question(self, node, teams, questions, running_game):

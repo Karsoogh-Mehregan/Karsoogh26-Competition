@@ -1,20 +1,25 @@
 from django.db import IntegrityError, transaction
 from rest_framework import status
 from rest_framework.exceptions import NotFound
-from rest_framework.generics import ListAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.permissions import CanViewLeaderboard, GameIsRunning
+from accounts.permissions import MENTOR_PERM, CanViewLeaderboard, GameIsRunning
 from core.openapi import OpenApiExample, extend_schema
 from game.api_exceptions import Conflict
 from game.models import Node
 from game.permissions import IsOwnTeam
-from game.services import claim_spawn
+from game.services import claim_spawn, release_expired_attempts, require_entry_clearance
 
-from .models import Team
-from .serializers import ClaimStartSerializer, LeaderboardRowSerializer, TeamSerializer
+from . import board_cache
+from .models import BalanceEvent, Team
+from .serializers import (
+    BalanceEventSerializer,
+    ClaimStartSerializer,
+    LeaderboardRowSerializer,
+    TeamSerializer,
+)
 from .start_colors import color_for_start
 
 
@@ -45,11 +50,22 @@ from .start_colors import color_for_start
             response_only=True,
         ),
     ],
+    responses=TeamSerializer(many=True),
 )
-class TeamListView(ListAPIView):
-    queryset = Team.objects.with_holdings()
-    serializer_class = TeamSerializer
+class TeamListView(APIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = TeamSerializer
+
+    def get(self, request):
+        release_expired_attempts()
+        user = request.user
+        return Response(
+            board_cache.mask(
+                board_cache.snapshot(request),
+                is_mentor=user.has_perm(MENTOR_PERM),
+                viewer_team_code=user.team.code if user.team_id else None,
+            )
+        )
 
 
 @extend_schema(
@@ -79,8 +95,22 @@ class LeaderboardView(APIView):
         return Response(LeaderboardRowSerializer(rows, many=True).data)
 
 
+class TeamBalanceEventView(APIView):
+    """Return the balance-change log for a team (team's own account only)."""
+
+    permission_classes = [IsAuthenticated, IsOwnTeam]
+
+    def get(self, request, team_code: str):
+        events = BalanceEvent.objects.filter(team__code=team_code)
+        return Response(BalanceEventSerializer(events, many=True).data)
+
+
 class ClaimStartView(APIView):
-    """Claim a start node's color for the team named in the URL."""
+    """Claim a start node's color for the team named in the URL.
+
+    Gated on the entry sheet: a team must have cleared it (or the grace window
+    must have passed) before it may seat itself on a spawn.
+    """
 
     permission_classes = [IsAuthenticated, IsOwnTeam, GameIsRunning]
     serializer_class = ClaimStartSerializer
@@ -89,6 +119,7 @@ class ClaimStartView(APIView):
         team = Team.objects.filter(code=team_code).first()
         if team is None:
             raise NotFound(f"تیم «{team_code}» پیدا نشد.")
+        require_entry_clearance(team)
         serializer = ClaimStartSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         node_id = serializer.validated_data["node"]

@@ -2,7 +2,9 @@ export const queryKeys = {
   me: () => ['me'] as const,
   teams: () => ['teams'] as const,
   submissions: () => ['submissions'] as const,
-  occupancyQuestion: () => ['occupancy-question'] as const,
+  // Prefix key: invalidating it matches every team's attempts list.
+  attemptsRoot: () => ['attempts'] as const,
+  attempts: (teamCode: string) => ['attempts', teamCode] as const,
   leaderboard: () => ['leaderboard'] as const,
   territoryGames: () => ['events', 'territory-control', 'games'] as const,
   territoryGame: (gameId: number | 'none') =>
@@ -19,4 +21,21 @@ export const queryKeys = {
   pigEvents: () => ['events', 'pig'] as const,
   eventCatalog: () => ['events', 'catalog'] as const,
   matchmaking: () => ['events', 'matchmaking'] as const,
+  gameState: () => ['game-state'] as const,
+  gameSettings: () => ['game-settings'] as const,
+  entrySheet: () => ['entry-sheet'] as const,
+  mapDesign: () => ['map-design'] as const,
+  levels: () => ['levels'] as const,
+  balanceEventsRoot: () => ['balance-events'] as const,
+  balanceEvents: (teamCode: string) => ['balance-events', teamCode] as const,
+  inbox: () => ['inbox'] as const,
+  notification: (id: number) => ['notification', id] as const,
+  // Prefix key: invalidating it matches the draft and sent lists at once.
+  messagesRoot: () => ['messages'] as const,
+  messages: (status: 'draft' | 'sent') => ['messages', status] as const,
+  audienceOptions: () => ['audience-options'] as const,
+  audiencePreview: (key: string) => ['audience-preview', key] as const,
+  messageRecipients: (id: number) => ['message-recipients', id] as const,
+  minesweeperRoot: () => ['minesweeper'] as const,
+  minesweeperAttempt: (attemptId: number) => ['minesweeper', 'attempt', attemptId] as const,
 }

@@ -10,6 +10,7 @@ media/
 # collectstatic output — build artifact, never committed
 staticfiles/
 
+
 # Byte-compiled / optimized / DLL files
 *.py[cod]
 *$py.class
@@ -143,3 +144,12 @@ poetry.toml
 
 # LSP config files
 pyrightconfig.json
+
+# Local-only demo seeder: creates accounts with known passwords, so it must
+# never reach a deployment. See the team wiki if you need a copy.
+game/management/commands/seed_demo.py
+
+# Login sheets written by seed_demo / create_team_users - plaintext passwords
+*-logins.csv
+logins.csv
+teams.csv

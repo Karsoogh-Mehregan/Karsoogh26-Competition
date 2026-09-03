@@ -1,10 +1,11 @@
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { ApiError } from '@/lib/http'
 import { useLoginMutation, useLogoutMutation, useMeQuery } from '@/queries/auth'
 import { useAssignQuestionMutation } from '@/queries/game'
 import { useClaimStartMutation, useTeamsQuery } from '@/queries/teams'
 import { useActingStore } from '@/stores/acting'
+import { useAttemptStore } from '@/stores/attempt'
 import type { AssignQuestionResult, Team } from '@/types/api'
 import { useGraph } from './useGraph.js'
 
@@ -35,20 +36,32 @@ export function useActing() {
   const me = computed(() => meQuery.data.value ?? null)
   const teams = computed<Team[]>(() => teamsQuery.data.value ?? [])
   const isMentor = computed(() => me.value?.is_mentor ?? false)
+  // Running the event is a narrower right than grading for it.
+  const isGameGod = computed(() => me.value?.is_game_god ?? false)
+  // Backed by its own permission, so it is not the same set as isGameGod.
+  const isAnnouncer = computed(() => me.value?.is_announcer ?? false)
   const isPlayer = computed(() => me.value != null && me.value.team != null)
+  const ownTeamCode = computed(() => me.value?.team?.code ?? null)
 
-  // A player's team is a server fact (me.team); a mentor's is a client-side
-  // filter over the map (stores/acting.ts) that carries no authority.
   const actingTeam = computed<Team | null>(() => {
-    const playerTeamCode = me.value?.team?.code
-    if (playerTeamCode) {
-      return teams.value.find((team) => team.code === playerTeamCode) ?? null
+    if (isPlayer.value && ownTeamCode.value) {
+      return teams.value.find((team) => team.code === ownTeamCode.value) ?? null
     }
     if (!isMentor.value) {
       return null
     }
     return teams.value.find((team) => team.code === store.actingCode) ?? null
   })
+
+  watch(
+    [isPlayer, ownTeamCode],
+    ([player, code]) => {
+      if (player && code) {
+        store.setActingCode(code)
+      }
+    },
+    { immediate: true },
+  )
 
   const loading = computed(
     () => meQuery.isPending.value || (isAuthenticated() && teamsQuery.isPending.value),
@@ -66,6 +79,10 @@ export function useActing() {
     actionError.value = ''
     try {
       await loginMutation.mutateAsync({ username, password })
+      const code = meQuery.data.value?.team?.code
+      if (code) {
+        store.setActingCode(code)
+      }
     } catch (err) {
       actionError.value =
         err instanceof ApiError && err.status === 400
@@ -79,6 +96,7 @@ export function useActing() {
     try {
       await logoutMutation.mutateAsync()
       store.setActingCode(null)
+      useAttemptStore().select(null)
       useGraph().reset()
     } catch (err) {
       actionError.value = messageOf(err)
@@ -86,15 +104,15 @@ export function useActing() {
   }
 
   function actAs(team: Team | null): void {
-    if (!isMentor.value) {
+    if (isPlayer.value || !isMentor.value || team == null) {
       return
     }
-    if (!store.setActingCode(team?.code ?? null)) {
+    if (!store.setActingCode(team.code)) {
       return
     }
     actionError.value = ''
     useGraph().reset()
-    toast.success(team ? `تیم «${team.name}» انتخاب شد` : 'انتخاب تیم برداشته شد')
+    toast.success(`تیم «${team.name}» انتخاب شد`)
   }
 
   async function claimStart(nodeId: string): Promise<Team> {
@@ -118,6 +136,8 @@ export function useActing() {
     teams,
     actingTeam,
     isMentor,
+    isGameGod,
+    isAnnouncer,
     isPlayer,
     loading,
     error,

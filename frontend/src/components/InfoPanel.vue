@@ -1,9 +1,9 @@
 <script setup>
 import {
   CheckIcon,
-  CircleCheckIcon,
+
   CoinsIcon,
-  HourglassIcon,
+
   SearchIcon,
   Gamepad2Icon,
 } from '@lucide/vue'
@@ -11,18 +11,19 @@ import { computed, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatBalance } from '@/lib/format'
+import { formatBalance, formatSignedBalance } from '@/lib/format'
 import { useActing } from '../composables/useActing'
+import { useBalanceEvents } from '../composables/useBalanceEvents'
 
 const {
   me,
   teams,
   actingTeam,
   isMentor,
+  isAnnouncer,
   isPlayer,
   loading,
   error,
@@ -31,6 +32,7 @@ const {
   actAs,
   logout,
 } = useActing()
+const { balanceEvents, ledgerLoading, ledgerError } = useBalanceEvents()
 const route = useRoute()
 
 const username = ref('')
@@ -50,7 +52,7 @@ function normalize(value) {
     .replace(/\u200c/g, '')
 }
 
-const filteredTeams = computed(() => {
+const listedTeams = computed(() => {
   const q = normalize(query.value)
   if (!q) {
     return teams.value
@@ -64,15 +66,13 @@ function isSelected(team) {
   return actingTeam.value?.code === team.code
 }
 
-function isNoneSelected() {
-  return !actingTeam.value
-}
+const showTeamPicker = computed(() => isMentor.value || isPlayer.value)
 </script>
 
 <template>
   <aside class="flex h-full w-full shrink-0 flex-col overflow-hidden border-e bg-card">
     <header class="border-b px-5 py-4">
-      <h1 class="text-lg font-bold">تیم‌ها</h1>
+      <h1 class="text-lg font-bold">{{ isPlayer && !isMentor ? 'تیم شما' : 'تیم‌ها' }}</h1>
       <p v-if="actingTeam" class="text-muted-foreground mt-1 text-sm">
         در حال بازی به‌عنوان
         <span class="text-foreground inline-flex items-center gap-1.5 font-semibold">
@@ -84,8 +84,8 @@ function isNoneSelected() {
           {{ actingTeam.name }}
         </span>
       </p>
-      <p v-else-if="isMentor" class="text-muted-foreground mt-1 text-sm">
-        یک تیم را انتخاب کنید
+      <p v-else-if="me" class="text-muted-foreground mt-1 text-sm">
+        {{ isMentor ? 'یک تیم را انتخاب کنید' : 'تیم شما روی نقشه مشخص است' }}
       </p>
       <p v-else class="text-muted-foreground mt-1 text-sm">
         برای دیدن تیم‌ها وارد شوید
@@ -96,9 +96,63 @@ function isNoneSelected() {
           size="sm"
           :variant="route.path === '/events' ? 'default' : 'outline'"
         >
+          <RouterLink
+            to="/grading"
+            :aria-current="route.path === '/grading' ? 'page' : undefined"
+          >
+            نمره‌دهی
+          </RouterLink>
+        </Button>
+        <Button
+          v-if="isPlayer"
+          as-child
+          size="sm"
+          :variant="route.path === '/solve' ? 'default' : 'outline'"
+        >
+          <RouterLink
+            to="/solve"
+            :aria-current="route.path === '/solve' ? 'page' : undefined"
+          >
+            حل سؤال
+          </RouterLink>
+        </Button>
+        <Button as-child size="sm" :variant="route.path === '/leaderboard' ? 'default' : 'outline'">
+          <RouterLink
+            to="/leaderboard"
+            :aria-current="route.path === '/leaderboard' ? 'page' : undefined"
+          >
+            جدول امتیازات
           <RouterLink to="/events" :aria-current="route.path === '/events' ? 'page' : undefined">
             <Gamepad2Icon class="size-3.5" />
             همه رویدادها
+          </RouterLink>
+        </Button>
+        <Button as-child size="sm" :variant="route.path === '/inbox' ? 'default' : 'outline'">
+          <RouterLink to="/inbox" :aria-current="route.path === '/inbox' ? 'page' : undefined">
+            پیام‌ها
+          </RouterLink>
+        </Button>
+        <Button
+          v-if="isAnnouncer"
+          as-child
+          size="sm"
+          :variant="route.path === '/messages' ? 'default' : 'outline'"
+        >
+          <RouterLink
+            to="/messages"
+            :aria-current="route.path === '/messages' ? 'page' : undefined"
+          >
+            نوشتن پیام
+          </RouterLink>
+        </Button>
+        <Button
+          v-if="me.is_designer"
+          as-child
+          size="sm"
+          :variant="route.path === '/design' ? 'default' : 'outline'"
+        >
+          <RouterLink to="/design" :aria-current="route.path === '/design' ? 'page' : undefined">
+            طراحی
           </RouterLink>
         </Button>
       </nav>
@@ -138,8 +192,8 @@ function isNoneSelected() {
         </Button>
       </form>
 
-      <template v-else-if="isMentor">
-        <div class="relative mb-3 shrink-0">
+      <template v-else-if="showTeamPicker">
+        <div v-if="isMentor" class="relative mb-3 shrink-0">
           <Label for="team-search" class="sr-only">جستجوی تیم</Label>
           <SearchIcon
             class="text-muted-foreground pointer-events-none absolute top-1/2 start-3 size-4 -translate-y-1/2"
@@ -153,24 +207,8 @@ function isNoneSelected() {
             placeholder="جستجو با نام یا کد تیم"
           />
         </div>
-        <ul class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
-          <li>
-            <Button
-              class="h-auto w-full items-start justify-between py-3 whitespace-normal"
-              :variant="isNoneSelected() ? 'default' : 'outline'"
-              @click="actAs(null)"
-            >
-              <span class="flex min-w-0 flex-col items-start gap-0.5 text-start">
-                <span class="font-semibold">بدون تیم</span>
-                <span class="text-xs opacity-80">هیچ تیمی انتخاب نشده</span>
-              </span>
-              <Badge v-if="isNoneSelected()" variant="secondary" class="gap-1">
-                <CheckIcon class="size-3" />
-                انتخاب‌شده
-              </Badge>
-            </Button>
-          </li>
-          <li v-for="team in filteredTeams" :key="team.code">
+        <ul v-if="isMentor" class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+          <li v-for="team in listedTeams" :key="team.code">
             <Button
               class="h-auto w-full items-start justify-between py-3 whitespace-normal"
               :variant="isSelected(team) ? 'default' : 'outline'"
@@ -194,69 +232,65 @@ function isNoneSelected() {
             </Button>
           </li>
         </ul>
+
+        <div v-else-if="isPlayer" class="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+          <div class="rounded-xl border px-4 py-3">
+            <div class="flex items-center gap-2">
+              <CoinsIcon class="text-muted-foreground size-4 shrink-0" />
+              <span class="font-semibold">گیلریوم</span>
+              <span class="ms-auto text-xl leading-none font-bold tabular-nums">
+                {{ formatBalance(actingTeam?.balance) }}
+              </span>
+            </div>
+          </div>
+
+          <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border">
+            <p v-if="ledgerError" class="text-destructive px-3 py-2 text-sm">{{ ledgerError }}</p>
+            <div v-else-if="ledgerLoading" class="flex flex-col gap-2 p-3">
+              <Skeleton class="h-12 w-full" />
+              <Skeleton class="h-12 w-full" />
+            </div>
+            <p
+              v-else-if="balanceEvents.length === 0"
+              class="text-muted-foreground px-3 py-3 text-sm"
+            >
+              هنوز تغییری در امتیاز ثبت نشده است.
+            </p>
+            <ul v-else class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
+              <li
+                v-for="event in balanceEvents"
+                :key="event.id"
+                class="bg-muted/40 rounded-md border px-3 py-2 text-sm"
+              >
+                <div class="flex items-baseline justify-between gap-2">
+                  <span class="font-medium">{{ event.reason_label }}</span>
+                  <span
+                    class="shrink-0 font-bold tabular-nums"
+                    :class="event.delta < 0 ? 'text-destructive' : 'text-green-600'"
+                  >
+                    {{ formatSignedBalance(event.delta) }}
+                  </span>
+                </div>
+                <p v-if="event.detail" class="text-muted-foreground mt-0.5 text-xs">
+                  {{ event.detail }}
+                </p>
+              </li>
+            </ul>
+          </div>
+        </div>
         <p
-          v-if="teams.length === 0"
+          v-if="isMentor && teams.length === 0"
           class="text-muted-foreground mt-3 shrink-0 text-sm"
         >
           تیمی ثبت نشده است.
         </p>
         <p
-          v-else-if="filteredTeams.length === 0"
+          v-else-if="isMentor && listedTeams.length === 0"
           class="text-muted-foreground mt-3 shrink-0 text-sm"
         >
           تیمی پیدا نشد.
         </p>
       </template>
-
-      <Card v-else-if="isPlayer" class="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-        <CardHeader>
-          <CardTitle class="flex items-center gap-2">
-            <span
-              v-if="actingTeam?.color"
-              class="size-3 shrink-0 rounded-full border"
-              :style="{ backgroundColor: actingTeam.color }"
-            />
-            {{ actingTeam?.name ?? me.team.name }}
-          </CardTitle>
-          <div class="mt-3 flex items-center gap-2">
-            <CoinsIcon class="text-muted-foreground size-4 shrink-0" />
-            <span class="text-muted-foreground text-xs">موجودی</span>
-            <span class="ms-auto text-xl leading-none font-bold tabular-nums">
-              {{ formatBalance(actingTeam?.balance) }}
-            </span>
-          </div>
-        </CardHeader>
-        <CardContent class="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
-          <h2 class="text-muted-foreground text-xs font-medium">خانه‌های من</h2>
-          <p v-if="!actingTeam?.holdings.length" class="text-muted-foreground text-sm">
-            هنوز خانه‌ای رزرو نشده است.
-          </p>
-          <ul v-else class="-mx-1 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-1">
-            <li
-              v-for="holding in actingTeam.holdings"
-              :key="holding.id"
-              class="bg-muted/40 flex flex-col gap-1.5 rounded-md border p-2.5"
-            >
-              <div class="flex items-start justify-between gap-2">
-                <span class="text-sm font-medium">{{ holding.node_name }}</span>
-                <Badge variant="outline" class="shrink-0 font-normal">{{ holding.level }}</Badge>
-              </div>
-              <Badge
-                v-if="holding.grade == null"
-                variant="secondary"
-                class="w-fit font-normal"
-              >
-                <HourglassIcon class="size-3" />
-                در انتظار پاسخ یا نمره
-              </Badge>
-              <Badge v-else variant="outline" class="w-fit font-normal">
-                <CircleCheckIcon class="size-3" />
-                نمره {{ holding.grade }}
-              </Badge>
-            </li>
-          </ul>
-        </CardContent>
-      </Card>
     </div>
 
     <footer v-if="me && !loading" class="border-t px-5 py-3">

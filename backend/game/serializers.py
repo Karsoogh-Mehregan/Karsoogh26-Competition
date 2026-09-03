@@ -2,7 +2,19 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from core.openapi import extend_schema_field
-from game.models import Occupancy, Question, Submission
+from game.design import ARCHETYPES
+from game.models import (
+    EntryAttempt,
+    GameSettings,
+    Level,
+    LevelConfig,
+    MapDesign,
+    Neighborhood,
+    Node,
+    Occupancy,
+    Question,
+    Submission,
+)
 from game.services import MENTOR_RELEASE_REASONS
 
 
@@ -176,6 +188,83 @@ class OccupancyQuestionResponseSerializer(serializers.Serializer):
     question = QuestionForTeamSerializer()
 
 
+def remaining_seconds_for(expires_at) -> int:
+    if expires_at is None:
+        return 0
+    delta = expires_at - timezone.now()
+    return max(0, int(delta.total_seconds()))
+
+
+def attempt_status_for(occupancy: Occupancy) -> str:
+    if occupancy.grade is not None:
+        return "graded"
+    if occupancy.question_id is None:
+        return "no_question"
+    if hasattr(occupancy, "submission"):
+        return "answered"
+    if occupancy.is_expired:
+        return "expired"
+    return "open"
+
+
+class AttemptSubmissionSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    submitted_at = serializers.DateTimeField()
+
+
+class ActiveAttemptSerializer(serializers.ModelSerializer):
+    node_code = serializers.CharField(source="node.code", read_only=True)
+    node_name = serializers.CharField(source="node.name", read_only=True)
+    level = serializers.CharField(source="node.level_id", read_only=True)
+    is_expired = serializers.BooleanField(read_only=True)
+    remaining_seconds = serializers.SerializerMethodField()
+    question = serializers.SerializerMethodField()
+    submission = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Occupancy
+        fields = (
+            "id",
+            "node_code",
+            "node_name",
+            "level",
+            "slot",
+            "floor",
+            "is_spawn",
+            "grade",
+            "expires_at",
+            "remaining_seconds",
+            "is_expired",
+            "question",
+            "submission",
+            "status",
+        )
+        read_only_fields = fields
+
+    def get_remaining_seconds(self, obj: Occupancy) -> int:
+        return remaining_seconds_for(obj.expires_at)
+
+    @extend_schema_field(QuestionForTeamSerializer(allow_null=True))
+    def get_question(self, obj: Occupancy):
+        if obj.question_id is None:
+            return None
+        serializer = QuestionForTeamSerializer(
+            obj.question,
+            context={**self.context, "expires_at": obj.expires_at},
+        )
+        return serializer.data
+
+    @extend_schema_field(AttemptSubmissionSerializer(allow_null=True))
+    def get_submission(self, obj: Occupancy):
+        if not hasattr(obj, "submission"):
+            return None
+        return AttemptSubmissionSerializer(obj.submission).data
+
+    def get_status(self, obj: Occupancy) -> str:
+        return attempt_status_for(obj)
+
+
 def occupancy_for_user(pk: int, user) -> Occupancy:
     try:
         return Occupancy.objects.select_related("team", "question", "node__level").get(pk=pk)
@@ -237,3 +326,179 @@ class ReleaseSerializer(serializers.Serializer):
     reason = serializers.ChoiceField(
         choices=[(reason.value, reason.label) for reason in MENTOR_RELEASE_REASONS]
     )
+
+
+class GameStateSerializer(serializers.Serializer):
+    """What every logged-in client needs to draw the clock and the stage bar.
+
+    `server_time` is the point of the whole thing: contest clients disagree
+    about the wall clock, so the SPA derives one offset from this and shows the
+    same countdown to everyone.
+    """
+
+    status = serializers.CharField(read_only=True)
+    status_display = serializers.CharField(read_only=True)
+    is_running = serializers.BooleanField(read_only=True)
+    server_time = serializers.DateTimeField(read_only=True)
+    started_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    # The raw ledger, so the client can tick locally and freeze on its own when
+    # the game is not running instead of waiting for the next poll.
+    accumulated_seconds = serializers.IntegerField(read_only=True)
+    running_since = serializers.DateTimeField(read_only=True, allow_null=True)
+    duration_seconds = serializers.IntegerField(read_only=True)
+    elapsed_seconds = serializers.IntegerField(read_only=True, allow_null=True)
+    remaining_seconds = serializers.IntegerField(read_only=True, allow_null=True)
+    leaderboard_public = serializers.BooleanField(read_only=True)
+
+
+class GameSettingsSerializer(serializers.ModelSerializer):
+    """The mentor-editable knobs. `started_at` is stamped by the model, not set."""
+
+    class Meta:
+        model = GameSettings
+        fields = (
+            "status",
+            "leaderboard_public",
+            "duration_minutes",
+            "initial_balance",
+        )
+
+
+class GameRestartSerializer(serializers.Serializer):
+    """Confirmation is required in the body, not just in the UI.
+
+    A restart deletes every move of the contest, so it must not be reachable by
+    a stray POST to a URL somebody had open.
+    """
+
+    confirm = serializers.BooleanField()
+
+    def validate_confirm(self, value):
+        if not value:
+            raise serializers.ValidationError("برای بازنشانی بازی باید تأیید کنید.")
+        return value
+
+
+class GameRestartResultSerializer(serializers.Serializer):
+    occupancies = serializers.IntegerField(read_only=True)
+    submissions = serializers.IntegerField(read_only=True)
+    entry_attempts = serializers.IntegerField(read_only=True)
+    teams = serializers.IntegerField(read_only=True)
+
+
+class EntryAttemptSerializer(serializers.ModelSerializer):
+    """One row of a team's entry sheet.
+
+    `answer` is the team's own submission, echoed back; the correct answer
+    lives on EntryQuestion and is never listed here.
+    """
+
+    code = serializers.CharField(source="question.code", read_only=True)
+    title = serializers.CharField(source="question.title", read_only=True)
+    body = serializers.CharField(source="question.body", read_only=True)
+
+    class Meta:
+        model = EntryAttempt
+        fields = ("position", "code", "title", "body", "answer", "is_correct", "answered_at")
+        read_only_fields = fields
+
+
+class EntrySheetSerializer(serializers.Serializer):
+    required_correct = serializers.IntegerField(read_only=True)
+    correct_count = serializers.IntegerField(read_only=True)
+    answered_count = serializers.IntegerField(read_only=True)
+    total_count = serializers.IntegerField(read_only=True)
+    qualified = serializers.BooleanField(read_only=True)
+    grace_over = serializers.BooleanField(read_only=True)
+    grace_ends_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    can_claim_start = serializers.BooleanField(read_only=True)
+    draft_order = serializers.IntegerField(read_only=True, allow_null=True)
+    retries_used = serializers.IntegerField(read_only=True)
+    retries_left = serializers.IntegerField(read_only=True)
+    questions = EntryAttemptSerializer(many=True, read_only=True, source="attempts")
+
+
+class EntryAnswerSerializer(serializers.Serializer):
+    answer = serializers.IntegerField()
+
+
+class EntryAnswerResultSerializer(EntrySheetSerializer):
+    is_correct = serializers.BooleanField(read_only=True)
+
+
+# ---- map design ---------------------------------------------------------------
+
+
+class NeighborhoodSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Neighborhood
+        fields = ("index", "name", "theme", "color")
+        read_only_fields = ("index",)
+
+
+class NeighborhoodPatchSerializer(NeighborhoodSerializer):
+    """One row of a bulk PATCH: `index` picks the row, the rest are optional."""
+
+    index = serializers.IntegerField(min_value=0)
+
+    class Meta(NeighborhoodSerializer.Meta):
+        read_only_fields = ()
+        extra_kwargs = {
+            "name": {"required": False},
+            "theme": {"required": False},
+            "color": {"required": False},
+        }
+
+
+class NodeDesignSerializer(serializers.ModelSerializer):
+    """What the renderer needs per node, and what a Designer may change on one.
+
+    `level` is the backend's word, not the map JSON's: a Designer may move a node
+    between tiers, and the SVG map must follow the server, not its baked-in type.
+    """
+
+    level = serializers.ChoiceField(choices=Level.choices, source="level_id")
+    capacity = serializers.IntegerField(source="level.capacity", read_only=True)
+    archetype = serializers.ChoiceField(choices=ARCHETYPES, allow_blank=True, required=False)
+    minesweeper = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Node
+        fields = ("code", "level", "capacity", "archetype", "minesweeper")
+        read_only_fields = ("code",)
+
+    def get_minesweeper(self, node) -> bool:
+        """Whether this node has a playable minesweeper board.
+
+        Read through the reverse accessor rather than importing `minesweeper`:
+        that app depends on `game`, and the map may not know what a mine is.
+        """
+        settings = getattr(node, "minesweeper_settings", None)
+        return bool(settings and settings.enabled)
+
+
+class MapDesignSerializer(serializers.ModelSerializer):
+    neighborhoods = NeighborhoodSerializer(many=True, read_only=True)
+    nodes = NodeDesignSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = MapDesign
+        fields = ("road_style", "tint_strength", "halo_strength", "neighborhoods", "nodes")
+
+
+class MapDesignPatchSerializer(serializers.ModelSerializer):
+    """The writable half. Neighbourhoods are patched in bulk, addressed by index."""
+
+    neighborhoods = NeighborhoodPatchSerializer(many=True, required=False)
+    tint_strength = serializers.IntegerField(min_value=0, max_value=100, required=False)
+    halo_strength = serializers.IntegerField(min_value=0, max_value=100, required=False)
+
+    class Meta:
+        model = MapDesign
+        fields = ("road_style", "tint_strength", "halo_strength", "neighborhoods")
+
+
+class LevelConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LevelConfig
+        fields = ("level", "entry_cost", "capacity")

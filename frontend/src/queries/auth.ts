@@ -31,6 +31,13 @@ export function useLoginMutation() {
     mutationFn: (credentials: LoginCredentials) => login(credentials),
     onSuccess: (me: Me) => {
       queryClient.setQueryData(queryKeys.me(), me)
+      queryClient.removeQueries({ queryKey: queryKeys.minesweeperRoot() })
+      return Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.teams() }),
+        // The sheet is per-team and cached forever, so it must not outlive
+        // the session that drew it.
+        queryClient.invalidateQueries({ queryKey: queryKeys.entrySheet() }),
+      ])
       return Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.teams() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.territoryGames() }),
@@ -55,6 +62,11 @@ export function useLogoutMutation() {
       queryClient.setQueryData(queryKeys.me(), null)
       queryClient.removeQueries({ queryKey: queryKeys.teams() })
       queryClient.removeQueries({ queryKey: queryKeys.submissions() })
+      queryClient.removeQueries({ queryKey: queryKeys.entrySheet() })
+      queryClient.removeQueries({ queryKey: queryKeys.attemptsRoot() })
+      queryClient.removeQueries({ queryKey: queryKeys.levels() })
+      queryClient.removeQueries({ queryKey: queryKeys.balanceEventsRoot() })
+      queryClient.removeQueries({ queryKey: queryKeys.minesweeperRoot() })
       queryClient.removeQueries({ queryKey: queryKeys.territoryGames() })
       queryClient.removeQueries({ queryKey: queryKeys.charityBags() })
       queryClient.removeQueries({ queryKey: queryKeys.centipedeGames() })

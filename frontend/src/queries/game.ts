@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
-import { assignQuestion, gradeSubmission, listSubmissions } from '@/services/game'
+import { assignQuestion, gradeSubmission, listLevels, listSubmissions } from '@/services/game'
 import type { AssignQuestionResult, GradeResult } from '@/types/api'
 import { queryKeys } from './keys'
 
@@ -16,7 +16,9 @@ export function useAssignQuestionMutation() {
     onSuccess: (_result: AssignQuestionResult) => {
       return Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.teams() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.attemptsRoot() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.submissions() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.balanceEventsRoot() }),
       ])
     },
   })
@@ -44,7 +46,18 @@ export function useGradeSubmissionMutation() {
       return Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.submissions() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.teams() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.attemptsRoot() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.balanceEventsRoot() }),
       ])
     },
+  })
+}
+
+export function useLevelsQuery(enabled: () => boolean) {
+  return useQuery({
+    queryKey: queryKeys.levels(),
+    queryFn: ({ signal }) => listLevels(signal),
+    enabled,
+    staleTime: Infinity,
   })
 }

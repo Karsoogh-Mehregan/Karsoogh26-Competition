@@ -1,0 +1,51 @@
+# Preserve the scheme the outer TLS terminator saw; $scheme alone is always http
+# here and would make Django's SSL redirect loop.
+map $http_x_forwarded_proto $forwarded_proto {
+    default $scheme;
+    ~.      $http_x_forwarded_proto;
+}
+
+server {
+    listen 3000;
+    server_name _;
+    root /usr/share/nginx/html;
+
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+    gzip_min_length 1024;
+
+    location = /healthz {
+        access_log off;
+        return 200 "ok\n";
+    }
+
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location ~* \.(woff2|woff|ttf)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location /api/ {
+        # Resolve per request, so the container still starts when the backend is not up yet.
+        resolver ${NGINX_LOCAL_RESOLVERS} valid=10s;
+        set $backend ${BACKEND_URL};
+        proxy_pass $backend$request_uri;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+        # SSE: hold the stream open and forward each event as it is written.
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 24h;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
