@@ -10,16 +10,24 @@ from core.openapi import OpenApiExample, extend_schema
 from game.api_exceptions import Conflict
 from game.models import Node
 from game.permissions import IsOwnTeam, IsTeamMember
-from game.services import claim_spawn, release_expired_attempts, require_entry_clearance
+from game.services import (
+    claim_spawn,
+    release_expired_attempts,
+    require_entry_clearance,
+    use_fake_document,
+    use_gel,
+    use_gilari,
+)
 
 from . import board_cache
-from .models import BalanceEvent, Team, TeamItem
+from .models import BalanceEvent, ItemType, Team, TeamItem
 from .serializers import (
     BalanceEventSerializer,
     ClaimStartSerializer,
     LeaderboardRowSerializer,
     TeamItemSerializer,
     TeamSerializer,
+    UseItemSerializer,
 )
 from .start_colors import color_for_start
 
@@ -121,6 +129,56 @@ class TeamItemListView(APIView):
     def get(self, request):
         items = TeamItem.objects.filter(team=request.user.team)
         return Response(TeamItemSerializer(items, many=True).data)
+
+
+@extend_schema(
+    tags=["teams"],
+    summary="Use one inventory item",
+    description="The caller team's item. The team is taken from the session.",
+    request=UseItemSerializer,
+    examples=[
+        OpenApiExample(
+            "fake_document",
+            value={"item_type": "fake_document", "node_code": "h1"},
+            request_only=True,
+        ),
+        OpenApiExample(
+            "gilari",
+            value={"item_type": "gilari_100"},
+            request_only=True,
+        ),
+        OpenApiExample(
+            "used",
+            value={"detail": "Item used successfully."},
+            response_only=True,
+        ),
+    ],
+)
+class UseTeamItemView(APIView):
+    permission_classes = [IsAuthenticated, IsTeamMember]
+    serializer_class = UseItemSerializer
+
+    def post(self, request):
+        payload = UseItemSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        team = request.user.team
+        item_type = payload.validated_data["item_type"]
+        node_code = payload.validated_data["node_code"]
+        node = None
+        if node_code:
+            node = Node.objects.select_related("level").filter(code=node_code).first()
+            if node is None:
+                raise NotFound(f"خانهٔ «{node_code}» پیدا نشد.")
+
+        if item_type == ItemType.FAKE_DOCUMENT:
+            use_fake_document(team, node)
+        elif item_type == ItemType.GEL:
+            use_gel(team, node)
+        else:
+            use_gilari(team)
+
+        return Response({"detail": "Item used successfully."})
 
 
 class TeamBalanceEventView(APIView):

@@ -3,7 +3,7 @@ from rest_framework import serializers
 from accounts.permissions import MENTOR_PERM
 from game.models import Occupancy
 
-from .models import BalanceEvent, BalanceReason, Team, TeamItem
+from .models import BalanceEvent, BalanceReason, ItemType, Team, TeamItem
 from .start_colors import color_for_start
 
 
@@ -80,6 +80,27 @@ class TeamItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = TeamItem
         fields = ("item_type", "quantity", "display_name")
+
+
+_NODE_ITEMS = frozenset({ItemType.FAKE_DOCUMENT, ItemType.GEL})
+
+
+class UseItemSerializer(serializers.Serializer):
+    item_type = serializers.ChoiceField(choices=ItemType.choices)
+    node_code = serializers.SlugField(required=False, allow_blank=True, allow_null=True)
+
+    def validate(self, attrs):
+        item_type = attrs["item_type"]
+        node_code = attrs.get("node_code") or None
+        if item_type in _NODE_ITEMS:
+            if not node_code:
+                raise serializers.ValidationError(
+                    {"node_code": "برای این آیتم باید خانه مشخص شود."}
+                )
+            attrs["node_code"] = node_code
+        else:
+            attrs["node_code"] = None
+        return attrs
 
 
 class ClaimStartSerializer(serializers.Serializer):
