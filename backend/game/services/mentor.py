@@ -6,6 +6,7 @@ from rest_framework import status
 from rest_framework.exceptions import APIException
 
 from game.models import (
+    AcquisitionSource,
     FloorReward,
     GameSettings,
     GradeMultiplier,
@@ -32,6 +33,23 @@ def floor_points(rewards: dict[int, int], floor: int | None, multiplier: Decimal
     if floor is None or multiplier is None:
         return 0
     return _round_half_up(rewards[floor] * multiplier)
+
+
+def _floors_for_ranked(
+    level, ranked: list, reserved_floors: set[int], reward_floors: set[int]
+) -> list[int]:
+    """Best-first floor numbers that do not collide with item-held floors.
+
+    With no item seats this is the existing  N, N-1, …, 1  packing. Otherwise
+    graded teams take the lowest free reward floors, still best-on-top.
+    """
+    if not reserved_floors:
+        return [len(ranked) - index for index in range(len(ranked))]
+
+    candidates = sorted((reward_floors or set(range(1, level.capacity + 1))) - reserved_floors)
+    if len(ranked) > len(candidates):
+        raise Conflict("ظرفیت این خانه پر شده است.")
+    return list(reversed(candidates[: len(ranked)]))
 
 
 @transaction.atomic
@@ -67,7 +85,11 @@ def grade_attempt(holding: Occupancy, grade: int) -> Occupancy:
     # Registered before the floor re-rank so the early return below still announces.
     publish_on_commit(BOARD_GRADED, {"node": node.code})
 
-    ranked = [occupancy for occupancy in locked.values() if occupancy.grade]
+    ranked = [
+        occupancy
+        for occupancy in locked.values()
+        if occupancy.grade and occupancy.source != AcquisitionSource.ITEM
+    ]
     if not ranked:
         return holding
 
@@ -78,14 +100,20 @@ def grade_attempt(holding: Occupancy, grade: int) -> Occupancy:
     rewards = {
         reward.floor: reward.points for reward in FloorReward.objects.filter(level_id=level.pk)
     }
+    reserved_floors = {
+        occupancy.floor
+        for occupancy in locked.values()
+        if occupancy.source == AcquisitionSource.ITEM and occupancy.floor is not None
+    }
     before = {
         occupancy.pk: floor_points(rewards, occupancy.floor, occupancy.grade_multiplier)
         for occupancy in ranked
     }
 
     Occupancy.objects.filter(pk__in=[occupancy.pk for occupancy in ranked]).update(floor=None)
-    for index, occupancy in enumerate(ranked):
-        occupancy.floor = len(ranked) - index
+    assigned = _floors_for_ranked(level, ranked, reserved_floors, set(rewards))
+    for occupancy, floor in zip(ranked, assigned, strict=True):
+        occupancy.floor = floor
     Occupancy.objects.bulk_update(ranked, ["floor"])
 
     for occupancy in ranked:
