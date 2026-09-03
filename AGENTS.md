@@ -231,8 +231,17 @@ waited out the grace).
 
 **SQLite gives false passes.** `select_for_update()` is ignored, not rejected, so
 `conftest.py` force-skips `postgres_only` tests off Postgres. `uv run pytest` on SQLite
-gives 135 passed / 2 skipped; on Postgres, 137 passed. Run row-lock work against real
-Postgres. CI does.
+gives 501 passed / 6 skipped; on Postgres, 507 passed. Run row-lock work against real
+Postgres. CI does — and CI is the only place the skipped six ever run, so a break in them
+surfaces on the PR, not on your machine.
+
+**A `transaction=True` test starts on a flushed database.** `TransactionTestCase`
+truncates every table at teardown, migration-seeded rows included, so the next
+transactional test finds no `LevelConfig` and no `GradeMultiplier`. `conftest.py`'s
+`_reseed_after_flush` re-runs the economy seed migrations for those tests; a transactional
+test that needs the group or map-design seeds adds its migration to `_SEED_MIGRATIONS`
+rather than restating the rows. Never rely on being the first transactional test in the
+session — that green flips the moment a test file lands ahead of yours alphabetically.
 
 **Money is Decimal-from-string, rounded half-up** (`_round_half_up`, since Python defaults
 to banker's rounding). `FloorReward.networth`/`duel_cost`/`buyout_cost` are derived
