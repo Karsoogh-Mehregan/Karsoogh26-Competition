@@ -7,8 +7,9 @@
  * only unusual part and it lives in `AudiencePicker`, because "who gets this"
  * is a set of three overlapping selections rather than one dropdown.
  */
-import { Loader2Icon, PencilIcon, SendIcon, TrashIcon } from '@lucide/vue'
+import { ChevronLeftIcon, Loader2Icon, PencilIcon, SendIcon, TrashIcon } from '@lucide/vue'
 import { computed, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import { toast } from 'vue-sonner'
 
 import AudiencePicker from '@/components/AudiencePicker.vue'
@@ -314,13 +315,20 @@ async function discard(message: Message) {
           <span class="message-row-title">{{ message.title }}</span>
           <span class="message-row-excerpt">{{ message.excerpt || '—' }}</span>
         </div>
-        <!-- The one number worth showing after the fact: did it land. -->
-        <div class="message-row-stat" :title="'خوانده‌شده از کل گیرندگان'">
+        <!-- The count is the summary; the page behind it says *who*. -->
+        <RouterLink
+          :to="{ name: 'sent-message', params: { id: message.id } }"
+          class="message-row-stat"
+          :title="'دیدن اینکه چه کسی خوانده و چه کسی نخوانده'"
+        >
           <span class="message-row-stat-value">
             {{ message.read_count }}<span class="opacity-50">/{{ message.recipient_count }}</span>
           </span>
-          <span class="message-row-stat-label">خوانده‌شده</span>
-        </div>
+          <span class="message-row-stat-label">
+            خوانده‌شده
+            <ChevronLeftIcon class="size-3" aria-hidden="true" />
+          </span>
+        </RouterLink>
       </article>
     </div>
   </div>
@@ -470,6 +478,7 @@ async function discard(message: Message) {
 .message-row-title {
   font-size: 0.85rem;
   font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .message-row-excerpt {
@@ -492,13 +501,21 @@ async function discard(message: Message) {
   flex-direction: column;
   align-items: center;
   flex-shrink: 0;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.45rem;
   line-height: 1.2;
+}
+.message-row-stat:hover {
+  background: var(--muted);
 }
 .message-row-stat-value {
   font-size: 0.9rem;
   font-weight: 700;
 }
 .message-row-stat-label {
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
   color: var(--muted-foreground);
   font-size: 0.625rem;
 }

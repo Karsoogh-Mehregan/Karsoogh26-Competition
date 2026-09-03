@@ -1,7 +1,7 @@
 """The inbox every user reads, and the composer only announcers may open."""
 
 from django.contrib.auth import get_user_model
-from django.db.models import Count, Q
+from django.db.models import Count, F, Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -13,14 +13,16 @@ from game.api_exceptions import Conflict
 from teams.models import Team
 
 from . import services
-from .models import AudienceScope, Message, MessageStatus
+from .models import AudienceScope, Message, MessageStatus, Notification
 from .permissions import CanSendAnnouncement
 from .serializers import (
     AudienceOptionsSerializer,
     AudiencePreviewSerializer,
     AudienceSelectionSerializer,
+    InboxItemSerializer,
     InboxSerializer,
     MarkReadSerializer,
+    MessageRecipientsSerializer,
     MessageSerializer,
     MessageWriteSerializer,
     ReadResultSerializer,
@@ -56,10 +58,10 @@ _MESSAGE = {
     "title": "شروع مرحلهٔ دوم",
     "body": "تیم‌ها تا ده دقیقهٔ دیگر سر میزها حاضر باشند.",
     "excerpt": "تیم‌ها تا ده دقیقهٔ دیگر سر میزها حاضر باشند.",
-    "audience": "teams",
+    "scopes": ["teams"],
+    "teams": [],
+    "users": [],
     "audience_label": "همهٔ تیم‌ها",
-    "audience_team": None,
-    "audience_user": None,
     "sender": "داور اصلی",
     "event_key": "",
     "created_at": "2026-09-03T09:58:00+03:30",
@@ -117,6 +119,32 @@ class InboxView(APIView):
                 }
             ).data
         )
+
+
+@extend_schema(
+    tags=["notifications"],
+    summary="Read one notification in full",
+    description=(
+        "One card from the caller's own inbox, for its detail page. Deliberately does "
+        "not mark it read: a GET should not change state, so the page posts to "
+        "`notifications/read/` once it has it."
+    ),
+    parameters=[OpenApiParameter("pk", int, OpenApiParameter.PATH)],
+    responses=InboxItemSerializer,
+    examples=[OpenApiExample("item", value=_INBOX_ITEM, response_only=True)],
+)
+class NotificationDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = InboxItemSerializer
+
+    def get(self, request, pk: int):
+        notification = get_object_or_404(
+            Notification.objects.for_user(request.user).select_related(
+                "message", "message__sender"
+            ),
+            pk=pk,
+        )
+        return Response(InboxItemSerializer(notification).data)
 
 
 @extend_schema(
@@ -361,6 +389,67 @@ class MessageDetailView(MessageViewBase):
 
 @extend_schema(
     tags=["notifications"],
+    summary="Who received a message, and who has opened it",
+    description=(
+        "Read receipts for one sent message, unread first — that is the question a "
+        "sender actually has. A team account is labelled by its team name rather than "
+        "its login, because that is who the sender is chasing."
+    ),
+    parameters=[OpenApiParameter("pk", int, OpenApiParameter.PATH)],
+    responses=MessageRecipientsSerializer,
+    examples=[
+        OpenApiExample(
+            "receipts",
+            value={
+                "delivered": 2,
+                "read": 1,
+                "unread": 1,
+                "recipients": [
+                    {
+                        "id": 9,
+                        "user_id": 5,
+                        "username": "alborz",
+                        "label": "البرز",
+                        "team_code": "alborz",
+                        "team_name": "البرز",
+                        "is_read": False,
+                        "read_at": None,
+                    }
+                ],
+            },
+            response_only=True,
+        ),
+    ],
+)
+class MessageRecipientsView(MessageViewBase):
+    serializer_class = MessageRecipientsSerializer
+
+    def get(self, request, pk: int):
+        message = get_object_or_404(self.queryset(request), pk=pk)
+        rows = list(
+            message.notifications.select_related("user", "user__team").order_by(
+                # nulls_first is explicit on purpose: Postgres and SQLite
+                # disagree about where NULLs land by default, and "unread first"
+                # is the whole point of the ordering.
+                F("read_at").asc(nulls_first=True),
+                "user__username",
+            )
+        )
+        read = sum(1 for row in rows if row.read_at is not None)
+        return Response(
+            MessageRecipientsSerializer(
+                {
+                    "delivered": len(rows),
+                    "read": read,
+                    "unread": len(rows) - read,
+                    "recipients": rows,
+                }
+            ).data
+        )
+
+
+@extend_schema(
+    tags=["notifications"],
     summary="Send a draft",
     description=(
         "Fans the message out to its audience and returns how many people it reached. "
@@ -401,5 +490,7 @@ __all__ = [
     "MarkReadView",
     "MessageDetailView",
     "MessageListView",
+    "MessageRecipientsView",
     "MessageSendView",
+    "NotificationDetailView",
 ]

@@ -6,6 +6,8 @@ import {
   deleteMessage,
   getAudienceOptions,
   getInbox,
+  getMessageRecipients,
+  getNotification,
   listMessages,
   markAllRead,
   markRead,
@@ -38,6 +40,35 @@ export function useInboxQuery(enabled: () => boolean) {
   })
 }
 
+/**
+ * One message for its own page.
+ *
+ * Seeded from the inbox list when that is already cached, so opening a card is
+ * instant and the request only fills in what a deep link cannot know.
+ */
+export function useNotificationQuery(id: () => number, enabled: () => boolean) {
+  const queryClient = useQueryClient()
+  return useQuery({
+    queryKey: computed(() => queryKeys.notification(id())),
+    queryFn: ({ signal }) => getNotification(id(), signal),
+    enabled,
+    initialData: () =>
+      queryClient
+        .getQueryData<Inbox>(queryKeys.inbox())
+        ?.results.find((item) => item.id === id()),
+  })
+}
+
+export function useMessageRecipientsQuery(id: () => number, enabled: () => boolean) {
+  return useQuery({
+    queryKey: computed(() => queryKeys.messageRecipients(id())),
+    queryFn: ({ signal }) => getMessageRecipients(id(), signal),
+    enabled,
+    // Read receipts age quickly while a sender is watching them.
+    refetchInterval: 15_000,
+  })
+}
+
 export function useMarkReadMutation() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -58,7 +89,13 @@ export function useMarkReadMutation() {
       })
     },
     onSettled: (_result?: ReadResult) =>
-      queryClient.invalidateQueries({ queryKey: queryKeys.inbox() }),
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.inbox() }),
+        // The detail page shows its own read state, and the sender's receipts
+        // list is now stale for whoever is watching it.
+        queryClient.invalidateQueries({ queryKey: ['notification'] }),
+        queryClient.invalidateQueries({ queryKey: ['message-recipients'] }),
+      ]),
   })
 }
 

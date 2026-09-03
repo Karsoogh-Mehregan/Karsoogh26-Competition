@@ -3,6 +3,8 @@ import type {
   AudienceOptions,
   AudiencePreview,
   AudienceSelection,
+  InboxItem,
+  MessageRecipients,
   Inbox,
   Message,
   MessageDraft,
@@ -12,6 +14,10 @@ import type {
 
 export function getInbox(signal?: AbortSignal): Promise<Inbox> {
   return get<Inbox>('/notifications/', signal)
+}
+
+export function getNotification(id: number, signal?: AbortSignal): Promise<InboxItem> {
+  return get<InboxItem>(`/notifications/${id}/`, signal)
 }
 
 export function markRead(ids: number[]): Promise<ReadResult> {
@@ -44,6 +50,13 @@ export function updateMessage(id: number, draft: Partial<MessageDraft>): Promise
 
 export function deleteMessage(id: number): Promise<void> {
   return del<void>(`/messages/${id}/`)
+}
+
+export function getMessageRecipients(
+  id: number,
+  signal?: AbortSignal,
+): Promise<MessageRecipients> {
+  return get<MessageRecipients>(`/messages/${id}/recipients/`, signal)
 }
 
 export function previewAudience(selection: AudienceSelection): Promise<AudiencePreview> {

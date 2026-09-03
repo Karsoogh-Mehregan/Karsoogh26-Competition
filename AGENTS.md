@@ -115,9 +115,17 @@ deliberately not through `has_perm`, which is True for every superuser; same rea
 rather than raising. Sending is gated on `notifications.send_announcement`
 (`CanSendAnnouncement`), backed by its own **Notifier** group — running the clock and
 speaking to the hall are different jobs, so `migrations/0003` moved the grant off GameGods
-(carrying its members across) and onto Notifier; someone who does both goes in both groups.
+onto Notifier and deliberately did *not* carry the members across — the group starts empty,
+and someone who does both jobs goes in both groups.
 `/api/auth/me/` reports it as `is_announcer`, and the SPA hides the composer on that flag
-rather than on `is_game_god`. The automatic half lives in
+rather than on `is_game_god`. A message has a page of its own on both sides — `/inbox/:id`
+reads one (`GET /api/notifications/<pk>/`, which deliberately does *not* mark it read, so
+the page posts to `notifications/read/` instead of a GET mutating state) and `/messages/:id`
+shows read receipts (`GET /api/messages/<pk>/recipients/`, unread first via an explicit
+`nulls_first` — Postgres and SQLite disagree on where NULLs land by default). Inline
+expansion was removed: it broke on long bodies, and any card, title or body that can hold
+pasted text sets `overflow-wrap: anywhere`, because a line clamp alone still lets one
+unbroken token push the layout sideways. The automatic half lives in
 `notifications/alerts.py`, one function per moment, every one best-effort: an alert that
 raises is logged and swallowed, because a notification must never roll back the move that
 caused it. `game/` calls those with a **local import inside the function** — `notifications`

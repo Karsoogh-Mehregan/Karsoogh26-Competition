@@ -242,3 +242,47 @@ class AudiencePreviewSerializer(serializers.Serializer):
 
     count = serializers.IntegerField(read_only=True)
     label = serializers.CharField(read_only=True)
+
+
+class RecipientSerializer(serializers.ModelSerializer):
+    """One delivery, from the sender's side: who, and have they opened it."""
+
+    user_id = serializers.IntegerField(source="user.pk", read_only=True)
+    username = serializers.CharField(source="user.username", read_only=True)
+    label = serializers.SerializerMethodField()
+    team_code = serializers.CharField(source="user.team.code", read_only=True, default=None)
+    team_name = serializers.CharField(source="user.team.name", read_only=True, default=None)
+    is_read = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = Notification
+        fields = (
+            "id",
+            "user_id",
+            "username",
+            "label",
+            "team_code",
+            "team_name",
+            "is_read",
+            "read_at",
+        )
+
+    def get_label(self, obj: Notification) -> str:
+        """A team account is known by its team, not its login."""
+        user = obj.user
+        if user.team_id is not None:
+            return user.team.name
+        return user.get_full_name() or user.username
+
+
+class MessageRecipientsSerializer(serializers.Serializer):
+    """The read receipts for one sent message.
+
+    Unread first, because "who still has not seen this" is the question the
+    sender actually has — usually minutes before they chase someone about it.
+    """
+
+    delivered = serializers.IntegerField(read_only=True)
+    read = serializers.IntegerField(read_only=True)
+    unread = serializers.IntegerField(read_only=True)
+    recipients = RecipientSerializer(many=True, read_only=True)

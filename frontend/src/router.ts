@@ -4,7 +4,9 @@ import { meQueryOptions } from '@/queries/auth'
 import GradingPage from '@/pages/GradingPage.vue'
 import InboxPage from '@/pages/InboxPage.vue'
 import LeaderboardPage from '@/pages/LeaderboardPage.vue'
+import MessagePage from '@/pages/MessagePage.vue'
 import MessagesPage from '@/pages/MessagesPage.vue'
+import SentMessagePage from '@/pages/SentMessagePage.vue'
 import MapPage from '@/pages/MapPage.vue'
 import SolvePage from '@/pages/SolvePage.vue'
 
@@ -16,7 +18,14 @@ export const router = createRouter({
     { path: '/solve', name: 'solve', component: SolvePage, meta: { requiresPlayer: true } },
     { path: '/leaderboard', name: 'leaderboard', component: LeaderboardPage, meta: { requiresAuth: true } },
     { path: '/inbox', name: 'inbox', component: InboxPage, meta: { requiresAuth: true } },
+    { path: '/inbox/:id', name: 'message', component: MessagePage, meta: { requiresAuth: true } },
     { path: '/messages', name: 'messages', component: MessagesPage, meta: { requiresAnnouncer: true } },
+    {
+      path: '/messages/:id',
+      name: 'sent-message',
+      component: SentMessagePage,
+      meta: { requiresAnnouncer: true },
+    },
   ],
 })
 

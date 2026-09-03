@@ -268,6 +268,25 @@ export interface AudiencePreview {
   label: string
 }
 
+/** One delivery, from the sender's side. */
+export interface Recipient {
+  id: number
+  user_id: number
+  username: string
+  label: string
+  team_code: string | null
+  team_name: string | null
+  is_read: boolean
+  read_at: string | null
+}
+
+export interface MessageRecipients {
+  delivered: number
+  read: number
+  unread: number
+  recipients: Recipient[]
+}
+
 export interface SendResult {
   message: Message
   delivered: number

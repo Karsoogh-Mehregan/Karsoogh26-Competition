@@ -772,3 +772,99 @@ def test_audience_label_names_one_team_but_counts_many(announcer, alpha, beta):
 
     assert services.describe_audience(one) == "تیم Alpha"
     assert services.describe_audience(many) == "2 تیم"
+
+
+# ---- the detail page and read receipts -------------------------------------
+
+
+def notification_url(pk: int) -> str:
+    return f"/api/notifications/{pk}/"
+
+
+def recipients_url(pk: int) -> str:
+    return f"/api/messages/{pk}/recipients/"
+
+
+def test_one_notification_in_full(alpha_user, announcer):
+    services.send_message(
+        draft(scopes=[AudienceScope.ALL], sender=announcer, body="متن بلند " * 40)
+    )
+    notification = Notification.objects.get(user=alpha_user)
+
+    body = session(alpha_user).get(notification_url(notification.pk)).json()
+
+    assert body["title"] == "خبر"
+    assert body["body"] == ("متن بلند " * 40)
+    assert body["sender"] == "boss"
+
+
+def test_reading_the_detail_does_not_mark_it_read(alpha_user):
+    """A GET reports state; it must not change it. The page posts to read/."""
+    services.send_message(draft(scopes=[AudienceScope.ALL]))
+    notification = Notification.objects.get(user=alpha_user)
+
+    session(alpha_user).get(notification_url(notification.pk))
+
+    notification.refresh_from_db()
+    assert notification.read_at is None
+
+
+def test_i_cannot_open_someone_elses_notification(alpha_user, beta_user):
+    services.send_message(draft(scopes=[AudienceScope.ALL]))
+    theirs = Notification.objects.get(user=beta_user)
+
+    assert session(alpha_user).get(notification_url(theirs.pk)).status_code == 404
+
+
+def test_receipts_say_who_has_not_read(announcer, alpha, alpha_user, beta_user, mentor_user):
+    message = draft(scopes=[AudienceScope.ALL], sender=announcer)
+    services.send_message(message)
+    Notification.objects.filter(user=alpha_user).update(read_at=timezone.now())
+
+    body = session(announcer).get(recipients_url(message.pk)).json()
+
+    assert (body["delivered"], body["read"], body["unread"]) == (3, 1, 2)
+    unread = [row["username"] for row in body["recipients"] if not row["is_read"]]
+    assert set(unread) == {"beta-user", "mentor"}
+
+
+def test_receipts_put_the_unread_first(announcer, alpha_user, beta_user):
+    """That is the question the sender has, so it is the top of the list."""
+    message = draft(scopes=[AudienceScope.ALL], sender=announcer)
+    services.send_message(message)
+    Notification.objects.filter(user=alpha_user).update(read_at=timezone.now())
+
+    rows = session(announcer).get(recipients_url(message.pk)).json()["recipients"]
+
+    assert [row["is_read"] for row in rows] == [False, True]
+
+
+def test_a_team_recipient_is_labelled_by_its_team(announcer, alpha, alpha_user):
+    """A sender chases "البرز", not "alpha-user"."""
+    message = draft(teams=[alpha], sender=announcer)
+    services.send_message(message)
+
+    row = session(announcer).get(recipients_url(message.pk)).json()["recipients"][0]
+
+    assert row["label"] == "Alpha"
+    assert row["team_code"] == "alpha"
+
+
+def test_receipts_are_announcer_only(announcer, alpha_user, mentor_user):
+    message = draft(scopes=[AudienceScope.ALL], sender=announcer)
+    services.send_message(message)
+
+    assert session(alpha_user).get(recipients_url(message.pk)).status_code == 403
+    assert session(mentor_user).get(recipients_url(message.pk)).status_code == 403
+
+
+def test_receipts_follow_a_read(announcer, alpha_user):
+    message = draft(scopes=[AudienceScope.ALL], sender=announcer)
+    services.send_message(message)
+    notification = Notification.objects.get(user=alpha_user)
+
+    session(alpha_user).post(READ_URL, {"ids": [notification.pk]}, content_type="application/json")
+    body = session(announcer).get(recipients_url(message.pk)).json()
+
+    assert (body["read"], body["unread"]) == (1, 0)
+    assert body["recipients"][0]["read_at"] is not None

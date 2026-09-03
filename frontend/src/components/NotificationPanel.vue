@@ -65,7 +65,8 @@ function goTo(name: string) {
         </div>
       </SheetHeader>
 
-      <NotificationList :items="items" :loading="loading" />
+      <!-- A card navigates to the message page, so the drawer gets out of the way. -->
+      <NotificationList :items="items" :loading="loading" @open="close" />
     </SheetContent>
   </Sheet>
 </template>
