@@ -97,7 +97,9 @@ export function useMapDesign() {
       .join(',')
     // Levels come from the server too, so a node moved to `toll` drops out of
     // the assignment; include them in the memo key.
-    const levelKey = design.value ? String(design.value.nodes.length) : 'fallback'
+    const levelKey = design.value
+      ? design.value.nodes.map((row) => `${row.code}:${row.level}`).join(',')
+      : 'fallback'
     const fullKey = `${levelKey}|${key}`
     if (fullKey !== assignmentKey) {
       assignment = assignArchetypes({
