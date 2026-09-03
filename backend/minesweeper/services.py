@@ -3,8 +3,9 @@
 import copy
 import math
 import random
+import secrets
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from django.db import transaction
 from django.utils import timezone
@@ -14,6 +15,7 @@ from minesweeper.exceptions import (
     CannotFlagRevealed,
     CellAlreadyRevealed,
     CellFlagged,
+    EntryUnauthorized,
     GameFinished,
     InvalidCell,
     InvalidDifficulty,
@@ -42,9 +44,79 @@ _NEIGHBOR_OFFSETS = (
 )
 
 
+ENTRY_SESSION_KEY = "minesweeper_entry"
+ENTRY_TTL = timedelta(seconds=60)
+
+
 def _now():
     """Clock seam so tests can pin elapsed time without sleeping."""
     return timezone.now()
+
+
+def _mark_session_modified(session) -> None:
+    if hasattr(session, "modified"):
+        session.modified = True
+
+
+def _require_enabled_settings(node: Node) -> MinesweeperSettings:
+    try:
+        settings = MinesweeperSettings.objects.get(node=node)
+    except MinesweeperSettings.DoesNotExist:
+        raise SettingsNotConfigured("This node has no Minesweeper configuration.") from None
+    if not settings.enabled:
+        raise SettingsDisabled("Minesweeper is disabled on this node.")
+    return settings
+
+
+def issue_entry(session, *, user_id: int, node: Node) -> str:
+    """Issue a short-lived, one-time map-entry authorization for this session and node.
+
+    Replaces any unused prior intent on the same session. Does not prove the
+    player clicked the SVG; it only proves this authenticated session requested
+    entry for an enabled Minesweeper node. Reachability is not checked here.
+    """
+    _require_enabled_settings(node)
+    token = secrets.token_urlsafe(32)
+    session[ENTRY_SESSION_KEY] = {
+        "token": token,
+        "node_code": node.code,
+        "user_id": user_id,
+        "expires_at": (_now() + ENTRY_TTL).isoformat(),
+    }
+    _mark_session_modified(session)
+    return token
+
+
+def consume_entry(session, *, user_id: int, node: Node, token: str) -> None:
+    """Validate and revoke the session's map-entry authorization.
+
+    A matching token is consumed even if the node, user, or expiry check then
+    fails, so it cannot be retried on another node.
+    """
+    intent = session.get(ENTRY_SESSION_KEY)
+    stored = intent.get("token") if isinstance(intent, dict) else None
+    if not token or not stored:
+        raise EntryUnauthorized("No valid Minesweeper entry authorization.")
+    try:
+        matched = secrets.compare_digest(str(stored), token)
+    except (TypeError, ValueError):
+        matched = False
+    if not matched:
+        raise EntryUnauthorized("No valid Minesweeper entry authorization.")
+
+    session.pop(ENTRY_SESSION_KEY, None)
+    _mark_session_modified(session)
+
+    if intent.get("user_id") != user_id or intent.get("node_code") != node.code:
+        raise EntryUnauthorized("No valid Minesweeper entry authorization.")
+    try:
+        expires_at = datetime.fromisoformat(intent["expires_at"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise EntryUnauthorized("No valid Minesweeper entry authorization.") from exc
+    if expires_at.tzinfo is None:
+        expires_at = timezone.make_aware(expires_at, timezone.get_current_timezone())
+    if _now() >= expires_at:
+        raise EntryUnauthorized("No valid Minesweeper entry authorization.")
 
 
 def _iter_neighbors(row: int, col: int, *, width: int, height: int):
@@ -191,12 +263,7 @@ def create_game(node: Node, difficulty: str) -> MinesweeperGame:
 @transaction.atomic
 def create_game_from_node(node: Node) -> MinesweeperGame:
     """Read the node's MinesweeperSettings and generate a new runtime game."""
-    try:
-        settings = MinesweeperSettings.objects.get(node=node)
-    except MinesweeperSettings.DoesNotExist:
-        raise SettingsNotConfigured("This node has no Minesweeper configuration.") from None
-    if not settings.enabled:
-        raise SettingsDisabled("Minesweeper is disabled on this node.")
+    settings = _require_enabled_settings(node)
     return create_game(node, settings.difficulty)
 
 
@@ -215,7 +282,7 @@ def create_attempt(game: MinesweeperGame, team: Team) -> MinesweeperAttempt:
 
 def _active_attempt_for(team: Team, node: Node) -> MinesweeperAttempt | None:
     return (
-        MinesweeperAttempt.objects.select_related("game")
+        MinesweeperAttempt.objects.select_related("game__node")
         .filter(
             team=team,
             game__node_id=node.pk,

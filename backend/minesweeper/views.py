@@ -1,5 +1,5 @@
 from rest_framework import status
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -13,6 +13,7 @@ from minesweeper.exceptions import (
     CannotFlagRevealed,
     CellAlreadyRevealed,
     CellFlagged,
+    EntryUnauthorized,
     GameFinished,
     InvalidCell,
     InvalidDifficulty,
@@ -21,10 +22,17 @@ from minesweeper.exceptions import (
     SettingsNotConfigured,
 )
 from minesweeper.models import MinesweeperAttempt, MinesweeperStatus
-from minesweeper.serializers import CellActionSerializer, PublicGameSerializer
-from minesweeper.services import reveal_cell, start_play, toggle_flag
+from minesweeper.serializers import (
+    CellActionSerializer,
+    EntryIssuedSerializer,
+    PublicGameSerializer,
+    StartPlaySerializer,
+)
+from minesweeper.services import consume_entry, issue_entry, reveal_cell, start_play, toggle_flag
 
-_NODE_ID = OpenApiParameter("node_id", int, OpenApiParameter.PATH, description="Map node id")
+_NODE_CODE = OpenApiParameter(
+    "node_code", str, OpenApiParameter.PATH, description="Map node code (e.g. C34_0)"
+)
 _ATTEMPT_PK = OpenApiParameter(
     "pk", int, OpenApiParameter.PATH, description="Minesweeper attempt id"
 )
@@ -32,7 +40,7 @@ _ATTEMPT_PK = OpenApiParameter(
 _PUBLIC_IN_PROGRESS = {
     "game_id": 10,
     "attempt_id": 25,
-    "node": 10,
+    "node": "C34_0",
     "difficulty": "hard",
     "width": 30,
     "height": 16,
@@ -57,6 +65,8 @@ def _map_service_error(exc: Exception):
         raise NotFound("بازی پیدا نشد.") from exc
     if isinstance(exc, SettingsNotConfigured):
         raise NotFound("بازی پیدا نشد.") from exc
+    if isinstance(exc, EntryUnauthorized):
+        raise PermissionDenied("اجازهٔ ورود به این بازی صادر نشده است.") from exc
     if isinstance(exc, SettingsDisabled):
         raise Conflict("این بازی مین‌روب فعال نیست.") from exc
     if isinstance(exc, GameFinished):
@@ -79,7 +89,7 @@ def _map_service_error(exc: Exception):
 def _own_attempt(request, attempt_id: int) -> MinesweeperAttempt:
     """The caller's attempt. Other teams' rows are invisible (404)."""
     try:
-        attempt = MinesweeperAttempt.objects.select_related("game").get(pk=attempt_id)
+        attempt = MinesweeperAttempt.objects.select_related("game__node").get(pk=attempt_id)
     except MinesweeperAttempt.DoesNotExist:
         raise NotFound("بازی پیدا نشد.") from None
     if attempt.team_id != request.user.team_id:
@@ -87,29 +97,72 @@ def _own_attempt(request, attempt_id: int) -> MinesweeperAttempt:
     return attempt
 
 
-class StartPlayView(APIView):
+def _node_by_code(node_code: str) -> Node:
+    try:
+        return Node.objects.get(code=node_code)
+    except Node.DoesNotExist:
+        raise NotFound("بازی پیدا نشد.") from None
+
+
+class EnterPlayView(APIView):
     permission_classes = [IsAuthenticated, IsTeamMember, GameIsRunning]
-    serializer_class = PublicGameSerializer
+    serializer_class = EntryIssuedSerializer
 
     @extend_schema(
         tags=["minesweeper"],
-        summary="Start Minesweeper on a node",
+        summary="Request Minesweeper map-entry authorization",
         description=(
-            "Resumes the caller's in-progress attempt on this node, or generates a new "
-            "board from MinesweeperSettings and opens an attempt. One active attempt "
-            "per team per node."
+            "Issues a short-lived, one-time, session-bound authorization for this node. "
+            "The SPA must then POST start with that token. This does not check map "
+            "reachability or occupancy."
         ),
-        parameters=[_NODE_ID],
+        parameters=[_NODE_CODE],
         request=None,
+        responses={200: EntryIssuedSerializer},
+        examples=[
+            OpenApiExample(
+                "issued",
+                value={"entry": "token", "node": "C34_0"},
+                response_only=True,
+            )
+        ],
+    )
+    def post(self, request, node_code: str):
+        node = _node_by_code(node_code)
+        try:
+            token = issue_entry(request.session, user_id=request.user.pk, node=node)
+        except MinesweeperServiceError as exc:
+            _map_service_error(exc)
+        return Response({"entry": token, "node": node.code})
+
+
+class StartPlayView(APIView):
+    permission_classes = [IsAuthenticated, IsTeamMember, GameIsRunning]
+    serializer_class = StartPlaySerializer
+
+    @extend_schema(
+        tags=["minesweeper"],
+        summary="Start or resume Minesweeper on a node",
+        description=(
+            "Consumes a map-entry token and resumes the caller's in-progress attempt "
+            "on this node, or generates a new board. One active attempt per team per node."
+        ),
+        parameters=[_NODE_CODE],
+        request=StartPlaySerializer,
         responses={201: PublicGameSerializer},
         examples=[OpenApiExample("started", value=_PUBLIC_IN_PROGRESS, response_only=True)],
     )
-    def post(self, request, node_id: int):
+    def post(self, request, node_code: str):
+        payload = StartPlaySerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        node = _node_by_code(node_code)
         try:
-            node = Node.objects.get(pk=node_id)
-        except Node.DoesNotExist:
-            raise NotFound("بازی پیدا نشد.") from None
-        try:
+            consume_entry(
+                request.session,
+                user_id=request.user.pk,
+                node=node,
+                token=payload.validated_data["entry"],
+            )
             attempt = start_play(node, request.user.team)
         except (MinesweeperServiceError, Node.DoesNotExist) as exc:
             _map_service_error(exc)

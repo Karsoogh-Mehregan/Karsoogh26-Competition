@@ -22,7 +22,7 @@ function messageOf(error: unknown): string {
   return 'خطا در ارتباط با سرور.'
 }
 
-export function useMinesweeper(nodeId: Ref<number | null> | ComputedRef<number | null>) {
+export function useMinesweeper(nodeCode: Ref<string | null> | ComputedRef<string | null>) {
   const meQuery = useMeQuery()
   const isPlayer = computed(() => meQuery.data.value?.team != null)
 
@@ -55,18 +55,18 @@ export function useMinesweeper(nodeId: Ref<number | null> | ComputedRef<number |
     return gameQuery.error.value ? messageOf(gameQuery.error.value) : ''
   })
 
-  async function start(): Promise<MinesweeperGame | null> {
-    const id = nodeId.value
+  async function start(entry: string): Promise<MinesweeperGame | null> {
+    const code = nodeCode.value
     hasStarted.value = false
     attemptId.value = null
-    if (id == null) {
+    if (code == null || !entry) {
       actionError.value = 'بازی پیدا نشد.'
       return null
     }
     actionError.value = ''
     try {
-      const result = await startMutation.mutateAsync(id)
-      if (nodeId.value !== id) {
+      const result = await startMutation.mutateAsync({ nodeCode: code, entry })
+      if (nodeCode.value !== code) {
         return result
       }
       attemptId.value = result.attempt_id

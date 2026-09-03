@@ -14,6 +14,10 @@ class SettingsDisabled(MinesweeperServiceError):
     """MinesweeperSettings.enabled is false."""
 
 
+class EntryUnauthorized(MinesweeperServiceError):
+    """No valid, unused, unexpired map-entry authorization for this node."""
+
+
 class GameFinished(MinesweeperServiceError):
     """The attempt is won or lost and no longer accepts moves."""
 

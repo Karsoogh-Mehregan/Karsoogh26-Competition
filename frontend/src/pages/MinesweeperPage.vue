@@ -6,7 +6,7 @@ import {
   PartyPopperIcon,
 } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
 import MinesweeperBoard from '@/components/minesweeper/MinesweeperBoard.vue'
 import { Button } from '@/components/ui/button'
@@ -29,14 +29,20 @@ const DIFFICULTY_LABEL: Record<MinesweeperDifficulty, string> = {
 }
 
 const route = useRoute()
-const nodeId = computed(() => {
-  const parsed = Number(route.params.id)
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+const router = useRouter()
+const nodeCode = computed(() => {
+  const raw = route.params.id
+  return typeof raw === 'string' && raw.length > 0 ? raw : null
+})
+const entryToken = computed(() => {
+  const raw = route.query.entry
+  return typeof raw === 'string' && raw.length > 0 ? raw : null
 })
 const flagMode = ref(false)
+const sessionReady = ref(false)
 
 const { game, loading, starting, revealing, flagging, error, start, reveal, toggleFlag } =
-  useMinesweeper(nodeId)
+  useMinesweeper(nodeCode)
 
 const busy = computed(() => revealing.value || flagging.value)
 const inProgress = computed(() => game.value?.status === 'in_progress')
@@ -53,16 +59,36 @@ const remainingFlags = computed(() => {
 })
 
 watch(
-  nodeId,
+  [nodeCode, entryToken],
   async () => {
+    if (sessionReady.value) return
     flagMode.value = false
-    if (nodeId.value == null) return
-    const started = await start()
-    if (!started && error.value) {
+    if (nodeCode.value == null || entryToken.value == null) {
+      await router.replace({ name: 'map' })
+      return
+    }
+    const started = await start(entryToken.value)
+    if (started) {
+      sessionReady.value = true
+      await router.replace({ name: 'minesweeper-node', params: { id: nodeCode.value } })
+      return
+    }
+    if (error.value) {
       toast.error(error.value)
     }
+    await router.replace({ name: 'map' })
   },
   { immediate: true },
+)
+
+watch(
+  () => game.value?.status,
+  (status) => {
+    if (!sessionReady.value) return
+    if (status === 'won' || status === 'lost') {
+      router.push({ name: 'map' })
+    }
+  },
 )
 
 async function onReveal(row: number, col: number): Promise<void> {
@@ -92,7 +118,7 @@ async function onFlag(row: number, col: number): Promise<void> {
         </p>
       </header>
 
-      <div v-if="nodeId == null" class="text-destructive text-sm">بازی پیدا نشد.</div>
+      <div v-if="nodeCode == null" class="text-destructive text-sm">بازی پیدا نشد.</div>
 
       <div v-else-if="loading || starting" class="flex flex-col gap-3">
         <Skeleton class="h-16 w-full" />

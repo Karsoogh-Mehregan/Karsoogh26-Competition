@@ -22,7 +22,7 @@ Node
      MinesweeperAttempt      that team's progress and result
 ```
 
-Example: Node #10 has settings `difficulty=hard`.
+Example: Node `C34_0` has settings `difficulty=hard`.
 
 ```text
 Team A enters  →  Game #1 (board A)  →  Attempt Team A
@@ -65,7 +65,7 @@ Per-node configuration. `related_name="minesweeper_settings"` on `Node` (`OneToO
 | Field | Type | Purpose |
 | ----- | ---- | ------- |
 | `node` | OneToOne → `game.Node`, **`CASCADE`** | Which map node this config belongs to. |
-| `enabled` | bool, default `True` | Start is rejected when false. |
+| `enabled` | bool, default `True` | Enter/start are rejected when false. |
 | `difficulty` | `easy` / `medium` / `hard` | Layout used when generating a game. |
 | `created_at` / `updated_at` | timestamps | Audit. |
 
@@ -199,34 +199,34 @@ Mines are read from `attempt.game.board`. Flags and reveals are stored on `attem
 
 ## Game lifecycle
 
-Admin configures:
+Admin configures `MinesweeperSettings` on a map node (typically a `toll` / عوارضی node such as `C34_0`).
+
+The graph node is the normal entry point. Vue routes are **not** authorization.
 
 ```text
-MinesweeperSettings(node=10, difficulty=hard, enabled=True)
+GraphView click (type c34 / c45)
+    → POST /api/minesweeper/nodes/<node_code>/enter/
+    → session-bound, one-time, short-lived entry token
+    → /minesweeper/node/<node_code>?entry=<token>
+    → POST /api/minesweeper/nodes/<node_code>/start/  { "entry": token }
+    → consume token, then start_play(node, team)
 ```
 
-Team A opens `/minesweeper/node/10/`:
+`start_play` still resumes an `in_progress` attempt for `(team, node)`, or creates a new `MinesweeperGame` + `MinesweeperAttempt`. Finished attempts stay as history. Different teams on the same node get independent games.
+
+When the attempt becomes `won` or `lost`, the SPA navigates to `/` (the map). Leaving the page while `in_progress` does not finish the attempt; clicking the same node again issues a new entry token and resumes.
+
+This entry token proves that this **authenticated session** requested entry for an **enabled Minesweeper node**. It does **not** prove a physical SVG click, and it does **not** check occupancy or reachability (those come later).
 
 ```text
-start_play(node 10, Team A)
-    → existing in-progress attempt on this node, if any
-    → else create_game_from_node  → MinesweeperGame (random board, difficulty=hard)
-      then create_attempt         → MinesweeperAttempt for Team A
-reveal / flag update that attempt
-```
-
-Team B opening the same URL at the same time gets **Game B + Attempt B**, with a different random board.
-
-Returning to the same node while an attempt is in progress resumes the existing attempt for that team. After the attempt finishes, a new visit creates a new game.
-
-```text
-create_game_from_node(node)   → read settings; generate a new MinesweeperGame
-create_attempt(game, team)    → always insert a new attempt
-start_play(node, team)        → resume in-progress (team, node), else both of the above
+issue_entry / consume_entry  → session authorization only
+create_game_from_node(node)  → read settings; generate a new MinesweeperGame
+create_attempt(game, team)   → always insert a new attempt
+start_play(node, team)       → resume in-progress (team, node), else both of the above
 reveal_cell / toggle_flag(attempt_id)  → attempt only
 ```
 
-Start / reveal / flag require `GameSettings.is_running`. **GET of the caller's attempt remains allowed** when the contest is not running.
+Enter / start / reveal / flag require `GameSettings.is_running`. **GET of the caller's attempt remains allowed** when the contest is not running.
 
 Django admin: configure `MinesweeperSettings` (node, difficulty, enabled). Generated games and attempts are listed read-only.
 
@@ -238,22 +238,31 @@ Mounted from `core/api_urls.py` as `path("minesweeper/", include("minesweeper.ur
 
 | Method | Path | Name | Permissions |
 | ------ | ---- | ---- | ----------- |
-| `POST` | `/api/minesweeper/nodes/<node_id>/start/` | `node-start` | `IsAuthenticated`, `IsTeamMember`, `GameIsRunning` |
+| `POST` | `/api/minesweeper/nodes/<node_code>/enter/` | `node-enter` | `IsAuthenticated`, `IsTeamMember`, `GameIsRunning` |
+| `POST` | `/api/minesweeper/nodes/<node_code>/start/` | `node-start` | `IsAuthenticated`, `IsTeamMember`, `GameIsRunning` |
 | `GET` | `/api/minesweeper/attempts/<pk>/` | `attempt-detail` | `IsAuthenticated`, `IsTeamMember` |
 | `POST` | `/api/minesweeper/attempts/<pk>/reveal/` | `attempt-reveal` | `IsAuthenticated`, `IsTeamMember`, `GameIsRunning` |
 | `POST` | `/api/minesweeper/attempts/<pk>/flag/` | `attempt-flag` | `IsAuthenticated`, `IsTeamMember`, `GameIsRunning` |
 
-Session cookies + CSRF. The SPA provides only the **node id** to start. Gameplay URLs use **attempt id**. Ownership is `request.user.team == attempt.team`.
+Session cookies + CSRF. Nodes are addressed by **`Node.code`** (the same ids as the graph: `C34_0`, …). Gameplay URLs use **attempt id**. Ownership is `request.user.team == attempt.team`.
+
+### Enter
+
+```http
+POST /api/minesweeper/nodes/<node_code>/enter/
+```
+
+Empty JSON body. **200** `{ "entry": "<token>", "node": "C34_0" }`. Stores a one-time intent on the Django session (60s TTL), bound to this user and node. Missing node or missing settings: **404**. Disabled settings: **409**.
 
 ### Start
 
 ```http
-POST /api/minesweeper/nodes/<node_id>/start/
+POST /api/minesweeper/nodes/<node_code>/start/
 ```
 
-Empty JSON body. **201** + public attempt. Resumes this team's in-progress attempt on the node if one exists; otherwise creates a new `MinesweeperGame` and `MinesweeperAttempt`. The client does not send difficulty. Returned `game_id` / `attempt_id` may already exist.
+Body `{ "entry": "<token>" }`. Consumes the session intent, then `start_play`. **201** + public attempt. Direct start without a valid unused token: **403** `اجازهٔ ورود به این بازی صادر نشده است.` (missing `entry` field is **400**). A token issued for node A cannot start node B.
 
-Missing node or missing settings: **404**. Disabled settings: **409**.
+Public `node` is the **code** string, not the integer PK.
 
 ### Get / reveal / flag
 
@@ -264,8 +273,9 @@ Paths are `/api/minesweeper/attempts/<pk>/…`. GET without that attempt, or an 
 | Condition | HTTP | `detail` / body |
 | --------- | ---: | --------------- |
 | Missing node / missing settings / missing or foreign attempt | 404 | `بازی پیدا نشد.` |
-| Contest not running (start / reveal / flag) | 403 | `The game is not running.` |
+| Contest not running (enter / start / reveal / flag) | 403 | `The game is not running.` |
 | Anonymous / no team / mentor | 403 | DRF permission denied |
+| Missing / used / expired / wrong-node entry (`EntryUnauthorized`) | 403 | `اجازهٔ ورود به این بازی صادر نشده است.` |
 | Settings disabled (`SettingsDisabled`) | 409 | `این بازی مین‌روب فعال نیست.` |
 | Finished attempt (`GameFinished`) | 409 | `این بازی تمام شده است.` |
 | Already revealed / flagged / flag-on-revealed | 409 | existing Persian messages |
@@ -278,6 +288,7 @@ Paths are `/api/minesweeper/attempts/<pk>/…`. GET without that attempt, or an 
 - Layout `mine` / `adjacent_mines` never appear on in-progress unrevealed cells.
 - Sanitization is constructive (`_public_cell`), merging two JSON blobs.
 - Attempt lookup loads the row, then requires `attempt.team_id == request.user.team_id`. Other teams get the same 404 as a missing id.
+- Start requires a server-issued, session-bound entry token. Opening `/minesweeper/node/<code>` without one does not start a game.
 - Admin and the database **do** contain the real mine map.
 
 ---
@@ -296,13 +307,9 @@ cd frontend
 npm run dev
 ```
 
-In Django admin, add `MinesweeperSettings` for a node (difficulty + enabled). Log in as a **player**. There is no nav button. Open that node:
+In Django admin, add `MinesweeperSettings` for a toll node (e.g. `C34_0`). Log in as a **player**, set the contest to running, then click that node on the map. There is no Minesweeper nav button.
 
-```text
-http://localhost:3000/minesweeper/node/<node_id>/
-```
-
-The page calls start, stores `attempt_id`, and renders the existing board UI. There is no difficulty picker and no start button. The frontend does not create games directly.
+Directly opening `/minesweeper/node/C34_0` without a fresh map-entry token is rejected by the start API; the SPA returns to the map.
 
 Mutating endpoints require `GameSettings.status == running`. Set that in admin (Game settings) or:
 
@@ -326,8 +333,8 @@ uv run pytest -q
 | File | What it covers |
 | ---- | -------------- |
 | `tests/test_minesweeper_models.py` | Settings OneToOne; game has no team/status/score; attempt FKs; layout/status constraints; `PROTECT` / `CASCADE`. |
-| `tests/test_minesweeper_services.py` | Settings-driven create; resume vs new game; independent boards; reveal/flag/win/loss/scoring. `postgres_only` for row locks. |
-| `tests/test_minesweeper_api.py` | Start endpoint, attempt ownership, sanitization, contest clock, HTTP mapping. |
+| `tests/test_minesweeper_services.py` | Settings-driven create; map-entry tokens; resume vs new game; independent boards; reveal/flag/win/loss/scoring. `postgres_only` for row locks. |
+| `tests/test_minesweeper_api.py` | Enter/start authorization, attempt ownership, sanitization, contest clock, HTTP mapping. |
 
 ```bash
 uv run ruff check .
@@ -351,19 +358,16 @@ uv run manage.py makemigrations --check --dry-run
 ## Frontend integration
 
 ```text
-MinesweeperPage.vue  (/minesweeper/node/:id/ — start on enter, then board)
+GraphView.vue  (c34/c45 click → POST enter)
     ↓
-useMinesweeper(nodeId)   stores attempt_id from the start response
+/minesweeper/node/:id?entry=…
     ↓
-queries/minesweeper.ts
+MinesweeperPage.vue  consumes entry via POST start, then board
     ↓
-services/minesweeper.ts
-    ↓
-POST /nodes/<node_id>/start/
-GET/POST /attempts/<attempt_id>/…
+won/lost → router.push({ name: 'map' })  → /
 ```
 
-The SPA does **not** send difficulty and does not create games by id.
+The SPA does **not** send difficulty. Frontend `type === "c34"|"c45"` only chooses the click branch; the server decides whether the node is Minesweeper-enabled.
 
 ---
 
@@ -372,9 +376,10 @@ The SPA does **not** send difficulty and does not create games by id.
 - **Settings vs game vs attempt.** Configuration lives on the node. Progress and score belong to the attempt.
 - **No shared board.** Two teams on the same node get two random layouts.
 - **One active attempt per team per node.** Returning while in progress resumes that attempt. After it finishes, a new visit creates a new game. Finished attempts are kept as history.
-- **`node` is association only.** Win/loss do not modify `Node`, occupancy, or `Team.balance`.
+- **Map entry is server-authorized.** A session-bound one-time token is required to start. The Vue route is not the security mechanism.
+- **`node` is association only.** Win/loss do not modify `Node`, occupancy, or `Team.balance`. Reachability/occupancy are intentionally not checked in this phase.
 - **404 for foreign GET/reveal/flag.** Same body as missing.
-- **Frontend does not create games.** Entry is `/minesweeper/node/<node_id>/`.
+- **Completing Minesweeper returns to the map.** `/` via `name: 'map'`.
 
 ---
 
@@ -382,8 +387,8 @@ The SPA does **not** send difficulty and does not create games by id.
 
 - No WebSocket/SSE; no live sync across tabs.
 - Returning to the same node while an attempt is in progress resumes the existing attempt for that team. After the attempt finishes, a new visit creates a new game.
-- No list/delete endpoints. Teams enter by node URL.
-- Winning does not capture the node.
+- No list/delete endpoints. Normal entry is a map click, not a typed URL.
+- Winning does not capture the node. Reachability/occupancy/ownership are out of scope here.
 - Start/reveal/flag follow the contest clock; GET does not.
 - No flag limit; no chord/middle-click API.
 - Score is not paid into the team economy.

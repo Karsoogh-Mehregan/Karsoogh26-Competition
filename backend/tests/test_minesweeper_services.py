@@ -13,6 +13,7 @@ from minesweeper.exceptions import (
     CannotFlagRevealed,
     CellAlreadyRevealed,
     CellFlagged,
+    EntryUnauthorized,
     GameFinished,
     InvalidCell,
     InvalidDifficulty,
@@ -30,9 +31,11 @@ from minesweeper.models import (
     MinesweeperStatus,
 )
 from minesweeper.services import (
+    consume_entry,
     create_attempt,
     create_game,
     create_game_from_node,
+    issue_entry,
     reveal_cell,
     start_play,
     toggle_flag,
@@ -145,6 +148,68 @@ class TestCreateGameFromNode:
             create_game_from_node(node)
         assert isinstance(caught.value, MinesweeperServiceError)
         assert MinesweeperGame.objects.count() == 0
+
+
+class TestMapEntry:
+    def test_issue_and_consume(self, node):
+        _configure(node)
+        session = {}
+        token = issue_entry(session, user_id=7, node=node)
+        consume_entry(session, user_id=7, node=node, token=token)
+
+    def test_wrong_node_is_rejected(self, node):
+        _configure(node)
+        other = Node.objects.create(
+            code="ms-other",
+            name="Other",
+            level=LevelConfig.objects.get(level="easy"),
+        )
+        _configure(other)
+        session = {}
+        token = issue_entry(session, user_id=7, node=node)
+        with pytest.raises(EntryUnauthorized):
+            consume_entry(session, user_id=7, node=other, token=token)
+        with pytest.raises(EntryUnauthorized):
+            consume_entry(session, user_id=7, node=node, token=token)
+
+    def test_token_cannot_be_reused(self, node):
+        _configure(node)
+        session = {}
+        token = issue_entry(session, user_id=7, node=node)
+        consume_entry(session, user_id=7, node=node, token=token)
+        with pytest.raises(EntryUnauthorized):
+            consume_entry(session, user_id=7, node=node, token=token)
+
+    def test_expired_token_is_rejected(self, node, monkeypatch):
+        _configure(node)
+        started = timezone.now()
+        monkeypatch.setattr("minesweeper.services._now", lambda: started)
+        session = {}
+        token = issue_entry(session, user_id=7, node=node)
+        monkeypatch.setattr("minesweeper.services._now", lambda: started + timedelta(seconds=61))
+        with pytest.raises(EntryUnauthorized):
+            consume_entry(session, user_id=7, node=node, token=token)
+
+    def test_forged_token_is_rejected(self, node):
+        _configure(node)
+        session = {}
+        issue_entry(session, user_id=7, node=node)
+        with pytest.raises(EntryUnauthorized):
+            consume_entry(session, user_id=7, node=node, token="forged")
+
+    def test_wrong_user_is_rejected_and_token_is_consumed(self, node):
+        _configure(node)
+        session = {}
+        token = issue_entry(session, user_id=7, node=node)
+        with pytest.raises(EntryUnauthorized):
+            consume_entry(session, user_id=8, node=node, token=token)
+        with pytest.raises(EntryUnauthorized):
+            consume_entry(session, user_id=7, node=node, token=token)
+
+    def test_issue_requires_enabled_settings(self, node):
+        session = {}
+        with pytest.raises(SettingsNotConfigured):
+            issue_entry(session, user_id=7, node=node)
 
 
 class TestStartPlay:

@@ -176,7 +176,7 @@ export interface MinesweeperBoard<TCell> {
 interface MinesweeperGameBase {
   game_id: number
   attempt_id: number
-  node: number
+  node: string
   difficulty: MinesweeperDifficulty
   width: number
   height: number
@@ -198,6 +198,11 @@ export interface MinesweeperFinishedGame extends MinesweeperGameBase {
 }
 
 export type MinesweeperGame = MinesweeperActiveGame | MinesweeperFinishedGame
+
+export interface MinesweeperEntry {
+  entry: string
+  node: string
+}
 
 export interface MinesweeperCellActionRequest {
   row: number

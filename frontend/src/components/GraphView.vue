@@ -16,6 +16,7 @@ import { useEntry } from '../composables/useEntry'
 import { useAttemptStore } from '../stores/attempt'
 import { useGraph } from '../composables/useGraph.js'
 import { useMapViewport } from '../composables/useMapViewport'
+import { useEnterMinesweeperMutation } from '@/queries/minesweeper'
 
 const HOUSE_FILL = '#E2CFA6'
 
@@ -23,6 +24,7 @@ const { me, teams, actingTeam, isPlayer, claimStart, assignQuestion } = useActin
 const { canClaimStart, open: openEntrySheet } = useEntry()
 const attemptStore = useAttemptStore()
 const router = useRouter()
+const enterMinesweeperMutation = useEnterMinesweeperMutation()
 const { nodes, edges, nodeById, adjacency, startEligibleIds } = useGraph()
 
 const loggedIn = computed(() => !!me.value)
@@ -40,6 +42,14 @@ const dialogOpen = computed({
 
 function isStartNode(n) {
   return !!n && (n.type === 'start' || n.shape === 'diamond')
+}
+
+function isMinesweeperGraphType(n) {
+  return n.type === 'c34' || n.type === 'c45'
+}
+
+function isMinesweeperEntry(n) {
+  return canAct.value && isMinesweeperGraphType(n)
 }
 
 const paintedHoldings = computed(() =>
@@ -257,6 +267,7 @@ function isEdgeTraversed(e) {
 // ---- node helpers ----
 function nodeState(n) {
   if (isNodeAnswerable(n.id)) return 'answerable'
+  if (isMinesweeperEntry(n)) return 'selectable'
   if (isNodeSelected(n.id)) return 'visited'
   if (isNodeSelectable(n.id)) return 'selectable'
   if (isEntryGate(n)) return 'gated'
@@ -266,7 +277,12 @@ function nodeState(n) {
 }
 
 function isNodeInteractive(n) {
-  return isNodeAnswerable(n.id) || isNodeSelectable(n.id) || isEntryGate(n)
+  return (
+    isNodeAnswerable(n.id) ||
+    isMinesweeperEntry(n) ||
+    isNodeSelectable(n.id) ||
+    isEntryGate(n)
+  )
 }
 
 function nodeLabel(n) {
@@ -290,8 +306,26 @@ function onNodeClick(n) {
     openEntrySheet()
     return
   }
+  if (isMinesweeperEntry(n)) {
+    enterMinesweeper(n)
+    return
+  }
   if (!isNodeSelectable(n.id)) return
   pendingNode.value = n
+}
+
+async function enterMinesweeper(n) {
+  if (enterMinesweeperMutation.isPending.value) return
+  try {
+    const issued = await enterMinesweeperMutation.mutateAsync(n.id)
+    await router.push({
+      name: 'minesweeper-node',
+      params: { id: n.id },
+      query: { entry: issued.entry },
+    })
+  } catch (err) {
+    toast.error(err.message || 'عملیات ناموفق بود.')
+  }
 }
 
 const pendingIsStart = computed(

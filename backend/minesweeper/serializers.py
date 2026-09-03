@@ -9,6 +9,15 @@ class CellActionSerializer(serializers.Serializer):
     col = serializers.IntegerField()
 
 
+class StartPlaySerializer(serializers.Serializer):
+    entry = serializers.CharField()
+
+
+class EntryIssuedSerializer(serializers.Serializer):
+    entry = serializers.CharField(read_only=True)
+    node = serializers.CharField(read_only=True)
+
+
 def _public_cell(progress: dict, layout: dict, *, finished: bool) -> dict:
     """Build a client-safe cell. Hidden mines stay off the wire until the attempt ends."""
     if finished:
@@ -47,7 +56,7 @@ class PublicGameSerializer(serializers.Serializer):
 
     game_id = serializers.IntegerField(read_only=True)
     attempt_id = serializers.IntegerField(source="pk", read_only=True)
-    node = serializers.IntegerField(source="game.node_id", read_only=True)
+    node = serializers.CharField(source="game.node.code", read_only=True)
     difficulty = serializers.CharField(source="game.difficulty", read_only=True)
     width = serializers.IntegerField(source="game.width", read_only=True)
     height = serializers.IntegerField(source="game.height", read_only=True)

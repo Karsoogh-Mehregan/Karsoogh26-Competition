@@ -1,8 +1,16 @@
 import { get, post } from '@/lib/http'
-import type { MinesweeperCellActionRequest, MinesweeperGame } from '@/types/api'
+import type {
+  MinesweeperCellActionRequest,
+  MinesweeperEntry,
+  MinesweeperGame,
+} from '@/types/api'
 
-export function startPlay(nodeId: number): Promise<MinesweeperGame> {
-  return post<MinesweeperGame>(`/minesweeper/nodes/${nodeId}/start/`, {})
+export function enterPlay(nodeCode: string): Promise<MinesweeperEntry> {
+  return post<MinesweeperEntry>(`/minesweeper/nodes/${nodeCode}/enter/`, {})
+}
+
+export function startPlay(nodeCode: string, entry: string): Promise<MinesweeperGame> {
+  return post<MinesweeperGame>(`/minesweeper/nodes/${nodeCode}/start/`, { entry })
 }
 
 export function getAttempt(attemptId: number, signal?: AbortSignal): Promise<MinesweeperGame> {
