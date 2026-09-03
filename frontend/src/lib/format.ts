@@ -11,6 +11,13 @@ export function formatDuration(totalSeconds: number): string {
   return `${minutes}:${String(seconds % 60).padStart(2, '0')}`
 }
 
+export function formatSignedBalance(value: number): string {
+  const formatted = numberFormatter.format(Math.abs(value))
+  if (value > 0) return `+${formatted}`
+  if (value < 0) return `−${formatted}`
+  return formatted
+}
+
 const relativeFormatter = new Intl.RelativeTimeFormat('fa-IR', { numeric: 'auto' })
 
 const RELATIVE_STEPS: [Intl.RelativeTimeFormatUnit, number][] = [

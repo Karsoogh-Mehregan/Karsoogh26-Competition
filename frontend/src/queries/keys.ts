@@ -10,6 +10,9 @@ export const queryKeys = {
   gameSettings: () => ['game-settings'] as const,
   entrySheet: () => ['entry-sheet'] as const,
   mapDesign: () => ['map-design'] as const,
+  levels: () => ['levels'] as const,
+  balanceEventsRoot: () => ['balance-events'] as const,
+  balanceEvents: (teamCode: string) => ['balance-events', teamCode] as const,
   inbox: () => ['inbox'] as const,
   notification: (id: number) => ['notification', id] as const,
   // Prefix key: invalidating it matches the draft and sent lists at once.

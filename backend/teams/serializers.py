@@ -3,7 +3,7 @@ from rest_framework import serializers
 from accounts.permissions import MENTOR_PERM
 from game.models import Occupancy
 
-from .models import Team
+from .models import BalanceEvent, BalanceReason, Team
 from .start_colors import color_for_start
 
 
@@ -44,6 +44,24 @@ class LeaderboardRowSerializer(serializers.Serializer):
     code = serializers.SlugField(read_only=True)
     name = serializers.CharField(read_only=True)
     balance = serializers.IntegerField(read_only=True)
+
+
+REASON_LABELS: dict[str, str] = {
+    BalanceReason.INITIAL: "موجودی اولیه",
+    BalanceReason.ENTRY: "رزرو خانه",
+    BalanceReason.GRADE: "نمره خانه",
+}
+
+
+class BalanceEventSerializer(serializers.ModelSerializer):
+    reason_label = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BalanceEvent
+        fields = ("id", "delta", "balance_after", "reason", "reason_label", "detail", "created_at")
+
+    def get_reason_label(self, obj: BalanceEvent) -> str:
+        return REASON_LABELS.get(obj.reason, obj.reason)
 
 
 class ClaimStartSerializer(serializers.Serializer):

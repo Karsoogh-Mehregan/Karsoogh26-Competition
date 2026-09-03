@@ -52,6 +52,8 @@ export function useLogoutMutation() {
       queryClient.removeQueries({ queryKey: queryKeys.submissions() })
       queryClient.removeQueries({ queryKey: queryKeys.entrySheet() })
       queryClient.removeQueries({ queryKey: queryKeys.attemptsRoot() })
+      queryClient.removeQueries({ queryKey: queryKeys.levels() })
+      queryClient.removeQueries({ queryKey: queryKeys.balanceEventsRoot() })
       queryClient.removeQueries({ queryKey: queryKeys.minesweeperRoot() })
       await ensureCsrf()
     },

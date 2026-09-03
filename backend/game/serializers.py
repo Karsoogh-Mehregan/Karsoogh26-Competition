@@ -7,6 +7,7 @@ from game.models import (
     EntryAttempt,
     GameSettings,
     Level,
+    LevelConfig,
     MapDesign,
     Neighborhood,
     Node,
@@ -495,3 +496,9 @@ class MapDesignPatchSerializer(serializers.ModelSerializer):
     class Meta:
         model = MapDesign
         fields = ("road_style", "tint_strength", "halo_strength", "neighborhoods")
+
+
+class LevelConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LevelConfig
+        fields = ("level", "entry_cost", "capacity")

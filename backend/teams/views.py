@@ -13,8 +13,13 @@ from game.permissions import IsOwnTeam
 from game.services import claim_spawn, release_expired_attempts, require_entry_clearance
 
 from . import board_cache
-from .models import Team
-from .serializers import ClaimStartSerializer, LeaderboardRowSerializer, TeamSerializer
+from .models import BalanceEvent, Team
+from .serializers import (
+    BalanceEventSerializer,
+    ClaimStartSerializer,
+    LeaderboardRowSerializer,
+    TeamSerializer,
+)
 from .start_colors import color_for_start
 
 
@@ -88,6 +93,16 @@ class LeaderboardView(APIView):
             for rank, team in enumerate(teams, start=1)
         ]
         return Response(LeaderboardRowSerializer(rows, many=True).data)
+
+
+class TeamBalanceEventView(APIView):
+    """Return the balance-change log for a team (team's own account only)."""
+
+    permission_classes = [IsAuthenticated, IsOwnTeam]
+
+    def get(self, request, team_code: str):
+        events = BalanceEvent.objects.filter(team__code=team_code)
+        return Response(BalanceEventSerializer(events, many=True).data)
 
 
 class ClaimStartView(APIView):

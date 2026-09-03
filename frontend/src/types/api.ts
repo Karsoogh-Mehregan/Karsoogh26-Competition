@@ -305,6 +305,22 @@ export type RoadStyle = 'straight' | 'curved' | 'dashed'
 
 export type NodeLevel = 'spawn' | 'easy' | 'medium' | 'hard' | 'toll'
 
+export interface BalanceEvent {
+  id: number
+  delta: number
+  balance_after: number
+  reason: string
+  reason_label: string
+  detail: string
+  created_at: string
+}
+
+export interface LevelConfigRow {
+  level: NodeLevel
+  entry_cost: number
+  capacity: number
+}
+
 export interface Neighborhood {
   index: number
   name: string

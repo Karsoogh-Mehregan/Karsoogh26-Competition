@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
-import { computed } from 'vue'
+import { computed, type Ref } from 'vue'
 import { streamConnected } from '@/lib/boardStreamState'
-import { claimStart, getLeaderboard, listTeams } from '@/services/teams'
+import { claimStart, getLeaderboard, listBalanceEvents, listTeams } from '@/services/teams'
 import type { Team } from '@/types/api'
 import { queryKeys } from './keys'
 
@@ -36,7 +36,18 @@ export function useClaimStartMutation() {
       queryClient.setQueryData<Team[]>(queryKeys.teams(), (teams) =>
         teams?.map((item) => (item.code === team.code ? team : item)),
       )
-      return queryClient.invalidateQueries({ queryKey: queryKeys.teams() })
+      return Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.teams() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.balanceEventsRoot() }),
+      ])
     },
+  })
+}
+
+export function useBalanceEventsQuery(enabled: () => boolean, teamCode: Ref<string>) {
+  return useQuery({
+    queryKey: computed(() => queryKeys.balanceEvents(teamCode.value)),
+    queryFn: ({ signal }) => listBalanceEvents(teamCode.value, signal),
+    enabled: computed(() => enabled() && !!teamCode.value),
   })
 }

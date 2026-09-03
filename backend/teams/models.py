@@ -3,6 +3,12 @@ from django.db import models
 from django.db.models import CheckConstraint, Prefetch, Q, UniqueConstraint
 
 
+class BalanceReason(models.TextChoices):
+    INITIAL = "initial", "موجودی اولیه"
+    ENTRY = "entry", "رزرو خانه"
+    GRADE = "grade", "نمره خانه"
+
+
 def active_holdings():
     from game.models import Occupancy
 
@@ -65,3 +71,24 @@ class Team(models.Model):
         if hasattr(self, "_holdings"):
             return self._holdings
         return active_holdings().filter(team=self)
+
+
+class BalanceEvent(models.Model):
+    """One row per wallet change so the team panel can replay the score log."""
+
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="balance_events")
+    delta = models.IntegerField()
+    balance_after = models.PositiveIntegerField()
+    reason = models.CharField(max_length=16, choices=BalanceReason.choices)
+    detail = models.CharField(max_length=128, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        indexes = [
+            models.Index(fields=["team", "created_at"], name="balance_event_team_time"),
+        ]
+
+    def __str__(self) -> str:
+        sign = "+" if self.delta >= 0 else ""
+        return f"{self.team_id} {sign}{self.delta} ({self.reason})"
