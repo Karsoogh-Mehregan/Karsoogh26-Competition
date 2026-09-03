@@ -10,4 +10,7 @@ export const queryKeys = {
   gameSettings: () => ['game-settings'] as const,
   entrySheet: () => ['entry-sheet'] as const,
   mapDesign: () => ['map-design'] as const,
+  levels: () => ['levels'] as const,
+  balanceEventsRoot: () => ['balance-events'] as const,
+  balanceEvents: (teamCode: string) => ['balance-events', teamCode] as const,
 }

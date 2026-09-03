@@ -1,7 +1,6 @@
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import F
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import APIException
@@ -14,7 +13,8 @@ from game.models import (
     ReleaseReason,
     _round_half_up,
 )
-from teams.models import Team
+from teams.ledger import apply_balance_change
+from teams.models import BalanceReason
 
 from .events import BOARD_GRADED, BOARD_RELEASED, publish_on_commit
 
@@ -94,7 +94,12 @@ def grade_attempt(holding: Occupancy, grade: int) -> Occupancy:
             - before[occupancy.pk]
         )
         if delta > 0:
-            Team.objects.filter(pk=occupancy.team_id).update(balance=F("balance") + delta)
+            apply_balance_change(
+                occupancy.team,
+                delta,
+                reason=BalanceReason.GRADE,
+                detail=node.code,
+            )
 
     holding.team.refresh_from_db(fields=["balance"])
     return holding
