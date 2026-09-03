@@ -1,5 +1,6 @@
 services:
   frontend:
+    image: ${FRONTEND_IMAGE:-ghcr.io/karsoogh-mehregan/karsoogh26-competition-frontend:latest}
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -17,6 +18,7 @@ services:
 
 
   backend:
+    image: ${BACKEND_IMAGE:-ghcr.io/karsoogh-mehregan/karsoogh26-competition-backend:latest}
     build:
       context: ./backend
       dockerfile: Dockerfile
