@@ -14,7 +14,7 @@ from django.utils import timezone
 
 from game.services.events import NOTIFICATION_CREATED, publish_on_commit
 
-from .models import Audience, Message, MessageKind, MessageStatus, Notification
+from .models import AudienceScope, Message, MessageKind, MessageStatus, Notification
 
 logger = logging.getLogger("karsoogh")
 
@@ -51,32 +51,129 @@ def users_with_perm(perm: str) -> QuerySet:
     ).distinct()
 
 
-def recipients_for(message: Message) -> QuerySet:
-    """Resolve a message's audience to the users who should receive it.
+SCOPE_FILTERS = {
+    AudienceScope.TEAMS: lambda: Q(team__isnull=False),
+    AudienceScope.MENTORS: lambda: Q(pk__in=users_with_perm(MENTOR_PERM)),
+    AudienceScope.DESIGNERS: lambda: Q(pk__in=users_with_perm(DESIGNER_PERM)),
+}
 
-    The author is dropped: an announcement lands in the Sent folder, not in
-    its own writer's inbox.
+
+def resolve_audience(
+    *,
+    scopes,
+    team_ids=(),
+    user_ids=(),
+    sender_id=None,
+) -> QuerySet:
+    """The audience rule itself, over plain values.
+
+    Separate from `recipients_for` so the composer's preview can ask about a
+    selection that has not been saved yet — an unsaved Message has no primary
+    key, and so no M2M to read.
     """
     active = User.objects.filter(is_active=True)
+    scopes = set(scopes or [])
 
-    if message.audience == Audience.ALL:
+    if AudienceScope.ALL in scopes:
         recipients = active
-    elif message.audience == Audience.TEAMS:
-        recipients = active.filter(team__isnull=False)
-    elif message.audience == Audience.MENTORS:
-        recipients = active.filter(pk__in=users_with_perm(MENTOR_PERM))
-    elif message.audience == Audience.DESIGNERS:
-        recipients = active.filter(pk__in=users_with_perm(DESIGNER_PERM))
-    elif message.audience == Audience.TEAM:
-        recipients = active.filter(team_id=message.audience_team_id)
-    elif message.audience == Audience.USER:
-        recipients = active.filter(pk=message.audience_user_id)
     else:
-        raise ValueError(f"Unknown audience {message.audience!r}")
+        # Start from "nobody" and widen. A bare Q() would match *everyone*,
+        # which is the one wrong answer that looks like it works.
+        condition = Q(pk__in=[])
+        matched = False
 
-    if message.sender_id is not None:
-        recipients = recipients.exclude(pk=message.sender_id)
+        for scope, make_filter in SCOPE_FILTERS.items():
+            if scope in scopes:
+                condition |= make_filter()
+                matched = True
+
+        if team_ids:
+            condition |= Q(team_id__in=team_ids)
+            matched = True
+
+        if user_ids:
+            condition |= Q(pk__in=user_ids)
+            matched = True
+
+        if not matched:
+            return active.none()
+        recipients = active.filter(condition).distinct()
+
+    if sender_id is not None:
+        recipients = recipients.exclude(pk=sender_id)
     return recipients
+
+
+def recipients_for(message: Message) -> QuerySet:
+    """Resolve a saved message's audience to the users who should receive it.
+
+    The union of three independent selections — named scopes, named teams,
+    named people — so "these four teams, plus every mentor" is one message.
+    Overlap is fine: the query is distinct, and the fan-out ignores conflicts
+    anyway.
+
+    The author is dropped: an announcement lands in the Sent folder, not in its
+    own writer's inbox.
+    """
+    return resolve_audience(
+        scopes=message.scopes,
+        team_ids=list(message.teams.values_list("pk", flat=True)),
+        user_ids=list(message.users.values_list("pk", flat=True)),
+        sender_id=message.sender_id,
+    )
+
+
+def preview_audience(message: Message, *, teams=(), users=()) -> tuple[int, str]:
+    """Reach and label for a selection that may not have been saved yet."""
+    team_ids = [team.pk for team in teams]
+    user_ids = [user.pk for user in users]
+    count = resolve_audience(
+        scopes=message.scopes,
+        team_ids=team_ids,
+        user_ids=user_ids,
+        sender_id=message.sender_id,
+    ).count()
+    return count, describe_selection(
+        scopes=message.scopes,
+        team_names=[team.name for team in teams],
+        usernames=[user.username for user in users],
+    )
+
+
+def describe_selection(*, scopes, team_names=(), usernames=()) -> str:
+    """A human summary of an audience: "همهٔ منتورها، ۳ تیم".
+
+    Names one team or one person outright, and counts them past that — a list
+    of eight team names is not a label any more.
+    """
+    chosen = set(scopes or [])
+    if AudienceScope.ALL in chosen:
+        return AudienceScope.ALL.label
+
+    parts = [AudienceScope(scope).label for scope in AudienceScope.values if scope in chosen]
+
+    team_names = list(team_names)
+    if len(team_names) == 1:
+        parts.append(f"تیم {team_names[0]}")
+    elif team_names:
+        parts.append(f"{len(team_names)} تیم")
+
+    usernames = list(usernames)
+    if len(usernames) == 1:
+        parts.append(usernames[0])
+    elif usernames:
+        parts.append(f"{len(usernames)} نفر")
+
+    return "، ".join(parts) if parts else "بدون گیرنده"
+
+
+def describe_audience(message: Message) -> str:
+    """The same summary for a saved message, for the Sent list and the admin."""
+    return describe_selection(
+        scopes=message.scopes,
+        team_names=message.teams.values_list("name", flat=True),
+        usernames=message.users.values_list("username", flat=True),
+    )
 
 
 def audience_size(message: Message) -> int:
@@ -116,7 +213,10 @@ def send_message(message: Message) -> int:
         )
 
     logger.info(
-        "Message %s (%s) sent to %d recipient(s)", message.pk, message.audience, len(user_ids)
+        "Message %s (%s) sent to %d recipient(s)",
+        message.pk,
+        describe_audience(message),
+        len(user_ids),
     )
     return len(user_ids)
 
@@ -125,9 +225,9 @@ def announce(
     *,
     title: str,
     body: str = "",
-    audience: str = Audience.ALL,
-    audience_team=None,
-    audience_user=None,
+    scopes: list[str] | None = None,
+    teams=(),
+    users=(),
     event_key: str = "",
     sender=None,
     sender_label: str = "",
@@ -143,13 +243,15 @@ def announce(
         sent_at=timezone.now(),
         sender=sender,
         sender_label=sender_label or (SYSTEM_SENDER_LABEL if sender is None else ""),
-        audience=audience,
-        audience_team=audience_team,
-        audience_user=audience_user,
+        scopes=list(scopes or []),
         title=title,
         body=body,
         event_key=event_key,
     )
+    if teams:
+        message.teams.set(teams)
+    if users:
+        message.users.set(users)
     send_message(message)
     return message
 

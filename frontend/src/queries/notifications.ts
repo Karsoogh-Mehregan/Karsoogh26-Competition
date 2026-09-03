@@ -9,10 +9,18 @@ import {
   listMessages,
   markAllRead,
   markRead,
+  previewAudience,
   sendMessage,
   updateMessage,
 } from '@/services/notifications'
-import type { Inbox, Message, MessageDraft, ReadResult, SendResult } from '@/types/api'
+import type {
+  AudienceSelection,
+  Inbox,
+  Message,
+  MessageDraft,
+  ReadResult,
+  SendResult,
+} from '@/types/api'
 import { queryKeys } from './keys'
 
 // The stream is the live path; this only covers the window where it is down.
@@ -89,6 +97,30 @@ function invalidateBoxes(queryClient: ReturnType<typeof useQueryClient>) {
     // sees — and an announcer reading their own inbox in another tab counts.
     queryClient.invalidateQueries({ queryKey: queryKeys.inbox() }),
   ])
+}
+
+/**
+ * "This would reach N people", recomputed as the picker changes.
+ *
+ * A query rather than a mutation so the answer is cached per selection: tick a
+ * box, untick it, and the first result comes straight back. `enabled` keeps it
+ * quiet while nothing is selected, where the answer is trivially zero.
+ */
+export function useAudiencePreviewQuery(
+  selection: () => AudienceSelection,
+  enabled: () => boolean,
+) {
+  return useQuery({
+    queryKey: computed(() => {
+      const { scopes, teams, users } = selection()
+      return queryKeys.audiencePreview(
+        [scopes.join('+'), teams.join('+'), users.join('+')].join('|'),
+      )
+    }),
+    queryFn: () => previewAudience(selection()),
+    enabled,
+    staleTime: 30_000,
+  })
 }
 
 export function useCreateMessageMutation() {

@@ -4,8 +4,8 @@ from rest_framework import serializers
 from core.openapi import extend_schema_field
 from teams.models import Team
 
-from .models import Audience, Message, MessageStatus, Notification
-from .services import SYSTEM_SENDER_LABEL, audience_size
+from .models import AudienceScope, Message, MessageStatus, Notification
+from .services import SYSTEM_SENDER_LABEL, audience_size, describe_audience
 
 User = get_user_model()
 
@@ -119,7 +119,8 @@ class MessageSerializer(serializers.ModelSerializer):
 
     sender = serializers.SerializerMethodField()
     audience_label = serializers.SerializerMethodField()
-    audience_team = serializers.SlugRelatedField(slug_field="code", read_only=True)
+    teams = serializers.SlugRelatedField(slug_field="code", many=True, read_only=True)
+    users = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
     excerpt = serializers.CharField(read_only=True)
     recipient_count = serializers.SerializerMethodField()
     read_count = serializers.SerializerMethodField()
@@ -133,10 +134,10 @@ class MessageSerializer(serializers.ModelSerializer):
             "title",
             "body",
             "excerpt",
-            "audience",
+            "scopes",
+            "teams",
+            "users",
             "audience_label",
-            "audience_team",
-            "audience_user",
             "sender",
             "event_key",
             "created_at",
@@ -150,11 +151,7 @@ class MessageSerializer(serializers.ModelSerializer):
         return _sender_name(message)
 
     def get_audience_label(self, message: Message) -> str:
-        if message.audience == Audience.TEAM and message.audience_team_id:
-            return f"تیم {message.audience_team.name}"
-        if message.audience == Audience.USER and message.audience_user_id:
-            return message.audience_user.username
-        return Audience(message.audience).label
+        return describe_audience(message)
 
     @extend_schema_field(int)
     def get_recipient_count(self, message: Message) -> int:
@@ -174,44 +171,74 @@ class MessageSerializer(serializers.ModelSerializer):
         return message.notifications.filter(read_at__isnull=False).count()
 
 
-class MessageWriteSerializer(serializers.ModelSerializer):
-    """Compose or edit. `audience_team` is addressed by code, as everywhere else."""
+# The three ways to name recipients, shared verbatim by the composer and the
+# audience preview. Built fresh per serializer: a Field instance binds to its
+# parent, so one shared object cannot sit on two of them.
+def _scopes_field():
+    return serializers.ListField(
+        child=serializers.ChoiceField(choices=AudienceScope.choices),
+        required=False,
+        allow_empty=True,
+    )
 
-    audience_team = serializers.SlugRelatedField(
-        slug_field="code",
-        queryset=Team.objects.all(),
-        required=False,
-        allow_null=True,
+
+def _teams_field():
+    return serializers.SlugRelatedField(
+        slug_field="code", queryset=Team.objects.all(), many=True, required=False
     )
-    audience_user = serializers.PrimaryKeyRelatedField(
-        queryset=User.objects.filter(is_active=True),
-        required=False,
-        allow_null=True,
+
+
+def _users_field():
+    return serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(is_active=True), many=True, required=False
     )
+
+
+def _canonical_scopes(value):
+    """Order and repeats carry no meaning; store one canonical form so two
+    equivalent selections compare equal."""
+    chosen = set(value)
+    return [scope for scope in AudienceScope.values if scope in chosen]
+
+
+class AudienceSelectionSerializer(serializers.Serializer):
+    """Just the audience, for "how many would this reach?" before saving."""
+
+    scopes = _scopes_field()
+    teams = _teams_field()
+    users = _users_field()
+
+    def validate_scopes(self, value):
+        return _canonical_scopes(value)
+
+
+class MessageWriteSerializer(serializers.ModelSerializer):
+    """Compose or edit.
+
+    An empty audience is allowed here on purpose: you write the message first
+    and decide who reads it after. Sending with nothing selected is what gets
+    refused, in `MessageSendView`.
+    """
+
+    scopes = _scopes_field()
+    teams = _teams_field()
+    users = _users_field()
 
     class Meta:
         model = Message
-        fields = ("title", "body", "audience", "audience_team", "audience_user")
+        fields = ("title", "body", "scopes", "teams", "users")
 
-    def validate(self, attrs):
-        # A PATCH carries only what changed, so unset fields fall back to the row.
-        current = self.instance
-        audience = attrs.get("audience", getattr(current, "audience", Audience.ALL))
-        team = attrs.get("audience_team", getattr(current, "audience_team", None))
-        user = attrs.get("audience_user", getattr(current, "audience_user", None))
-
-        if audience == Audience.TEAM and team is None:
-            raise serializers.ValidationError({"audience_team": "یک تیم را انتخاب کنید."})
-        if audience == Audience.USER and user is None:
-            raise serializers.ValidationError({"audience_user": "یک گیرنده را انتخاب کنید."})
-
-        # Clear the field the chosen audience does not use, so the database
-        # constraint never has to reject something the API just accepted.
-        attrs["audience_team"] = team if audience == Audience.TEAM else None
-        attrs["audience_user"] = user if audience == Audience.USER else None
-        return attrs
+    def validate_scopes(self, value):
+        return _canonical_scopes(value)
 
 
 class SendResultSerializer(serializers.Serializer):
     message = MessageSerializer(read_only=True)
     delivered = serializers.IntegerField(read_only=True)
+
+
+class AudiencePreviewSerializer(serializers.Serializer):
+    """What a selection would reach, before anything is written."""
+
+    count = serializers.IntegerField(read_only=True)
+    label = serializers.CharField(read_only=True)

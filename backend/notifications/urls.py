@@ -12,6 +12,11 @@ urlpatterns = [
     # The composer. Announcers only, all four.
     path("messages/", views.MessageListView.as_view(), name="message-list"),
     path("messages/audiences/", views.AudienceOptionsView.as_view(), name="message-audiences"),
+    path(
+        "messages/audience-preview/",
+        views.AudiencePreviewView.as_view(),
+        name="message-audience-preview",
+    ),
     path("messages/<int:pk>/", views.MessageDetailView.as_view(), name="message-detail"),
     path("messages/<int:pk>/send/", views.MessageSendView.as_view(), name="message-send"),
 ]

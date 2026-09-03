@@ -96,11 +96,23 @@ it" (`Notification` — one row per recipient). `services.send_message` resolves
 count is then one indexed query, and a mentor added to a group an hour later must not
 retroactively appear to have been addressed. A draft has no `Notification` rows at all.
 The author is excluded from their own fan-out — an announcement belongs in Sent, not in its
-writer's bell. `services.users_with_perm` resolves the mentor/designer audiences by
-*explicit* grant and deliberately not through `has_perm`, which is True for every superuser;
-same reasoning as `accounts.permissions.has_game_god_rights`. A permission that does not
-exist yet (`game.design_map`, which arrives with the designer work) resolves to an empty
-audience rather than raising. Sending is gated on `notifications.send_announcement`
+writer's bell.
+
+**The audience is a union of three selections, not one choice.** `Message.scopes` is a list
+of `AudienceScope` values (`all` / `teams` / `mentors` / `designers`), and `Message.teams`
+and `Message.users` are M2Ms naming particular ones — so "these four teams plus every
+mentor" is one message. `services.resolve_audience` takes plain values so the composer's
+`POST /api/messages/audience-preview/` can count a selection that has not been saved yet;
+`recipients_for` is the thin wrapper over a saved row. Two traps live in there: it starts
+from `Q(pk__in=[])` because a bare `Q()` matches *everyone*, and `all` short-circuits the
+rest. Migrations 0004/0005 replaced the old single-target `audience`/`audience_team`/
+`audience_user` columns and backfilled them, so `scopes=['teams']` is what an old "all
+teams" row now looks like. An empty audience is legal on a draft and refused on send.
+`services.users_with_perm` resolves the mentor/designer scopes by *explicit* grant and
+deliberately not through `has_perm`, which is True for every superuser; same reasoning as
+`accounts.permissions.has_game_god_rights`. A permission that does not exist yet
+(`game.design_map`, which arrives with the designer work) resolves to an empty audience
+rather than raising. Sending is gated on `notifications.send_announcement`
 (`CanSendAnnouncement`), backed by its own **Notifier** group — running the clock and
 speaking to the hall are different jobs, so `migrations/0003` moved the grant off GameGods
 (carrying its members across) and onto Notifier; someone who does both goes in both groups.

@@ -25,7 +25,11 @@ EXCERPT_CHARS = 140
 
 
 class Audience(models.TextChoices):
-    """Who a message is aimed at. Resolved to users by `services.recipients_for`."""
+    """Superseded by `AudienceScope` plus the `teams`/`users` sets.
+
+    Kept only so migration 0004 can read the old single-target columns while it
+    copies them across. Nothing outside the migrations should use it.
+    """
 
     ALL = "all", "همه"
     TEAMS = "teams", "همهٔ تیم‌ها"
@@ -33,6 +37,23 @@ class Audience(models.TextChoices):
     DESIGNERS = "designers", "همهٔ طراحان"
     TEAM = "team", "یک تیم"
     USER = "user", "یک نفر"
+
+
+class AudienceScope(models.TextChoices):
+    """A whole category of recipients, chosen by name rather than listed out.
+
+    These compose: a message carries a *set* of scopes alongside an explicit
+    list of teams and an explicit list of people, and the recipients are the
+    union of all three. That is what lets "these four teams, plus every mentor"
+    be one message instead of two.
+
+    `ALL` swallows the rest, and `services.recipients_for` short-circuits on it.
+    """
+
+    ALL = "all", "همه"
+    TEAMS = "teams", "همهٔ تیم‌ها"
+    MENTORS = "mentors", "همهٔ منتورها"
+    DESIGNERS = "designers", "همهٔ طراحان"
 
 
 class MessageKind(models.TextChoices):
@@ -73,20 +94,23 @@ class Message(models.Model):
         help_text="What recipients see as the sender; survives the account being deleted.",
     )
 
-    audience = models.CharField(max_length=12, choices=Audience.choices, default=Audience.ALL)
-    audience_team = models.ForeignKey(
+    # The audience: whole categories by name, plus anyone named outright.
+    # A list rather than a column per scope so adding a category later is a code
+    # change, not a schema change — `Notifier` itself arrived that way.
+    # Validated against AudienceScope in the serializer; the database only
+    # guarantees it is JSON.
+    scopes = models.JSONField(default=list, blank=True)
+    teams = models.ManyToManyField(
         "teams.Team",
-        null=True,
         blank=True,
-        on_delete=models.CASCADE,
-        related_name="addressed_messages",
+        related_name="targeted_messages",
+        help_text="Named teams, on top of whatever the scopes already cover.",
     )
-    audience_user = models.ForeignKey(
+    users = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
-        null=True,
         blank=True,
-        on_delete=models.CASCADE,
-        related_name="addressed_messages",
+        related_name="targeted_messages",
+        help_text="Named people, on top of whatever the scopes already cover.",
     )
 
     title = models.CharField(max_length=TITLE_MAX)
@@ -107,22 +131,6 @@ class Message(models.Model):
         # running the game either.
         permissions = [("send_announcement", "Can send announcements")]
         constraints = [
-            # A team-addressed message needs a team, and only a team-addressed
-            # one may carry it. Same for a single user.
-            CheckConstraint(
-                condition=(
-                    Q(audience=Audience.TEAM, audience_team__isnull=False)
-                    | (~Q(audience=Audience.TEAM) & Q(audience_team__isnull=True))
-                ),
-                name="message_team_audience_has_team",
-            ),
-            CheckConstraint(
-                condition=(
-                    Q(audience=Audience.USER, audience_user__isnull=False)
-                    | (~Q(audience=Audience.USER) & Q(audience_user__isnull=True))
-                ),
-                name="message_user_audience_has_user",
-            ),
             CheckConstraint(
                 condition=(
                     Q(status=MessageStatus.DRAFT, sent_at__isnull=True)
@@ -147,6 +155,16 @@ class Message(models.Model):
     @property
     def is_draft(self) -> bool:
         return self.status == MessageStatus.DRAFT
+
+    @property
+    def has_audience(self) -> bool:
+        """Whether anything at all is selected.
+
+        A draft is allowed to have nobody chosen yet — you write first and
+        decide who reads it after. Sending with nothing selected is refused,
+        because it would silently succeed and reach no one.
+        """
+        return bool(self.scopes) or self.teams.exists() or self.users.exists()
 
     @property
     def excerpt(self) -> str:

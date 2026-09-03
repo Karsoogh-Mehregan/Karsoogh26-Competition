@@ -1,6 +1,8 @@
 import { del, get, patch, post } from '@/lib/http'
 import type {
   AudienceOptions,
+  AudiencePreview,
+  AudienceSelection,
   Inbox,
   Message,
   MessageDraft,
@@ -42,6 +44,10 @@ export function updateMessage(id: number, draft: Partial<MessageDraft>): Promise
 
 export function deleteMessage(id: number): Promise<void> {
   return del<void>(`/messages/${id}/`)
+}
+
+export function previewAudience(selection: AudienceSelection): Promise<AudiencePreview> {
+  return post<AudiencePreview>('/messages/audience-preview/', selection)
 }
 
 export function sendMessage(id: number): Promise<SendResult> {

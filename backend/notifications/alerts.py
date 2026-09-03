@@ -12,7 +12,7 @@ a team only for something that happened *to* it and that it did not just do.
 
 import logging
 
-from .models import Audience
+from .models import AudienceScope
 from .services import announce
 
 logger = logging.getLogger("karsoogh")
@@ -51,8 +51,7 @@ def grade_posted(occupancy) -> None:
         announce,
         title=title,
         body=body,
-        audience=Audience.TEAM,
-        audience_team=occupancy.team,
+        teams=[occupancy.team],
         event_key="grade.posted",
     )
 
@@ -67,8 +66,7 @@ def floor_promoted(occupancy) -> None:
             f"با ورود تیم تازه به این خانه، رتبه‌بندی واحدها به‌روز شد و "
             f"شما به طبقهٔ {occupancy.floor} رسیدید. امتیاز اختلاف به موجودی شما اضافه شد."
         ),
-        audience=Audience.TEAM,
-        audience_team=occupancy.team,
+        teams=[occupancy.team],
         event_key="floor.promoted",
     )
 
@@ -83,8 +81,7 @@ def attempt_expired(occupancy) -> None:
             "پاسخی پیش از پایان مهلت ثبت نشد، بنابراین این ظرفیت آزاد شد و آن سؤال "
             "برای تیم شما سوخت. هزینهٔ ورود برگردانده نمی‌شود."
         ),
-        audience=Audience.TEAM,
-        audience_team=occupancy.team,
+        teams=[occupancy.team],
         event_key="attempt.expired",
     )
 
@@ -119,6 +116,6 @@ def game_status_changed(status: str) -> None:
         announce,
         title=title,
         body=body,
-        audience=Audience.ALL,
+        scopes=[AudienceScope.ALL],
         event_key="game.status",
     )

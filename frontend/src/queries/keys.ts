@@ -14,4 +14,5 @@ export const queryKeys = {
   messagesRoot: () => ['messages'] as const,
   messages: (status: 'draft' | 'sent') => ['messages', status] as const,
   audienceOptions: () => ['audience-options'] as const,
+  audiencePreview: (key: string) => ['audience-preview', key] as const,
 }

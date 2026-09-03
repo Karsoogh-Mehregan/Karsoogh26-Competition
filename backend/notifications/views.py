@@ -13,10 +13,12 @@ from game.api_exceptions import Conflict
 from teams.models import Team
 
 from . import services
-from .models import Audience, Message, MessageStatus
+from .models import AudienceScope, Message, MessageStatus
 from .permissions import CanSendAnnouncement
 from .serializers import (
     AudienceOptionsSerializer,
+    AudiencePreviewSerializer,
+    AudienceSelectionSerializer,
     InboxSerializer,
     MarkReadSerializer,
     MessageSerializer,
@@ -177,7 +179,7 @@ class AudienceOptionsView(APIView):
             AudienceOptionsSerializer(
                 {
                     "choices": [
-                        {"value": value, "label": label} for value, label in Audience.choices
+                        {"value": value, "label": label} for value, label in AudienceScope.choices
                     ],
                     "teams": Team.objects.order_by("name"),
                     "users": (
@@ -188,6 +190,47 @@ class AudienceOptionsView(APIView):
                 }
             ).data
         )
+
+
+@extend_schema(
+    tags=["notifications"],
+    summary="How many people a selection would reach",
+    description=(
+        "Counts the recipients of an audience without writing anything. The composer "
+        "calls it as the picker changes, so an announcer can see that four teams means "
+        "four people before committing. Excludes the caller, exactly as a real send does."
+    ),
+    request=AudienceSelectionSerializer,
+    responses=AudiencePreviewSerializer,
+    examples=[
+        OpenApiExample(
+            "request",
+            value={"scopes": ["mentors"], "teams": ["alpha", "beta"], "users": []},
+            request_only=True,
+        ),
+        OpenApiExample(
+            "reach", value={"count": 11, "label": "همهٔ منتورها، ۲ تیم"}, response_only=True
+        ),
+    ],
+)
+class AudiencePreviewView(APIView):
+    permission_classes = [CanSendAnnouncement]
+    serializer_class = AudienceSelectionSerializer
+
+    def post(self, request):
+        payload = AudienceSelectionSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        data = payload.validated_data
+
+        # An unsaved instance is enough: `recipients_for` only reads the three
+        # selections and the sender, and building one avoids a throwaway row.
+        preview = Message(scopes=data.get("scopes", []), sender=request.user)
+        count, label = services.preview_audience(
+            preview,
+            teams=data.get("teams", []),
+            users=data.get("users", []),
+        )
+        return Response({"count": count, "label": label})
 
 
 class MessageViewBase(APIView):
@@ -205,7 +248,8 @@ class MessageViewBase(APIView):
             Message.objects.filter(
                 Q(status=MessageStatus.SENT) | Q(sender=request.user),
             )
-            .select_related("sender", "audience_team", "audience_user")
+            .select_related("sender")
+            .prefetch_related("teams", "users")
             .annotate(
                 delivered_count=Count("notifications", distinct=True),
                 opened_count=Count(
@@ -262,6 +306,8 @@ class MessageListView(MessageViewBase):
         )
 
         if request.data.get("send") is True:
+            if not message.has_audience:
+                raise Conflict("گیرنده‌ای انتخاب نشده است.")
             delivered = services.send_message(message)
             message.refresh_from_db()
             return Response(
@@ -338,6 +384,10 @@ class MessageSendView(MessageViewBase):
         message = get_object_or_404(self.queryset(request), pk=pk)
         if message.status == MessageStatus.SENT:
             raise Conflict("این پیام قبلاً ارسال شده است.")
+        # Refused rather than sent to nobody: an empty audience would report
+        # success and reach no one, which is the worst of both.
+        if not message.has_audience:
+            raise Conflict("گیرنده‌ای انتخاب نشده است.")
 
         delivered = services.send_message(message)
         message.refresh_from_db()

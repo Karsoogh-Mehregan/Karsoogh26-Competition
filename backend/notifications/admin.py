@@ -1,7 +1,7 @@
 from django.contrib import admin, messages
 
-from . import services
 from .models import Message, MessageStatus, Notification
+from .services import describe_audience, send_message
 
 
 class NotificationInline(admin.TabularInline):
@@ -28,13 +28,18 @@ class MessageAdmin(admin.ModelAdmin):
         "created_at",
         "sent_at",
     )
-    list_filter = ("kind", "status", "audience")
+    list_filter = ("kind", "status")
     search_fields = ("title", "body", "sender_label")
-    list_select_related = ("sender", "audience_team", "audience_user")
-    autocomplete_fields = ("audience_team", "audience_user", "sender")
+    list_select_related = ("sender",)
+    autocomplete_fields = ("sender",)
+    filter_horizontal = ("teams", "users")
     readonly_fields = ("created_at", "updated_at", "sent_at", "status")
     inlines = [NotificationInline]
     actions = ["send_now"]
+
+    @admin.display(description="audience")
+    def audience(self, message: Message) -> str:
+        return describe_audience(message)
 
     @admin.display(description="delivered")
     def delivered(self, message: Message) -> int:
@@ -53,7 +58,7 @@ class MessageAdmin(admin.ModelAdmin):
         """
         sent = 0
         for message in queryset.filter(status=MessageStatus.DRAFT):
-            services.send_message(message)
+            send_message(message)
             sent += 1
         self.message_user(request, f"{sent} draft(s) sent.", messages.SUCCESS)
 

@@ -178,7 +178,8 @@ export interface EntryAnswerResult extends EntrySheet {
 
 export type MessageKind = 'announcement' | 'system'
 export type MessageStatus = 'draft' | 'sent'
-export type Audience = 'all' | 'teams' | 'mentors' | 'designers' | 'team' | 'user'
+/** A whole category of recipients. Composes with explicit team/person picks. */
+export type AudienceScope = 'all' | 'teams' | 'mentors' | 'designers'
 
 export interface InboxItem {
   id: number
@@ -206,7 +207,7 @@ export interface ReadResult {
 }
 
 export interface AudienceChoice {
-  value: Audience
+  value: AudienceScope
   label: string
 }
 
@@ -230,10 +231,12 @@ export interface Message {
   title: string
   body: string
   excerpt: string
-  audience: Audience
+  scopes: AudienceScope[]
+  /** Team codes. */
+  teams: string[]
+  /** User ids. */
+  users: number[]
   audience_label: string
-  audience_team: string | null
-  audience_user: number | null
   sender: string
   event_key: string
   created_at: string
@@ -247,10 +250,22 @@ export interface Message {
 export interface MessageDraft {
   title: string
   body: string
-  audience: Audience
-  audience_team?: string | null
-  audience_user?: number | null
+  scopes: AudienceScope[]
+  teams: string[]
+  users: number[]
   send?: boolean
+}
+
+/** Just the audience, for the composer's live "this would reach N people". */
+export interface AudienceSelection {
+  scopes: AudienceScope[]
+  teams: string[]
+  users: number[]
+}
+
+export interface AudiencePreview {
+  count: number
+  label: string
 }
 
 export interface SendResult {

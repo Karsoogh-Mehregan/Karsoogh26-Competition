@@ -13,7 +13,13 @@ from django.utils import timezone
 from game.services import events
 from game.sse import build_frame
 from notifications import services
-from notifications.models import Audience, Message, MessageKind, MessageStatus, Notification
+from notifications.models import (
+    AudienceScope,
+    Message,
+    MessageKind,
+    MessageStatus,
+    Notification,
+)
 from teams.models import Team
 
 pytestmark = pytest.mark.django_db
@@ -87,26 +93,33 @@ def session(user) -> Client:
     return client
 
 
-def draft(**kwargs) -> Message:
-    return Message.objects.create(
+def draft(*, teams=(), users=(), **kwargs) -> Message:
+    """A message with an audience. `teams`/`users` are seated after create,
+    because a many-to-many needs a primary key to hang off."""
+    message = Message.objects.create(
         title=kwargs.pop("title", "خبر"),
         body=kwargs.pop("body", "متن خبر"),
         **kwargs,
     )
+    if teams:
+        message.teams.set(teams)
+    if users:
+        message.users.set(users)
+    return message
 
 
 # ---- audience resolution ---------------------------------------------------
 
 
 def test_all_reaches_everyone(alpha_user, beta_user, mentor_user):
-    delivered = services.send_message(draft(audience=Audience.ALL))
+    delivered = services.send_message(draft(scopes=[AudienceScope.ALL]))
 
     assert delivered == 3
     assert Notification.objects.count() == 3
 
 
 def test_teams_reaches_only_accounts_with_a_team(alpha_user, beta_user, mentor_user):
-    services.send_message(draft(audience=Audience.TEAMS))
+    services.send_message(draft(scopes=[AudienceScope.TEAMS]))
 
     assert set(Notification.objects.values_list("user__username", flat=True)) == {
         "alpha-user",
@@ -115,7 +128,7 @@ def test_teams_reaches_only_accounts_with_a_team(alpha_user, beta_user, mentor_u
 
 
 def test_mentors_reaches_the_mentors_group(alpha_user, mentor_user):
-    services.send_message(draft(audience=Audience.MENTORS))
+    services.send_message(draft(scopes=[AudienceScope.MENTORS]))
 
     assert list(Notification.objects.values_list("user__username", flat=True)) == ["mentor"]
 
@@ -128,7 +141,7 @@ def test_a_superuser_is_not_swept_into_the_mentor_audience(mentor_user):
     """
     User.objects.create_superuser("root", password="x")
 
-    services.send_message(draft(audience=Audience.MENTORS))
+    services.send_message(draft(scopes=[AudienceScope.MENTORS]))
 
     assert list(Notification.objects.values_list("user__username", flat=True)) == ["mentor"]
 
@@ -139,7 +152,7 @@ def test_designers_reaches_nobody_until_the_permission_exists(alpha_user, mentor
     Resolving it must be an empty audience, not a crash — the picker offers the
     option regardless.
     """
-    assert services.send_message(draft(audience=Audience.DESIGNERS)) == 0
+    assert services.send_message(draft(scopes=[AudienceScope.DESIGNERS])) == 0
 
 
 def test_designers_reaches_the_group_once_the_permission_is_there(alpha_user):
@@ -155,7 +168,7 @@ def test_designers_reaches_the_group_once_the_permission_is_there(alpha_user):
     # row above landed on rather than hardcoding one.
     services.DESIGNER_PERM = f"{permission.content_type.app_label}.design_map"
     try:
-        delivered = services.send_message(draft(audience=Audience.DESIGNERS))
+        delivered = services.send_message(draft(scopes=[AudienceScope.DESIGNERS]))
     finally:
         services.DESIGNER_PERM = "game.design_map"
 
@@ -164,20 +177,20 @@ def test_designers_reaches_the_group_once_the_permission_is_there(alpha_user):
 
 
 def test_team_audience_reaches_one_team(alpha_user, beta_user, alpha):
-    services.send_message(draft(audience=Audience.TEAM, audience_team=alpha))
+    services.send_message(draft(teams=[alpha]))
 
     assert Notification.objects.get().user == alpha_user
 
 
 def test_user_audience_reaches_one_person(alpha_user, beta_user):
-    services.send_message(draft(audience=Audience.USER, audience_user=beta_user))
+    services.send_message(draft(users=[beta_user]))
 
     assert Notification.objects.get().user == beta_user
 
 
 def test_the_sender_is_not_a_recipient(alpha_user, announcer):
     """A sent announcement belongs in the Sent box, not the author's own bell."""
-    services.send_message(draft(audience=Audience.ALL, sender=announcer))
+    services.send_message(draft(scopes=[AudienceScope.ALL], sender=announcer))
 
     assert list(Notification.objects.values_list("user__username", flat=True)) == ["alpha-user"]
 
@@ -186,14 +199,14 @@ def test_inactive_accounts_are_skipped(alpha_user, beta_user):
     beta_user.is_active = False
     beta_user.save(update_fields=["is_active"])
 
-    assert services.send_message(draft(audience=Audience.ALL)) == 1
+    assert services.send_message(draft(scopes=[AudienceScope.ALL])) == 1
 
 
 # ---- sending ---------------------------------------------------------------
 
 
 def test_a_draft_delivers_nothing_until_it_is_sent(alpha_user):
-    message = draft(audience=Audience.ALL)
+    message = draft(scopes=[AudienceScope.ALL])
 
     assert message.status == MessageStatus.DRAFT
     assert Notification.objects.count() == 0
@@ -207,7 +220,7 @@ def test_a_draft_delivers_nothing_until_it_is_sent(alpha_user):
 
 
 def test_sending_twice_does_not_duplicate(alpha_user):
-    message = draft(audience=Audience.ALL)
+    message = draft(scopes=[AudienceScope.ALL])
     services.send_message(message)
     services.send_message(message)
 
@@ -225,7 +238,7 @@ def test_send_publishes_a_frame_addressed_to_its_recipients(
     )
 
     with django_capture_on_commit_callbacks(execute=True):
-        services.send_message(draft(audience=Audience.USER, audience_user=beta_user))
+        services.send_message(draft(users=[beta_user]))
 
     assert len(calls) == 1
     kind, payload, recipients = calls[0]
@@ -252,7 +265,7 @@ def test_an_unaddressed_frame_reaches_everyone():
 
 
 def test_inbox_shows_only_my_own(alpha_user, beta_user, alpha):
-    services.send_message(draft(audience=Audience.TEAM, audience_team=alpha, title="فقط آلفا"))
+    services.send_message(draft(teams=[alpha], title="فقط آلفا"))
 
     body = session(alpha_user).get(INBOX_URL).json()
     assert [row["title"] for row in body["results"]] == ["فقط آلفا"]
@@ -262,7 +275,7 @@ def test_inbox_shows_only_my_own(alpha_user, beta_user, alpha):
 
 
 def test_inbox_card_carries_what_the_panel_renders(alpha_user, announcer):
-    message = draft(audience=Audience.ALL, sender=announcer, sender_label="داور اصلی")
+    message = draft(scopes=[AudienceScope.ALL], sender=announcer, sender_label="داور اصلی")
     services.send_message(message)
 
     row = session(alpha_user).get(INBOX_URL).json()["results"][0]
@@ -275,7 +288,7 @@ def test_inbox_card_carries_what_the_panel_renders(alpha_user, announcer):
 
 
 def test_excerpt_is_trimmed_but_the_body_is_whole(alpha_user):
-    services.send_message(draft(audience=Audience.ALL, body="ب" * 400))
+    services.send_message(draft(scopes=[AudienceScope.ALL], body="ب" * 400))
 
     row = session(alpha_user).get(INBOX_URL).json()["results"][0]
 
@@ -285,7 +298,7 @@ def test_excerpt_is_trimmed_but_the_body_is_whole(alpha_user):
 
 
 def test_marking_read_drops_the_unread_count(alpha_user):
-    services.send_message(draft(audience=Audience.ALL))
+    services.send_message(draft(scopes=[AudienceScope.ALL]))
     client = session(alpha_user)
     notification_id = client.get(INBOX_URL).json()["results"][0]["id"]
 
@@ -296,7 +309,7 @@ def test_marking_read_drops_the_unread_count(alpha_user):
 
 
 def test_marking_read_is_idempotent(alpha_user):
-    services.send_message(draft(audience=Audience.ALL))
+    services.send_message(draft(scopes=[AudienceScope.ALL]))
     client = session(alpha_user)
     notification_id = client.get(INBOX_URL).json()["results"][0]["id"]
     payload = {"ids": [notification_id]}
@@ -311,7 +324,7 @@ def test_marking_read_is_idempotent(alpha_user):
 
 
 def test_i_cannot_mark_someone_elses_notification_read(alpha_user, beta_user):
-    services.send_message(draft(audience=Audience.ALL))
+    services.send_message(draft(scopes=[AudienceScope.ALL]))
     theirs = Notification.objects.get(user=beta_user)
 
     body = (
@@ -327,7 +340,7 @@ def test_i_cannot_mark_someone_elses_notification_read(alpha_user, beta_user):
 
 def test_mark_all_read(alpha_user):
     for index in range(3):
-        services.send_message(draft(audience=Audience.ALL, title=f"خبر {index}"))
+        services.send_message(draft(scopes=[AudienceScope.ALL], title=f"خبر {index}"))
 
     body = session(alpha_user).post(READ_ALL_URL).json()
 
@@ -335,8 +348,8 @@ def test_mark_all_read(alpha_user):
 
 
 def test_unread_filter(alpha_user):
-    services.send_message(draft(audience=Audience.ALL, title="یک"))
-    services.send_message(draft(audience=Audience.ALL, title="دو"))
+    services.send_message(draft(scopes=[AudienceScope.ALL], title="یک"))
+    services.send_message(draft(scopes=[AudienceScope.ALL], title="دو"))
     client = session(alpha_user)
     first = client.get(INBOX_URL).json()["results"][-1]["id"]
     client.post(READ_URL, {"ids": [first]}, content_type="application/json")
@@ -355,7 +368,7 @@ def test_the_inbox_needs_a_session():
 
 def test_only_an_announcer_may_compose(alpha_user, mentor_user, game_god, announcer):
     """Notifier alone. Running the clock is not a licence to speak to the hall."""
-    payload = {"title": "خبر", "body": "متن", "audience": "all"}
+    payload = {"title": "خبر", "body": "متن", "scopes": ["all"]}
 
     assert session(alpha_user).post(MESSAGES_URL, payload, "application/json").status_code == 403
     assert session(mentor_user).post(MESSAGES_URL, payload, "application/json").status_code == 403
@@ -382,7 +395,7 @@ def test_me_reports_the_right_to_announce(announcer, mentor_user):
 def test_posting_saves_a_draft_and_delivers_nothing(announcer, alpha_user):
     response = session(announcer).post(
         MESSAGES_URL,
-        {"title": "خبر", "body": "متن", "audience": "all"},
+        {"title": "خبر", "body": "متن", "scopes": ["all"]},
         content_type="application/json",
     )
 
@@ -396,7 +409,7 @@ def test_posting_saves_a_draft_and_delivers_nothing(announcer, alpha_user):
 def test_posting_with_send_true_delivers_at_once(announcer, alpha_user):
     response = session(announcer).post(
         MESSAGES_URL,
-        {"title": "خبر", "body": "متن", "audience": "all", "send": True},
+        {"title": "خبر", "body": "متن", "scopes": ["all"], "send": True},
         content_type="application/json",
     )
 
@@ -409,7 +422,7 @@ def test_sending_a_draft(announcer, alpha_user):
     client = session(announcer)
     message_id = client.post(
         MESSAGES_URL,
-        {"title": "خبر", "body": "متن", "audience": "all"},
+        {"title": "خبر", "body": "متن", "scopes": ["all"]},
         content_type="application/json",
     ).json()["id"]
 
@@ -422,7 +435,7 @@ def test_sending_a_draft(announcer, alpha_user):
 
 def test_a_sent_message_cannot_be_sent_again(announcer, alpha_user):
     client = session(announcer)
-    message = draft(audience=Audience.ALL, sender=announcer)
+    message = draft(scopes=[AudienceScope.ALL], sender=announcer)
     client.post(send_url(message.pk))
 
     assert client.post(send_url(message.pk)).status_code == 409
@@ -431,7 +444,7 @@ def test_a_sent_message_cannot_be_sent_again(announcer, alpha_user):
 def test_a_sent_message_cannot_be_edited_or_deleted(announcer, alpha_user):
     """It is already in other people's inboxes; editing would rewrite history."""
     client = session(announcer)
-    message = draft(audience=Audience.ALL, sender=announcer)
+    message = draft(scopes=[AudienceScope.ALL], sender=announcer)
     services.send_message(message)
 
     edited = client.patch(
@@ -444,7 +457,7 @@ def test_a_sent_message_cannot_be_edited_or_deleted(announcer, alpha_user):
 
 def test_a_draft_can_be_edited_and_discarded(announcer):
     client = session(announcer)
-    message = draft(audience=Audience.ALL, sender=announcer)
+    message = draft(scopes=[AudienceScope.ALL], sender=announcer)
 
     edited = client.patch(
         message_url(message.pk), {"title": "عنوان تازه"}, content_type="application/json"
@@ -456,37 +469,128 @@ def test_a_draft_can_be_edited_and_discarded(announcer):
     assert not Message.objects.filter(pk=message.pk).exists()
 
 
-def test_a_team_audience_needs_a_team(announcer, alpha):
+def test_several_teams_at_once(announcer, alpha, beta, alpha_user, beta_user):
+    """The point of the whole change: some teams, not one and not all."""
     response = session(announcer).post(
         MESSAGES_URL,
-        {"title": "خبر", "body": "متن", "audience": "team"},
+        {
+            "title": "خبر",
+            "body": "متن",
+            "scopes": [],
+            "teams": ["alpha", "beta"],
+            "send": True,
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert response.json()["delivered"] == 2
+    assert set(Notification.objects.values_list("user__username", flat=True)) == {
+        "alpha-user",
+        "beta-user",
+    }
+
+
+def test_scopes_and_teams_are_unioned(announcer, alpha, beta, alpha_user, mentor_user):
+    """ "these teams, plus every mentor" — one message, not two."""
+    response = session(announcer).post(
+        MESSAGES_URL,
+        {
+            "title": "خبر",
+            "body": "متن",
+            "scopes": ["mentors"],
+            "teams": ["alpha"],
+            "send": True,
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert set(Notification.objects.values_list("user__username", flat=True)) == {
+        "alpha-user",
+        "mentor",
+    }
+
+
+def test_overlapping_selections_deliver_once(announcer, alpha, alpha_user):
+    """A team named outright *and* covered by a scope is still one notification."""
+    services.send_message(draft(scopes=[AudienceScope.TEAMS], teams=[alpha]))
+
+    assert Notification.objects.filter(user=alpha_user).count() == 1
+
+
+def test_several_people_at_once(announcer, alpha_user, beta_user, mentor_user):
+    response = session(announcer).post(
+        MESSAGES_URL,
+        {
+            "title": "خبر",
+            "body": "متن",
+            "users": [alpha_user.pk, mentor_user.pk],
+            "send": True,
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert set(Notification.objects.values_list("user__username", flat=True)) == {
+        "alpha-user",
+        "mentor",
+    }
+
+
+def test_an_unknown_scope_is_refused(announcer):
+    response = session(announcer).post(
+        MESSAGES_URL,
+        {"title": "خبر", "body": "متن", "scopes": ["everyone-ish"]},
         content_type="application/json",
     )
 
     assert response.status_code == 400
-    assert "audience_team" in response.json()
+    assert "scopes" in response.json()
 
 
-def test_switching_away_from_a_team_audience_clears_the_team(announcer, alpha):
+def test_scopes_are_stored_canonically(announcer):
+    """Order and repeats carry no meaning, so two equal selections compare equal."""
+    body = (
+        session(announcer)
+        .post(
+            MESSAGES_URL,
+            {"title": "خبر", "body": "م", "scopes": ["mentors", "teams", "mentors"]},
+            content_type="application/json",
+        )
+        .json()
+    )
+
+    assert body["scopes"] == ["teams", "mentors"]
+
+
+def test_a_draft_may_have_no_audience_but_cannot_be_sent(announcer):
+    """You write first and decide who reads it after; sending needs a decision."""
     client = session(announcer)
     message_id = client.post(
         MESSAGES_URL,
-        {"title": "خبر", "body": "م", "audience": "team", "audience_team": "alpha"},
+        {"title": "خبر", "body": "متن"},
         content_type="application/json",
     ).json()["id"]
 
-    body = client.patch(
-        message_url(message_id), {"audience": "all"}, content_type="application/json"
-    ).json()
+    assert client.post(send_url(message_id)).status_code == 409
 
-    assert body["audience_team"] is None
+
+def test_choosing_everyone_still_beats_the_named_picks(announcer, alpha, alpha_user, mentor_user):
+    """`all` short-circuits: naming a team alongside it changes nothing.
+
+    Three recipients, not two: this draft has no sender, so nobody is excluded.
+    """
+    services.send_message(draft(scopes=[AudienceScope.ALL], teams=[alpha]))
+
+    assert Notification.objects.count() == 3
 
 
 def test_another_announcers_draft_stays_private(announcer, alpha_user):
     other = User.objects.create_user("boss2", password="x")
     other.groups.add(Group.objects.get(name="GameGods"))
-    mine = draft(audience=Audience.ALL, sender=announcer, title="مال من")
-    theirs = draft(audience=Audience.ALL, sender=other, title="مال او")
+    mine = draft(scopes=[AudienceScope.ALL], sender=announcer, title="مال من")
+    theirs = draft(scopes=[AudienceScope.ALL], sender=other, title="مال او")
 
     titles = [row["title"] for row in session(announcer).get(f"{MESSAGES_URL}?status=draft").json()]
 
@@ -498,7 +602,7 @@ def test_another_announcers_draft_stays_private(announcer, alpha_user):
 def test_sent_messages_are_the_shared_record(announcer, alpha_user):
     other = User.objects.create_user("boss2", password="x")
     other.groups.add(Group.objects.get(name="GameGods"))
-    services.send_message(draft(audience=Audience.ALL, sender=other, title="مال او"))
+    services.send_message(draft(scopes=[AudienceScope.ALL], sender=other, title="مال او"))
 
     titles = [row["title"] for row in session(announcer).get(f"{MESSAGES_URL}?status=sent").json()]
 
@@ -506,7 +610,7 @@ def test_sent_messages_are_the_shared_record(announcer, alpha_user):
 
 
 def test_sent_rows_count_deliveries_and_reads(announcer, alpha_user, beta_user):
-    message = draft(audience=Audience.ALL, sender=announcer)
+    message = draft(scopes=[AudienceScope.ALL], sender=announcer)
     services.send_message(message)
     Notification.objects.filter(user=alpha_user).update(read_at=timezone.now())
 
@@ -520,7 +624,7 @@ def test_audience_options_are_announcer_only(announcer, alpha_user, alpha):
 
     body = session(announcer).get(AUDIENCES_URL).json()
 
-    assert {choice["value"] for choice in body["choices"]} == set(Audience.values)
+    assert {choice["value"] for choice in body["choices"]} == set(AudienceScope.values)
     assert [team["code"] for team in body["teams"]] == ["alpha"]
     assert {user["username"] for user in body["users"]} == {"boss", "alpha-user"}
 
@@ -532,8 +636,7 @@ def test_announce_writes_a_system_message(alpha_user, alpha):
     message = services.announce(
         title="زمان تمام شد",
         body="متن",
-        audience=Audience.TEAM,
-        audience_team=alpha,
+        teams=[alpha],
         event_key="attempt.expired",
     )
 
@@ -607,3 +710,65 @@ def test_an_alert_that_fails_does_not_take_the_move_down(alpha, monkeypatch, cap
         alerts.grade_posted(FakeOccupancy())
 
     assert "Notification failed" in caplog.text
+
+
+# ---- the audience preview --------------------------------------------------
+
+
+PREVIEW_URL = "/api/messages/audience-preview/"
+
+
+def test_preview_counts_without_writing_anything(announcer, alpha, beta, alpha_user, beta_user):
+    body = (
+        session(announcer)
+        .post(
+            PREVIEW_URL,
+            {"scopes": [], "teams": ["alpha", "beta"], "users": []},
+            content_type="application/json",
+        )
+        .json()
+    )
+
+    assert body["count"] == 2
+    assert body["label"] == "۲ تیم".replace("۲", "2")
+    assert Message.objects.count() == 0
+
+
+def test_preview_excludes_the_caller(announcer, alpha_user):
+    """It has to match what a real send would do, or the number lies."""
+    body = (
+        session(announcer)
+        .post(
+            PREVIEW_URL,
+            {"scopes": ["all"], "users": [announcer.pk]},
+            content_type="application/json",
+        )
+        .json()
+    )
+
+    assert body["count"] == 1
+    assert body["label"] == "همه"
+
+
+def test_preview_is_announcer_only(alpha_user):
+    assert (
+        session(alpha_user)
+        .post(PREVIEW_URL, {"scopes": ["all"]}, content_type="application/json")
+        .status_code
+        == 403
+    )
+
+
+def test_preview_of_nothing_is_zero(announcer, alpha_user):
+    body = session(announcer).post(PREVIEW_URL, {}, content_type="application/json").json()
+
+    assert body["count"] == 0
+    assert body["label"] == "بدون گیرنده"
+
+
+def test_audience_label_names_one_team_but_counts_many(announcer, alpha, beta):
+    one = draft(teams=[alpha])
+    many = draft(teams=[alpha, beta])
+
+    assert services.describe_audience(one) == "تیم Alpha"
+    assert services.describe_audience(many) == "2 تیم"

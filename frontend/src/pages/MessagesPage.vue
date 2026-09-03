@@ -3,18 +3,15 @@
  * The composer: write, keep as a draft, send.
  *
  * Laid out like a mail client because that is the mental model the brief asked
- * for — three boxes down the side, one editor in the middle. Only the audience
- * picker is unusual, and only because "everyone" here means six different
- * things.
- *
- * Native `<select>`s: the shadcn-vue registry is unreachable from this machine
- * (see docs/house-view.md), and a hand-written copy of their Select gets the
- * Reka primitives wrong.
+ * for — three boxes across the top, one editor beneath. The audience is the
+ * only unusual part and it lives in `AudiencePicker`, because "who gets this"
+ * is a set of three overlapping selections rather than one dropdown.
  */
 import { Loader2Icon, PencilIcon, SendIcon, TrashIcon } from '@lucide/vue'
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { toast } from 'vue-sonner'
 
+import AudiencePicker from '@/components/AudiencePicker.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -25,13 +22,14 @@ import { formatRelativeTime } from '@/lib/format'
 import { ApiError } from '@/lib/http'
 import {
   useAudienceOptionsQuery,
+  useAudiencePreviewQuery,
   useCreateMessageMutation,
   useDeleteMessageMutation,
   useMessagesQuery,
   useSendMessageMutation,
   useUpdateMessageMutation,
 } from '@/queries/notifications'
-import type { Audience, Message, MessageDraft } from '@/types/api'
+import type { AudienceScope, Message, MessageDraft } from '@/types/api'
 
 type Box = 'compose' | 'draft' | 'sent'
 
@@ -54,9 +52,9 @@ const box = ref<Box>('compose')
 // The message being edited, or null for a fresh one. Only drafts are editable,
 // so this is always either null or a draft.
 const editingId = ref<number | null>(null)
-const audience = ref<Audience>('all')
-const teamCode = ref<string>('')
-const userId = ref<number | null>(null)
+const scopes = ref<AudienceScope[]>([])
+const pickedTeams = ref<string[]>([])
+const pickedUsers = ref<number[]>([])
 const title = ref('')
 const body = ref('')
 
@@ -66,8 +64,18 @@ const users = computed(() => optionsQuery.data.value?.users ?? [])
 const drafts = computed<Message[]>(() => draftsQuery.data.value ?? [])
 const sent = computed<Message[]>(() => sentQuery.data.value ?? [])
 
-const needsTeam = computed(() => audience.value === 'team')
-const needsUser = computed(() => audience.value === 'user')
+const selection = () => ({
+  scopes: scopes.value,
+  teams: pickedTeams.value,
+  users: pickedUsers.value,
+})
+
+const hasAudience = computed(
+  () => scopes.value.length > 0 || pickedTeams.value.length > 0 || pickedUsers.value.length > 0,
+)
+
+// Live reach, so an announcer sees "4 teams — 4 people" before committing.
+const previewQuery = useAudiencePreviewQuery(selection, () => hasAudience.value)
 
 const busy = computed(
   () =>
@@ -76,25 +84,14 @@ const busy = computed(
     sendMutation.isPending.value,
 )
 
-const canSubmit = computed(() => {
-  if (!title.value.trim()) return false
-  if (needsTeam.value && !teamCode.value) return false
-  if (needsUser.value && userId.value == null) return false
-  return !busy.value
-})
-
-// Switching away from a targeted audience must not leave a stale target behind:
-// the server would reject it, and the picker would look like it still applies.
-watch(audience, (value) => {
-  if (value !== 'team') teamCode.value = ''
-  if (value !== 'user') userId.value = null
-})
+// Sending needs a subject and somebody to send it to; a draft needs neither.
+const canSubmit = computed(() => !!title.value.trim() && hasAudience.value && !busy.value)
 
 function reset() {
   editingId.value = null
-  audience.value = 'all'
-  teamCode.value = ''
-  userId.value = null
+  scopes.value = []
+  pickedTeams.value = []
+  pickedUsers.value = []
   title.value = ''
   body.value = ''
 }
@@ -103,9 +100,9 @@ function payload(): MessageDraft {
   return {
     title: title.value.trim(),
     body: body.value,
-    audience: audience.value,
-    audience_team: needsTeam.value ? teamCode.value : null,
-    audience_user: needsUser.value ? userId.value : null,
+    scopes: scopes.value,
+    teams: pickedTeams.value,
+    users: pickedUsers.value,
   }
 }
 
@@ -115,9 +112,9 @@ function failed(error: unknown, fallback: string) {
 
 function edit(message: Message) {
   editingId.value = message.id
-  audience.value = message.audience
-  teamCode.value = message.audience_team ?? ''
-  userId.value = message.audience_user
+  scopes.value = [...message.scopes]
+  pickedTeams.value = [...message.teams]
+  pickedUsers.value = [...message.users]
   title.value = message.title
   body.value = message.body
   box.value = 'compose'
@@ -225,36 +222,20 @@ async function discard(message: Message) {
         در حال ویرایش یک پیش‌نویس.
       </p>
 
-      <div class="composer-row">
-        <div class="composer-field">
-          <Label for="msg-audience">گیرنده</Label>
-          <select id="msg-audience" v-model="audience" class="composer-select">
-            <option v-for="choice in choices" :key="choice.value" :value="choice.value">
-              {{ choice.label }}
-            </option>
-          </select>
-        </div>
-
-        <div v-if="needsTeam" class="composer-field">
-          <Label for="msg-team">تیم</Label>
-          <select id="msg-team" v-model="teamCode" class="composer-select">
-            <option value="" disabled>یک تیم را انتخاب کنید</option>
-            <option v-for="team in teams" :key="team.code" :value="team.code">
-              {{ team.name }}
-            </option>
-          </select>
-        </div>
-
-        <div v-if="needsUser" class="composer-field">
-          <Label for="msg-user">شخص</Label>
-          <select id="msg-user" v-model="userId" class="composer-select">
-            <option :value="null" disabled>یک نفر را انتخاب کنید</option>
-            <option v-for="user in users" :key="user.id" :value="user.id">
-              {{ user.label }}
-            </option>
-          </select>
-        </div>
-      </div>
+      <AudiencePicker
+        :choices="choices"
+        :teams="teams"
+        :users="users"
+        :scopes="scopes"
+        :selected-teams="pickedTeams"
+        :selected-users="pickedUsers"
+        :reach="previewQuery.data.value?.count ?? null"
+        :reach-label="previewQuery.data.value?.label ?? ''"
+        :reach-loading="previewQuery.isFetching.value"
+        @update:scopes="scopes = $event"
+        @update:selected-teams="pickedTeams = $event"
+        @update:selected-users="pickedUsers = $event"
+      />
 
       <div class="composer-field">
         <Label for="msg-title">موضوع</Label>
@@ -414,15 +395,6 @@ async function discard(message: Message) {
   font-size: 0.72rem;
 }
 
-.composer-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-}
-.composer-row .composer-field {
-  min-inline-size: 12rem;
-  flex: 1 1 12rem;
-}
 
 .composer-field {
   display: flex;
@@ -440,16 +412,6 @@ async function discard(message: Message) {
   resize: none;
 }
 
-.composer-select {
-  block-size: 2.25rem;
-  inline-size: 100%;
-  border: 1px solid var(--input);
-  border-radius: 0.5rem;
-  background: transparent;
-  padding-inline: 0.6rem;
-  color: var(--foreground);
-  font-size: 0.85rem;
-}
 
 .composer-foot {
   display: flex;
