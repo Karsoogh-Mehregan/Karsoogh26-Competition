@@ -3,7 +3,7 @@ from rest_framework import serializers
 from notifications.permissions import SEND_PERM as SEND_ANNOUNCEMENT_PERM
 
 from .models import User
-from .permissions import MENTOR_PERM, has_game_god_rights
+from .permissions import DESIGNER_PERM, MENTOR_PERM, has_game_god_rights
 
 
 class CsrfSerializer(serializers.Serializer):
@@ -19,6 +19,7 @@ class MeSerializer(serializers.ModelSerializer):
     is_mentor = serializers.SerializerMethodField()
     is_game_god = serializers.SerializerMethodField()
     is_announcer = serializers.SerializerMethodField()
+    is_designer = serializers.SerializerMethodField()
     team = serializers.SerializerMethodField()
 
     class Meta:
@@ -30,6 +31,7 @@ class MeSerializer(serializers.ModelSerializer):
             "is_mentor",
             "is_game_god",
             "is_announcer",
+            "is_designer",
             "team",
         )
 
@@ -37,13 +39,16 @@ class MeSerializer(serializers.ModelSerializer):
         return user.has_perm(MENTOR_PERM)
 
     def get_is_announcer(self, user: User) -> bool:
-        """Its own flag, not `is_game_god`. The permission is seeded onto that
-        group, but an organiser may grant it to anyone, and the SPA must show
-        the composer to exactly whoever the API would let through."""
+        """Its own flag, not `is_game_god`: sending is backed by the Notifier
+        group, which an organiser may hand to anyone. The SPA must show the
+        composer to exactly whoever the API would let through."""
         return user.has_perm(SEND_ANNOUNCEMENT_PERM)
 
     def get_is_game_god(self, user: User) -> bool:
         return has_game_god_rights(user)
+
+    def get_is_designer(self, user: User) -> bool:
+        return user.has_perm(DESIGNER_PERM)
 
     def get_team(self, user: User) -> dict | None:
         if user.team_id is None:

@@ -1,80 +1,115 @@
 /**
- * The fourteen buildings of Gil Behesht, plus the two special plots.
+ * The twenty-six buildings of Gil Behesht, plus the two special plots.
  *
- * A house is a shared chassis wearing an archetype's hat: the floor stack,
- * windows and base are identical everywhere, and only the roof, the rooftop
- * prop and the accent colour change. That is what buys 473 visually distinct
- * buildings out of a geometry library of about a dozen shapes.
+ * A building is a shared chassis wearing a type's hat: the storeys and windows
+ * are identical everywhere, and the type decides the roof, the foundation it
+ * stands on, and which props sit on and around it. The neighbourhood theme then
+ * decides the paint. Keys mirror `backend/game/design.py::ARCHETYPES`, which is
+ * what a Designer's pin is validated against.
  *
- * The pick is a hash of the node code, so a node looks the same on every
- * client and across reloads without anything being stored for it.
+ * Which type an unpinned node wears is decided in `lib/mapArchetypes.ts`, so
+ * that no two adjacent nodes share one. This file only says what each looks like.
  */
 import type { Level } from '@/lib/mapLevels'
 
-export type RoofKind = 'gable' | 'dome' | 'flat' | 'hip' | 'tiered'
+export type RoofKind = 'gable' | 'dome' | 'flat' | 'hip' | 'tiered' | 'tower' | 'open'
+
+export type FoundationKind = 'slab' | 'stepped' | 'round' | 'piers' | 'walled' | 'mound'
+
 export type PropKind =
-  | 'none'
-  | 'telescope'
-  | 'vault'
-  | 'scales'
-  | 'cross'
-  | 'cone'
-  | 'books'
-  | 'clock'
+  | 'coin'
+  | 'cupola'
   | 'chimney'
-  | 'antenna'
+  | 'bell'
+  | 'cone'
+  | 'press'
   | 'flag'
+  | 'gate'
+  | 'goalposts'
+  | 'plots'
+  | 'watchtower'
+  | 'telescope'
+  | 'crates'
+  | 'silo'
+  | 'trough'
+  | 'cross'
+  | 'scales'
+  | 'columns'
+  | 'orepile'
+  | 'smokestack'
+  | 'logs'
+  | 'spool'
+  | 'anvil'
+  | 'books'
   | 'banner'
-  | 'crate'
+  | 'antenna'
 
 export interface Archetype {
   key: string
   label: string
   roof: RoofKind
-  prop: PropKind
-  /** Roof and trim colour, so an empty plot still reads as a specific building. */
-  accent: number
+  foundation: FoundationKind
+  props: PropKind[]
   /** Drawn as an awning over the ground-floor door. */
   awning: boolean
 }
 
 export const ARCHETYPES: Archetype[] = [
-  { key: 'bank', label: 'بانک', roof: 'dome', prop: 'vault', accent: 0xc98b3a, awning: false },
-  { key: 'bakery', label: 'نانوایی', roof: 'gable', prop: 'chimney', accent: 0xd07a44, awning: true },
-  { key: 'library', label: 'کتابخانه', roof: 'hip', prop: 'books', accent: 0x9a6b4f, awning: false },
-  { key: 'observatory', label: 'رصدخانه', roof: 'dome', prop: 'telescope', accent: 0x6f7fa8, awning: false },
-  { key: 'hospital', label: 'بیمارستان', roof: 'flat', prop: 'cross', accent: 0xb8524f, awning: false },
-  { key: 'courthouse', label: 'دادگستری', roof: 'dome', prop: 'scales', accent: 0x8f8f9c, awning: false },
-  { key: 'hotel', label: 'هتل', roof: 'tiered', prop: 'flag', accent: 0xb5604a, awning: true },
-  { key: 'restaurant', label: 'رستوران', roof: 'gable', prop: 'chimney', accent: 0xc25f3e, awning: true },
-  { key: 'icecream', label: 'بستنی‌فروشی', roof: 'gable', prop: 'cone', accent: 0xd98f74, awning: true },
-  { key: 'newsstand', label: 'روزنامه‌فروشی', roof: 'flat', prop: 'banner', accent: 0x7c8a72, awning: true },
-  { key: 'school', label: 'مدرسه', roof: 'gable', prop: 'clock', accent: 0xa87550, awning: false },
-  { key: 'shop', label: 'مغازه', roof: 'flat', prop: 'crate', accent: 0xc07a52, awning: true },
-  { key: 'workshop', label: 'کارگاه', roof: 'gable', prop: 'crate', accent: 0x8a6a52, awning: false },
-  { key: 'taxoffice', label: 'خانهٔ مالیات', roof: 'hip', prop: 'clock', accent: 0xa9894f, awning: false },
+  { key: 'mint', label: 'ضراب‌خانه', roof: 'dome', foundation: 'stepped', props: ['coin'], awning: false },
+  { key: 'cityhall', label: 'شهرداری', roof: 'hip', foundation: 'stepped', props: ['cupola', 'flag'], awning: false },
+  { key: 'bakery', label: 'نانوایی', roof: 'gable', foundation: 'slab', props: ['chimney'], awning: true },
+  { key: 'restaurant', label: 'رستوران', roof: 'gable', foundation: 'walled', props: ['chimney', 'crates'], awning: true },
+  { key: 'school', label: 'مدرسه', roof: 'gable', foundation: 'slab', props: ['bell'], awning: false },
+  { key: 'icecream', label: 'بستنی‌فروشی', roof: 'gable', foundation: 'round', props: ['cone'], awning: true },
+  { key: 'newspaper', label: 'روزنامهٔ گیل‌بهشت', roof: 'flat', foundation: 'slab', props: ['press', 'banner'], awning: true },
+  { key: 'hotel', label: 'مهمان‌سرا', roof: 'tiered', foundation: 'stepped', props: ['flag'], awning: true },
+  { key: 'caravanserai', label: 'کاروانسرا', roof: 'flat', foundation: 'walled', props: ['gate'], awning: false },
+  { key: 'stadium', label: 'زمین چولیگان', roof: 'open', foundation: 'round', props: ['goalposts'], awning: false },
+  { key: 'farm', label: 'زمین کشاورزی', roof: 'open', foundation: 'walled', props: ['plots', 'silo'], awning: false },
+  { key: 'guardpost', label: 'نگهبانی دیوار', roof: 'flat', foundation: 'walled', props: ['watchtower'], awning: false },
+  { key: 'observatory', label: 'رصدخانه', roof: 'dome', foundation: 'round', props: ['telescope'], awning: false },
+  { key: 'grocery', label: 'بقالی', roof: 'flat', foundation: 'slab', props: ['crates'], awning: true },
+  { key: 'dairy', label: 'گاوداری', roof: 'gable', foundation: 'piers', props: ['silo', 'trough'], awning: false },
+  { key: 'stable', label: 'اسب‌داری', roof: 'gable', foundation: 'walled', props: ['trough'], awning: false },
+  { key: 'hospital', label: 'شفاخانه', roof: 'flat', foundation: 'stepped', props: ['cross'], awning: false },
+  { key: 'courthouse', label: 'دادسرا', roof: 'dome', foundation: 'stepped', props: ['scales', 'columns'], awning: false },
+  { key: 'ministry', label: 'وزارتخانه', roof: 'tower', foundation: 'stepped', props: ['columns', 'flag'], awning: false },
+  { key: 'mine', label: 'معدن', roof: 'open', foundation: 'mound', props: ['orepile', 'gate'], awning: false },
+  { key: 'trade', label: 'تجارت‌خانه', roof: 'hip', foundation: 'piers', props: ['crates', 'coin'], awning: true },
+  { key: 'industry', label: 'کارخانه', roof: 'flat', foundation: 'slab', props: ['smokestack'], awning: false },
+  { key: 'sawmill', label: 'کارگاه چوب‌بری', roof: 'gable', foundation: 'piers', props: ['logs'], awning: false },
+  { key: 'tailor', label: 'کارگاه لباس‌دوزی', roof: 'hip', foundation: 'slab', props: ['spool'], awning: true },
+  { key: 'smithy', label: 'کارگاه آهنگری', roof: 'gable', foundation: 'slab', props: ['anvil', 'chimney'], awning: false },
+  { key: 'library', label: 'کتابخانه', roof: 'hip', foundation: 'stepped', props: ['books'], awning: false },
 ]
 
-const SPAWN: Archetype = {
+/** Keys the assignment may hand out; the two special plots are excluded. */
+export const ASSIGNABLE_KEYS: readonly string[] = ARCHETYPES.map((archetype) => archetype.key)
+
+export const ARCHETYPE_BY_KEY: ReadonlyMap<string, Archetype> = new Map(
+  ARCHETYPES.map((archetype) => [archetype.key, archetype]),
+)
+
+export const SPAWN_ARCHETYPE: Archetype = {
   key: 'spawn',
   label: 'خانهٔ شروع',
   roof: 'tiered',
-  prop: 'banner',
-  accent: 0xd9b23a,
+  foundation: 'stepped',
+  props: ['banner'],
   awning: false,
 }
 
-const TOLL: Archetype = {
+export const TOLL_ARCHETYPE: Archetype = {
   key: 'toll',
   label: 'عوارضی',
   roof: 'flat',
-  prop: 'antenna',
-  accent: 0x8c8c8c,
+  foundation: 'slab',
+  props: ['antenna', 'gate'],
   awning: false,
 }
 
 /** FNV-1a, so the same node code always lands on the same building. */
-function hash(value: string): number {
+export function hashCode(value: string): number {
   let h = 0x811c9dc5
   for (let i = 0; i < value.length; i += 1) {
     h ^= value.charCodeAt(i)
@@ -83,13 +118,20 @@ function hash(value: string): number {
   return h >>> 0
 }
 
-export function archetypeFor(nodeCode: string, level: Level): Archetype {
-  if (level === 'spawn') return SPAWN
-  if (level === 'toll') return TOLL
-  return ARCHETYPES[hash(nodeCode) % ARCHETYPES.length]
+/** The type for a node with no pin and no neighbours to avoid — the plain hash. */
+export function fallbackArchetypeFor(nodeCode: string, level: Level): Archetype {
+  if (level === 'spawn') return SPAWN_ARCHETYPE
+  if (level === 'toll') return TOLL_ARCHETYPE
+  return ARCHETYPES[hashCode(nodeCode) % ARCHETYPES.length]
+}
+
+export function archetypeByKey(key: string, level: Level): Archetype {
+  if (level === 'spawn') return SPAWN_ARCHETYPE
+  if (level === 'toll') return TOLL_ARCHETYPE
+  return ARCHETYPE_BY_KEY.get(key) ?? ARCHETYPES[0]
 }
 
 /** A stable 0..1 per node, for the small placement jitters that break up a row. */
 export function seedOf(nodeCode: string): number {
-  return (hash(`${nodeCode}#seed`) % 10000) / 10000
+  return (hashCode(`${nodeCode}#seed`) % 10000) / 10000
 }

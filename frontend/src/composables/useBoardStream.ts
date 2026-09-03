@@ -23,6 +23,8 @@ const ROUTES: Record<string, () => QueryKey[]> = {
   // The frame is a hint, as ever: the inbox itself is refetched, and
   // useNotifications decides whether that counts as news worth a toast.
   'notification.created': () => [queryKeys.inbox()],
+  // A Designer repainted something; every open map is stale.
+  'map.design': () => [queryKeys.mapDesign()],
 }
 
 const RESYNC_KEYS: QueryKey[] = [
@@ -32,6 +34,7 @@ const RESYNC_KEYS: QueryKey[] = [
   queryKeys.gameState(),
   queryKeys.attemptsRoot(),
   queryKeys.inbox(),
+  queryKeys.mapDesign(),
 ]
 
 function createBoardStream() {

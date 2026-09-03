@@ -6,7 +6,7 @@ one team that lands in every inbox is not a bug you can take back mid-contest.
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group, Permission
+from django.contrib.auth.models import Group
 from django.test import Client
 from django.utils import timezone
 
@@ -80,6 +80,14 @@ def announcer():
 
 
 @pytest.fixture
+def designer_user():
+    """Paints the map, and may not announce on that basis either."""
+    user = User.objects.create_user("designer", password="x")
+    user.groups.add(Group.objects.get(name="Designers"))
+    return user
+
+
+@pytest.fixture
 def game_god():
     """Runs the clock, and — since 0003 — may not announce on that basis alone."""
     user = User.objects.create_user("clockkeeper", password="x")
@@ -146,34 +154,21 @@ def test_a_superuser_is_not_swept_into_the_mentor_audience(mentor_user):
     assert list(Notification.objects.values_list("user__username", flat=True)) == ["mentor"]
 
 
-def test_designers_reaches_nobody_until_the_permission_exists(alpha_user, mentor_user):
-    """`design_map` ships with the designer work, which is not on this branch.
+def test_designers_reaches_the_designers_group(alpha_user, mentor_user, designer_user):
+    """The scope was written before `game.design_map` existed; now it does."""
+    services.send_message(draft(scopes=[AudienceScope.DESIGNERS]))
 
-    Resolving it must be an empty audience, not a crash — the picker offers the
-    option regardless.
+    assert list(Notification.objects.values_list("user__username", flat=True)) == ["designer"]
+
+
+def test_a_permission_that_does_not_exist_addresses_nobody():
+    """Not a crash and — critically — not everybody.
+
+    A scope whose permission is missing has to resolve empty: `users_with_perm`
+    builds a filter, and one that matched nothing at the SQL level would leave
+    the caller's `Q` matching every row instead.
     """
-    assert services.send_message(draft(scopes=[AudienceScope.DESIGNERS])) == 0
-
-
-def test_designers_reaches_the_group_once_the_permission_is_there(alpha_user):
-    permission = Permission.objects.create(
-        codename="design_map",
-        name="Can edit the map's look",
-        content_type_id=Permission.objects.first().content_type_id,
-    )
-    designer = User.objects.create_user("designer", password="x")
-    designer.user_permissions.add(permission)
-
-    # The audience is keyed on app_label, so borrow whatever content type the
-    # row above landed on rather than hardcoding one.
-    services.DESIGNER_PERM = f"{permission.content_type.app_label}.design_map"
-    try:
-        delivered = services.send_message(draft(scopes=[AudienceScope.DESIGNERS]))
-    finally:
-        services.DESIGNER_PERM = "game.design_map"
-
-    assert delivered == 1
-    assert Notification.objects.get().user == designer
+    assert not services.users_with_perm("game.no_such_permission").exists()
 
 
 def test_team_audience_reaches_one_team(alpha_user, beta_user, alpha):

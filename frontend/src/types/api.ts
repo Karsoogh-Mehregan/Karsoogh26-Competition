@@ -24,6 +24,7 @@ export interface Me {
   is_mentor: boolean
   is_game_god: boolean
   is_announcer: boolean
+  is_designer: boolean
   team: { code: string; name: string } | null
 }
 
@@ -290,4 +291,56 @@ export interface MessageRecipients {
 export interface SendResult {
   message: Message
   delivered: number
+}
+
+// ---- map design -----------------------------------------------------------
+
+export type NeighborhoodTheme =
+  | 'water'
+  | 'fire'
+  | 'lightning'
+  | 'history'
+  | 'sport'
+  | 'knowledge'
+  | 'unbuilt'
+  | 'tribal'
+  | 'soil'
+
+export type RoadStyle = 'straight' | 'curved' | 'dashed'
+
+export type NodeLevel = 'spawn' | 'easy' | 'medium' | 'hard' | 'toll'
+
+export interface Neighborhood {
+  index: number
+  name: string
+  theme: NeighborhoodTheme
+  color: string
+}
+
+export interface NodeDesign {
+  code: string
+  level: NodeLevel
+  capacity: 1 | 2 | 3
+  /** A Designer's pin; empty means the renderer chooses. */
+  archetype: string
+}
+
+export interface MapDesign {
+  road_style: RoadStyle
+  tint_strength: number
+  halo_strength: number
+  neighborhoods: Neighborhood[]
+  nodes: NodeDesign[]
+}
+
+export interface MapDesignPatch {
+  road_style?: RoadStyle
+  tint_strength?: number
+  halo_strength?: number
+  neighborhoods?: Array<Partial<Neighborhood> & { index: number }>
+}
+
+export interface NodeDesignPatch {
+  level?: NodeLevel
+  archetype?: string
 }

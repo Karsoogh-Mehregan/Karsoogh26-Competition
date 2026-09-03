@@ -1,0 +1,12 @@
+.venv/
+.ruff_cache/
+__pycache__/
+*.pyc
+.env
+db.sqlite3
+db.sqlite3.orphan-backup
+staticfiles/
+media/
+tests/
+node_modules/
+package-lock.json

@@ -1,12 +1,56 @@
 services:
+  frontend:
+    image: ${FRONTEND_IMAGE:-ghcr.io/karsoogh-mehregan/karsoogh26-competition-frontend:latest}
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
+    environment:
+      REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:8000}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - karsoogh_net
+
+
+  backend:
+    image: ${BACKEND_IMAGE:-ghcr.io/karsoogh-mehregan/karsoogh26-competition-backend:latest}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
+    env_file:
+      - .env.backend
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-karsoogh}:${POSTGRES_PASSWORD:-karsoogh}@db:5432/${POSTGRES_DB:-karsoogh}
+      REDIS_URL: redis://redis:6379
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME:-karsoogh-media}
+      S3_ACCESS_KEY: ${APP_S3_ACCESS_KEY:-media_app}
+      S3_SECRET_KEY: ${APP_S3_SECRET_KEY:-media_app_secret123}
+      S3_ENDPOINT: http://minio:9000
+    volumes:
+      - ./frontend/src/data/graph_data.json:/app/graph_data.json:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      - karsoogh_net
+
   db:
     image: postgres:18-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-karsoogh}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-karsoogh}
       POSTGRES_DB: ${POSTGRES_DB:-karsoogh}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql
     healthcheck:
@@ -14,16 +58,62 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - karsoogh_net
 
   redis:
     image: redis:8-alpine
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
 
+    networks:
+      - karsoogh_net
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-karsoogh}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-karsoogh123}
+    ports:
+      - "127.0.0.1:${MINIO_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - karsoogh_net
+
+  minio-init:
+    image: minio/mc:latest
+    restart: "no"
+    entrypoint: /scripts/minio-init.sh
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-karsoogh}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-karsoogh123}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME:-karsoogh-media}
+      APP_S3_ACCESS_KEY: ${APP_S3_ACCESS_KEY:-media_app}
+      APP_S3_SECRET_KEY: ${APP_S3_SECRET_KEY:-media_app_secret123}
+    volumes:
+      - ./scripts/minio-init.sh:/scripts/minio-init.sh:ro
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - karsoogh_net
+
 volumes:
   pgdata:
+  miniodata:
+
+
+networks:
+  karsoogh_net:
+    driver: bridge

@@ -89,6 +89,22 @@ started) plus duel/questions, not auth or the team picker.
 `STATIC_URL` must start with `/` (`"/static/"`) or Django's StaticFilesHandler will
 not serve admin CSS.
 
+**Four roles, not two.** Besides mentors (`act_as_mentor`), game gods
+(`control_game`) and announcers (`send_announcement`, see **Notifications** below), a
+**Designer** holds `game.design_map` (`IsDesigner`, `Designers` group,
+`is_designer` on `/api/auth/me/`) and may change only how the board *looks*: neighbourhood
+names/themes/colours and road style via `PATCH /api/map/design/`, and a per-node building-type
+pin or tier move via `PATCH /api/map/nodes/<code>/`. A tier move is refused (409) while any team
+holds a seat on the node, because capacity and entry cost hang off `Node.level`. Every logged-in
+client reads `GET /api/map/design/` — **this is now the level-of-record for the SPA map**;
+`frontend/src/lib/mapLevels.ts` mirrors `TYPE_TO_LEVEL` only as the fallback before that query
+answers. Building-type keys are duplicated on purpose in `backend/game/design.py` and
+`frontend/src/lib/house/archetypes.ts`; add to both. Sector membership is *not* stored: it is
+`floor(theta / 45)` computed client-side (`lib/mapNeighborhoods.ts`), which lines up with the
+connectivity groups in `generateGraph.mjs`. The 3D house panel, its rebuild-vs-repaint
+invariant, and the Designer UI are documented in `docs/house-view.md` — read it before touching
+`frontend/src/lib/house/`.
+
 **Notifications are two models, fanned out at send time.** The `notifications` app splits
 "what was written" (`Message` — body plus the audience it was aimed at) from "who has read
 it" (`Notification` — one row per recipient). `services.send_message` resolves the audience
@@ -111,8 +127,8 @@ teams" row now looks like. An empty audience is legal on a draft and refused on 
 `services.users_with_perm` resolves the mentor/designer scopes by *explicit* grant and
 deliberately not through `has_perm`, which is True for every superuser; same reasoning as
 `accounts.permissions.has_game_god_rights`. A permission that does not exist yet
-(`game.design_map`, which arrives with the designer work) resolves to an empty audience
-rather than raising. Sending is gated on `notifications.send_announcement`
+(`game.design_map` predates the designer work landing) resolves to an empty audience rather
+than raising. Sending is gated on `notifications.send_announcement`
 (`CanSendAnnouncement`), backed by its own **Notifier** group — running the clock and
 speaking to the hall are different jobs, so `migrations/0003` moved the grant off GameGods
 onto Notifier and deliberately did *not* carry the members across — the group starts empty,

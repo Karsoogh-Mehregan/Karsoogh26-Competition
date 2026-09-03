@@ -16,6 +16,7 @@ QUESTION_ASSIGNED = "question.assigned"
 SUBMISSION_CREATED = "mentor.submission.created"
 GAME_STATE = "game.state"
 NOTIFICATION_CREATED = "notification.created"
+MAP_DESIGN = "map.design"
 RESYNC = "resync"
 
 MENTOR_ONLY = frozenset({SUBMISSION_CREATED})

@@ -59,6 +59,7 @@ def test_login_returns_me_shape(client, user):
         "is_mentor": True,
         "is_game_god": False,
         "is_announcer": False,
+        "is_designer": False,
         "team": None,
     }
 
@@ -95,6 +96,7 @@ def test_me_returns_mentor_identity(auth_client, user):
         "is_mentor": True,
         "is_game_god": False,
         "is_announcer": False,
+        "is_designer": False,
         "team": None,
     }
 

@@ -2,10 +2,19 @@ from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.conf import settings
+from django.core.validators import RegexValidator
 from django.db import models
 from django.db.models import CheckConstraint, F, Q, UniqueConstraint
 from django.utils import timezone
 
+from .design import (
+    ARCHETYPES,
+    DEFAULT_HALO_STRENGTH,
+    DEFAULT_TINT_STRENGTH,
+    SECTOR_COUNT,
+    NeighborhoodTheme,
+    RoadStyle,
+)
 from .validators import validate_upload_extension, validate_upload_size
 
 MAX_CAPACITY = 3
@@ -141,6 +150,9 @@ class Node(models.Model):
     level = models.ForeignKey(
         LevelConfig, on_delete=models.PROTECT, related_name="nodes", db_column="level"
     )
+    # A Designer's pin. Blank means the renderer picks, and it picks so that no
+    # two neighbours look alike; a pin is honoured even if it breaks that.
+    archetype = models.CharField(max_length=32, blank=True, choices=ARCHETYPES)
 
     class Meta:
         ordering = ["code"]
@@ -630,3 +642,70 @@ class EntryAttempt(models.Model):
     @property
     def is_superseded(self) -> bool:
         return self.superseded_at is not None
+
+
+class Neighborhood(models.Model):
+    """One of the map's eight pizza slices.
+
+    Membership is geometry, not data: a node belongs to sector
+    `floor(theta / 45)`, which the frontend computes from the map JSON. This row
+    only says what that sector is called and how it is painted, which is what a
+    Designer is allowed to change.
+    """
+
+    index = models.PositiveSmallIntegerField(unique=True)
+    name = models.CharField(max_length=64)
+    theme = models.CharField(max_length=16, choices=NeighborhoodTheme.choices)
+    color = models.CharField(
+        max_length=7,
+        validators=[RegexValidator(r"^#[0-9a-f]{6}$", "Color must be a lowercase #rrggbb hex.")],
+    )
+
+    class Meta:
+        ordering = ["index"]
+        constraints = [
+            CheckConstraint(
+                condition=Q(index__gte=0, index__lt=SECTOR_COUNT),
+                name="neighborhood_index_range",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.index}: {self.name}"
+
+
+class MapDesign(models.Model):
+    """The handful of map-wide knobs a Designer turns. Singleton, like GameSettings."""
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+
+    road_style = models.CharField(
+        max_length=12, choices=RoadStyle.choices, default=RoadStyle.STRAIGHT
+    )
+    tint_strength = models.PositiveSmallIntegerField(
+        default=DEFAULT_TINT_STRENGTH,
+        help_text="How strongly each sector is washed with its colour, 0–100.",
+    )
+    halo_strength = models.PositiveSmallIntegerField(
+        default=DEFAULT_HALO_STRENGTH,
+        help_text="Opacity of the neighbourhood ring around every node, 0–100.",
+    )
+
+    class Meta:
+        verbose_name = "map design"
+        verbose_name_plural = "map design"
+        # Distinct from both mentor and game-god rights: a Designer changes how
+        # the board looks, never who holds what or whether the clock runs.
+        permissions = [("design_map", "Can edit the map's look")]
+        constraints = [
+            CheckConstraint(condition=Q(id=1), name="mapdesign_singleton"),
+            CheckConstraint(condition=Q(tint_strength__lte=100), name="mapdesign_tint_range"),
+            CheckConstraint(condition=Q(halo_strength__lte=100), name="mapdesign_halo_range"),
+        ]
+
+    def __str__(self):
+        return "Map design"
+
+    @classmethod
+    def load(cls) -> "MapDesign":
+        return cls.objects.get_or_create(pk=1)[0]

@@ -2,7 +2,18 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from core.openapi import extend_schema_field
-from game.models import EntryAttempt, GameSettings, Occupancy, Question, Submission
+from game.design import ARCHETYPES
+from game.models import (
+    EntryAttempt,
+    GameSettings,
+    Level,
+    MapDesign,
+    Neighborhood,
+    Node,
+    Occupancy,
+    Question,
+    Submission,
+)
 from game.services import MENTOR_RELEASE_REASONS
 
 
@@ -413,3 +424,65 @@ class EntryAnswerSerializer(serializers.Serializer):
 
 class EntryAnswerResultSerializer(EntrySheetSerializer):
     is_correct = serializers.BooleanField(read_only=True)
+
+
+# ---- map design ---------------------------------------------------------------
+
+
+class NeighborhoodSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Neighborhood
+        fields = ("index", "name", "theme", "color")
+        read_only_fields = ("index",)
+
+
+class NeighborhoodPatchSerializer(NeighborhoodSerializer):
+    """One row of a bulk PATCH: `index` picks the row, the rest are optional."""
+
+    index = serializers.IntegerField(min_value=0)
+
+    class Meta(NeighborhoodSerializer.Meta):
+        read_only_fields = ()
+        extra_kwargs = {
+            "name": {"required": False},
+            "theme": {"required": False},
+            "color": {"required": False},
+        }
+
+
+class NodeDesignSerializer(serializers.ModelSerializer):
+    """What the renderer needs per node, and what a Designer may change on one.
+
+    `level` is the backend's word, not the map JSON's: a Designer may move a node
+    between tiers, and the SVG map must follow the server, not its baked-in type.
+    """
+
+    level = serializers.ChoiceField(choices=Level.choices, source="level_id")
+    capacity = serializers.IntegerField(source="level.capacity", read_only=True)
+    archetype = serializers.ChoiceField(choices=ARCHETYPES, allow_blank=True, required=False)
+
+    class Meta:
+        model = Node
+        fields = ("code", "level", "capacity", "archetype")
+        read_only_fields = ("code",)
+
+
+class MapDesignSerializer(serializers.ModelSerializer):
+    neighborhoods = NeighborhoodSerializer(many=True, read_only=True)
+    nodes = NodeDesignSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = MapDesign
+        fields = ("road_style", "tint_strength", "halo_strength", "neighborhoods", "nodes")
+
+
+class MapDesignPatchSerializer(serializers.ModelSerializer):
+    """The writable half. Neighbourhoods are patched in bulk, addressed by index."""
+
+    neighborhoods = NeighborhoodPatchSerializer(many=True, required=False)
+    tint_strength = serializers.IntegerField(min_value=0, max_value=100, required=False)
+    halo_strength = serializers.IntegerField(min_value=0, max_value=100, required=False)
+
+    class Meta:
+        model = MapDesign
+        fields = ("road_style", "tint_strength", "halo_strength", "neighborhoods")

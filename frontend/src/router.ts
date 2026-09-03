@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { queryClient } from '@/lib/queryClient'
 import { meQueryOptions } from '@/queries/auth'
+import DesignPage from '@/pages/DesignPage.vue'
 import GradingPage from '@/pages/GradingPage.vue'
 import InboxPage from '@/pages/InboxPage.vue'
 import LeaderboardPage from '@/pages/LeaderboardPage.vue'
@@ -26,6 +27,7 @@ export const router = createRouter({
       component: SentMessagePage,
       meta: { requiresAnnouncer: true },
     },
+    { path: '/design', name: 'design', component: DesignPage, meta: { requiresDesigner: true } },
   ],
 })
 
@@ -43,9 +45,12 @@ router.beforeEach(async (to) => {
   if (to.meta.requiresPlayer && !me?.team) {
     return { name: 'map' }
   }
-  // Composing is gated on the same right the API checks; the guard only keeps
-  // the page from rendering a form that would 403 on submit.
+  // Each of these is gated on the same right the API checks; the guard only
+  // keeps a page from rendering a form that would 403 on submit.
   if (to.meta.requiresAnnouncer && !me?.is_announcer) {
+    return { name: 'map' }
+  }
+  if (to.meta.requiresDesigner && !me?.is_designer) {
     return { name: 'map' }
   }
   if (to.meta.requiresAuth && !me) {
