@@ -3,7 +3,7 @@ from rest_framework import serializers
 from accounts.permissions import MENTOR_PERM
 from game.models import Occupancy
 
-from .models import BalanceEvent, BalanceReason, Team
+from .models import BalanceEvent, BalanceReason, Team, TeamItem
 from .start_colors import color_for_start
 
 
@@ -62,6 +62,14 @@ class BalanceEventSerializer(serializers.ModelSerializer):
 
     def get_reason_label(self, obj: BalanceEvent) -> str:
         return REASON_LABELS.get(obj.reason, obj.reason)
+
+
+class TeamItemSerializer(serializers.ModelSerializer):
+    display_name = serializers.CharField(source="get_item_type_display", read_only=True)
+
+    class Meta:
+        model = TeamItem
+        fields = ("item_type", "quantity", "display_name")
 
 
 class ClaimStartSerializer(serializers.Serializer):

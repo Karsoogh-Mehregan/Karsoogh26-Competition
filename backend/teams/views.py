@@ -9,15 +9,16 @@ from accounts.permissions import MENTOR_PERM, CanViewLeaderboard, GameIsRunning
 from core.openapi import OpenApiExample, extend_schema
 from game.api_exceptions import Conflict
 from game.models import Node
-from game.permissions import IsOwnTeam
+from game.permissions import IsOwnTeam, IsTeamMember
 from game.services import claim_spawn, release_expired_attempts, require_entry_clearance
 
 from . import board_cache
-from .models import BalanceEvent, Team
+from .models import BalanceEvent, Team, TeamItem
 from .serializers import (
     BalanceEventSerializer,
     ClaimStartSerializer,
     LeaderboardRowSerializer,
+    TeamItemSerializer,
     TeamSerializer,
 )
 from .start_colors import color_for_start
@@ -93,6 +94,33 @@ class LeaderboardView(APIView):
             for rank, team in enumerate(teams, start=1)
         ]
         return Response(LeaderboardRowSerializer(rows, many=True).data)
+
+
+@extend_schema(
+    tags=["teams"],
+    summary="List the caller's inventory",
+    description="Items owned by the logged-in user's team. The team is taken from the session.",
+    examples=[
+        OpenApiExample(
+            "inventory",
+            value=[
+                {"item_type": "fake_document", "quantity": 1, "display_name": "سند جعلی"},
+                {"item_type": "gel", "quantity": 5, "display_name": "گل"},
+            ],
+            response_only=True,
+        ),
+    ],
+    responses=TeamItemSerializer(many=True),
+)
+class TeamItemListView(APIView):
+    """Return the inventory for the caller's own team; no team_code in the URL."""
+
+    permission_classes = [IsAuthenticated, IsTeamMember]
+    serializer_class = TeamItemSerializer
+
+    def get(self, request):
+        items = TeamItem.objects.filter(team=request.user.team)
+        return Response(TeamItemSerializer(items, many=True).data)
 
 
 class TeamBalanceEventView(APIView):
