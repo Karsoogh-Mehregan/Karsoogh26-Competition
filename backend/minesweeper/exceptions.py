@@ -24,3 +24,7 @@ class CellFlagged(MinesweeperServiceError):
 
 class CannotFlagRevealed(MinesweeperServiceError):
     """A revealed cell cannot be flagged or unflagged."""
+
+
+class GameAlreadyClaimed(MinesweeperServiceError):
+    """Another team already claimed this game."""

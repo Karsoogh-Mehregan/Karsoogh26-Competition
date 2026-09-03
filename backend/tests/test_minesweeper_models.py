@@ -54,6 +54,18 @@ class TestMinesweeperGameDefaults:
         assert game.node_id == node.pk
         assert game.board == {"cells": []}
 
+    def test_game_can_exist_without_a_team(self, node):
+        game = start_game(None, node)
+        assert game.team_id is None
+        assert game.status == MinesweeperStatus.IN_PROGRESS
+
+    def test_team_can_be_assigned_later(self, team, node):
+        game = start_game(None, node)
+        game.team = team
+        game.save(update_fields=["team"])
+        game.refresh_from_db()
+        assert game.team_id == team.pk
+
     @pytest.mark.parametrize("difficulty", list(MinesweeperDifficulty))
     def test_legal_layouts_are_accepted(self, team, node, difficulty):
         game = start_game(team, node, difficulty)

@@ -14,7 +14,7 @@ from minesweeper.models import (
     MinesweeperGame,
     MinesweeperStatus,
 )
-from minesweeper.services import create_game, reveal_cell
+from minesweeper.services import assign_game_to_team, create_game, reveal_cell
 from teams.models import Team
 
 pytestmark = pytest.mark.django_db
@@ -39,6 +39,10 @@ SPLIT_MINES = frozenset((row, 4) for row in range(9)) | frozenset({(8, 8)})
 
 def _detail(pk):
     return f"/api/minesweeper/games/{pk}/"
+
+
+def _join(pk):
+    return f"/api/minesweeper/games/{pk}/join/"
 
 
 def _reveal(pk):
@@ -107,6 +111,18 @@ def mentor():
     return user
 
 
+@pytest.fixture
+def staff_user():
+    return User.objects.create_user("staff", password="pw", is_staff=True)
+
+
+@pytest.fixture
+def staff_client(staff_user):
+    client = APIClient()
+    client.force_authenticate(user=staff_user)
+    return client
+
+
 def _adjacent_from_mines(mines, row, col, *, width, height) -> int:
     count = 0
     for d_row, d_col in _NEIGHBOR_OFFSETS:
@@ -138,8 +154,17 @@ def _install_board(game, mines, flags=frozenset()):
     game.refresh_from_db()
 
 
+def _unclaimed(node, difficulty=MinesweeperDifficulty.EASY):
+    return create_game(node, difficulty)
+
+
+def _claimed(team, node, difficulty=MinesweeperDifficulty.EASY):
+    game = create_game(node, difficulty)
+    return assign_game_to_team(game.pk, team)
+
+
 def _split_game(team, node):
-    game = create_game(team, node, MinesweeperDifficulty.EASY)
+    game = _claimed(team, node)
     _install_board(game, SPLIT_MINES)
     return game
 
@@ -171,6 +196,7 @@ class TestAuthentication:
         "method,url_builder,payload",
         [
             ("post", lambda: CREATE_URL, {"difficulty": "easy"}),
+            ("post", lambda: _join(1), None),
             ("get", lambda: _detail(1), None),
             ("post", lambda: _reveal(1), {"row": 0, "col": 0}),
             ("post", lambda: _flag(1), {"row": 0, "col": 0}),
@@ -182,28 +208,35 @@ class TestAuthentication:
         response = getattr(client, method)(url_builder(), payload or {}, **kwargs)
         assert response.status_code == 403
 
-    def test_user_without_a_team_is_rejected(self, running_contest):
+    def test_user_without_a_team_cannot_join(self, running_contest, node):
+        game = _unclaimed(node)
         user = User.objects.create_user("lone", password="pw")
         client = APIClient()
         client.force_authenticate(user=user)
-        response = client.post(CREATE_URL, {"difficulty": "easy"}, format="json")
+        response = client.post(_join(game.pk), {}, format="json")
         assert response.status_code == 403
 
-    def test_mentor_cannot_play(self, running_contest, mentor, alpha):
+    def test_mentor_cannot_join(self, running_contest, mentor, node):
+        game = _unclaimed(node)
         client = APIClient()
         client.force_authenticate(user=mentor)
-        response = client.post(CREATE_URL, {"difficulty": "easy"}, format="json")
+        response = client.post(_join(game.pk), {}, format="json")
         assert response.status_code == 403
         assert not mentor.team_id
+
+    def test_player_cannot_create(self, alpha_client, node, running_contest):
+        response = alpha_client.post(
+            CREATE_URL, {"node": node.pk, "difficulty": "easy"}, format="json"
+        )
+        assert response.status_code == 403
+        assert MinesweeperGame.objects.count() == 0
 
 
 class TestCreateGame:
     @pytest.mark.parametrize("difficulty", list(MinesweeperDifficulty))
-    def test_creates_for_the_authenticated_team(
-        self, alpha_client, alpha, node, running_contest, difficulty
-    ):
+    def test_staff_creates_an_unclaimed_game(self, staff_client, node, difficulty):
         layout = DIFFICULTY_LAYOUTS[difficulty]
-        response = alpha_client.post(
+        response = staff_client.post(
             CREATE_URL,
             {"node": node.pk, "difficulty": difficulty, "team": "beta"},
             format="json",
@@ -222,35 +255,100 @@ class TestCreateGame:
         assert len(body["board"]["cells"]) == layout["height"]
         _assert_no_hidden_mines(body["board"])
         stored = MinesweeperGame.objects.get(pk=body["id"])
-        assert stored.team_id == alpha.pk
+        assert stored.team_id is None
         assert stored.node_id == node.pk
 
-    def test_missing_node_is_rejected(self, alpha_client, running_contest):
-        response = alpha_client.post(CREATE_URL, {"difficulty": "easy"}, format="json")
+    def test_missing_node_is_rejected(self, staff_client):
+        response = staff_client.post(CREATE_URL, {"difficulty": "easy"}, format="json")
         assert response.status_code == 400
         assert "node" in response.json()
 
-    def test_unknown_node_is_rejected(self, alpha_client, running_contest):
-        response = alpha_client.post(
+    def test_unknown_node_is_rejected(self, staff_client):
+        response = staff_client.post(
             CREATE_URL, {"node": 999_999, "difficulty": "easy"}, format="json"
         )
         assert response.status_code == 400
         assert "node" in response.json()
 
-    def test_invalid_difficulty_is_rejected(self, alpha_client, node, running_contest):
-        response = alpha_client.post(
+    def test_invalid_difficulty_is_rejected(self, staff_client, node):
+        response = staff_client.post(
             CREATE_URL, {"node": node.pk, "difficulty": "expert"}, format="json"
         )
         assert response.status_code == 400
         assert "difficulty" in response.json()
 
-    def test_create_rejected_when_contest_is_not_running(self, alpha_client, node, running_contest):
+    def test_staff_can_create_when_contest_is_not_running(
+        self, staff_client, node, running_contest
+    ):
         running_contest.status = GameStatus.NOT_STARTED
         running_contest.save(update_fields=["status"])
-        response = alpha_client.post(
+        response = staff_client.post(
             CREATE_URL, {"node": node.pk, "difficulty": "easy"}, format="json"
         )
+        assert response.status_code == 201
+        stored = MinesweeperGame.objects.get(pk=response.json()["id"])
+        assert stored.team_id is None
+
+
+class TestJoinGame:
+    def test_assigns_the_authenticated_team(self, alpha_client, alpha, node, running_contest):
+        game = _unclaimed(node)
+        response = alpha_client.post(_join(game.pk), {}, format="json")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["id"] == game.pk
+        assert body["node"] == node.pk
+        assert body["status"] == MinesweeperStatus.IN_PROGRESS
+        assert "team" not in body
+        _assert_no_hidden_mines(body["board"])
+        game.refresh_from_db()
+        assert game.team_id == alpha.pk
+
+    def test_same_team_join_is_idempotent(self, alpha_client, alpha, node, running_contest):
+        game = _unclaimed(node)
+        first = alpha_client.post(_join(game.pk), {}, format="json")
+        second = alpha_client.post(_join(game.pk), {}, format="json")
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert second.json()["id"] == game.pk
+        game.refresh_from_db()
+        assert game.team_id == alpha.pk
+
+    def test_other_team_cannot_claim(self, alpha, beta_client, node, running_contest):
+        game = _claimed(alpha, node)
+        response = beta_client.post(_join(game.pk), {}, format="json")
+        assert response.status_code == 409
+        assert response.json()["detail"] == "این بازی قبلاً گرفته شده است."
+        game.refresh_from_db()
+        assert game.team_id == alpha.pk
+
+    def test_missing_game_is_404(self, alpha_client, running_contest):
+        response = alpha_client.post(_join(999_999), {}, format="json")
+        assert response.status_code == 404
+        assert response.json() == {"detail": "بازی پیدا نشد."}
+
+    def test_join_rejected_when_contest_is_not_running(self, alpha_client, node, running_contest):
+        game = _unclaimed(node)
+        running_contest.status = GameStatus.NOT_STARTED
+        running_contest.save(update_fields=["status"])
+        response = alpha_client.post(_join(game.pk), {}, format="json")
         assert response.status_code == 403
+        game.refresh_from_db()
+        assert game.team_id is None
+
+    def test_join_then_reveal(self, alpha_client, alpha, node, running_contest):
+        game = _unclaimed(node)
+        _install_board(game, SPLIT_MINES)
+        joined = alpha_client.post(_join(game.pk), {}, format="json")
+        assert joined.status_code == 200
+        assert joined.json()["id"] == game.pk
+        game.refresh_from_db()
+        assert game.team_id == alpha.pk
+        response = alpha_client.post(_reveal(game.pk), {"row": 0, "col": 3}, format="json")
+        assert response.status_code == 200
+        cell = response.json()["board"]["cells"][0][3]
+        assert cell["revealed"] is True
+        _assert_no_hidden_mines(response.json()["board"])
 
 
 class TestGameDetail:
@@ -261,7 +359,7 @@ class TestGameDetail:
             return population[:k]
 
         monkeypatch.setattr("minesweeper.services.random.sample", first_k)
-        game = create_game(alpha, node, MinesweeperDifficulty.EASY)
+        game = _claimed(alpha, node)
 
         response = alpha_client.get(_detail(game.pk))
         assert response.status_code == 200
@@ -277,8 +375,14 @@ class TestGameDetail:
         response = alpha_client.get(_detail(999_999))
         assert response.status_code == 404
 
+    def test_unclaimed_game_is_404(self, alpha_client, node, running_contest):
+        game = _unclaimed(node)
+        response = alpha_client.get(_detail(game.pk))
+        assert response.status_code == 404
+        assert response.json() == alpha_client.get(_detail(999_999)).json()
+
     def test_other_team_gets_404(self, alpha, node, alpha_client, beta_client, running_contest):
-        game = create_game(alpha, node, MinesweeperDifficulty.EASY)
+        game = _claimed(alpha, node)
         response = beta_client.get(_detail(game.pk))
         assert response.status_code == 404
         assert response.json() == alpha_client.get(_detail(999_999)).json()
@@ -313,7 +417,7 @@ class TestGameDetail:
     def test_get_allowed_when_contest_is_not_running(
         self, alpha, node, alpha_client, running_contest
     ):
-        game = create_game(alpha, node, MinesweeperDifficulty.EASY)
+        game = _claimed(alpha, node)
         running_contest.status = GameStatus.NOT_STARTED
         running_contest.save(update_fields=["status"])
         response = alpha_client.get(_detail(game.pk))

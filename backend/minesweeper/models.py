@@ -59,6 +59,8 @@ class MinesweeperGame(models.Model):
         "teams.Team",
         on_delete=models.PROTECT,
         related_name="minesweeper_games",
+        null=True,
+        blank=True,
     )
     node = models.ForeignKey(
         "game.Node",
@@ -111,4 +113,5 @@ class MinesweeperGame(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.team} {self.get_difficulty_display()} ({self.get_status_display()})"
+        owner = self.team or "unclaimed"
+        return f"{owner} {self.get_difficulty_display()} ({self.get_status_display()})"

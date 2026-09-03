@@ -14,6 +14,7 @@ from minesweeper.exceptions import (
     CannotFlagRevealed,
     CellAlreadyRevealed,
     CellFlagged,
+    GameAlreadyClaimed,
     GameFinished,
     InvalidCell,
     InvalidDifficulty,
@@ -138,14 +139,15 @@ def _finish(game: MinesweeperGame, board: dict, *, won: bool) -> None:
 
 
 @transaction.atomic
-def create_game(team: Team, node: Node, difficulty: str) -> MinesweeperGame:
-    """Create one in-progress game with a newly generated board.
+def create_game(node: Node, difficulty: str) -> MinesweeperGame:
+    """Create one unclaimed in-progress game with a newly generated board.
 
     ``difficulty`` must be a key of ``DIFFICULTY_LAYOUTS``. Width, height, and
     mine count come from that mapping — they are not caller-supplied.
 
-    ``node`` is stored as association only. This service does not check who
-    holds the node and does not change map occupancy.
+    ``node`` is stored as association only. ``team`` stays null until
+    ``assign_game_to_team``. This service does not check who holds the node
+    and does not change map occupancy.
     """
     try:
         layout = DIFFICULTY_LAYOUTS[difficulty]
@@ -156,7 +158,7 @@ def create_game(team: Team, node: Node, difficulty: str) -> MinesweeperGame:
     height = layout["height"]
     mine_count = layout["mine_count"]
     return MinesweeperGame.objects.create(
-        team=team,
+        team=None,
         node=node,
         difficulty=difficulty,
         width=width,
@@ -164,6 +166,24 @@ def create_game(team: Team, node: Node, difficulty: str) -> MinesweeperGame:
         mine_count=mine_count,
         board=_generate_board(width, height, mine_count),
     )
+
+
+@transaction.atomic
+def assign_game_to_team(game_id: int, team: Team) -> MinesweeperGame:
+    """Claim an unclaimed game for ``team``. Idempotent for the same team.
+
+    Locks the row so two simultaneous joins cannot both win. Does not touch
+    occupancy, economy, or the Node. A missing pk raises
+    ``MinesweeperGame.DoesNotExist``.
+    """
+    game = MinesweeperGame.objects.select_for_update().get(pk=game_id)
+    if game.team_id is None:
+        game.team = team
+        game.save(update_fields=["team"])
+        return game
+    if game.team_id != team.pk:
+        raise GameAlreadyClaimed("This game is already claimed.")
+    return game
 
 
 @transaction.atomic

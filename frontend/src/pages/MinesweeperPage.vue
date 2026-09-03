@@ -4,49 +4,17 @@ import {
   FlagIcon,
   MousePointerClickIcon,
   PartyPopperIcon,
-  PlayIcon,
 } from '@lucide/vue'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { toast } from 'vue-sonner'
 import MinesweeperBoard from '@/components/minesweeper/MinesweeperBoard.vue'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useMinesweeper } from '@/composables/useMinesweeper'
 import { formatBalance } from '@/lib/format'
 import type { MinesweeperDifficulty, MinesweeperGame } from '@/types/api'
-
-const DIFFICULTY_OPTIONS: readonly {
-  value: MinesweeperDifficulty
-  label: string
-  description: string
-  sizeLabel: string
-  minesLabel: string
-}[] = [
-  {
-    value: 'easy',
-    label: 'آسان',
-    description: 'صفحهٔ کوچک؛ مناسب شروع.',
-    sizeLabel: '۹ × ۹',
-    minesLabel: '۱۰ مین',
-  },
-  {
-    value: 'medium',
-    label: 'متوسط',
-    description: 'تعادل بین سرعت و دقت.',
-    sizeLabel: '۱۶ × ۱۶',
-    minesLabel: '۴۰ مین',
-  },
-  {
-    value: 'hard',
-    label: 'سخت',
-    description: 'صفحهٔ عریض؛ چالش کامل.',
-    sizeLabel: '۳۰ × ۱۶',
-    minesLabel: '۹۹ مین',
-  },
-]
 
 const STATUS_LABEL: Record<MinesweeperGame['status'], string> = {
   in_progress: 'در حال بازی',
@@ -60,19 +28,14 @@ const DIFFICULTY_LABEL: Record<MinesweeperDifficulty, string> = {
   hard: 'سخت',
 }
 
-const gameId = ref<number | null>(null)
-const difficulty = ref<MinesweeperDifficulty>('easy')
-const flagMode = ref(false)
 const route = useRoute()
-
-const nodeId = computed(() => {
-  const raw = route.query.node
-  const value = Array.isArray(raw) ? raw[0] : raw
-  const parsed = Number(value)
+const gameId = computed(() => {
+  const parsed = Number(route.params.id)
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null
 })
+const flagMode = ref(false)
 
-const { game, loading, creating, revealing, flagging, error, create, reveal, toggleFlag } =
+const { game, loading, joining, revealing, flagging, error, join, reveal, toggleFlag } =
   useMinesweeper(gameId)
 
 const busy = computed(() => revealing.value || flagging.value)
@@ -89,25 +52,18 @@ const remainingFlags = computed(() => {
   return game.value.mine_count - flagged
 })
 
-async function startGame(): Promise<void> {
-  if (creating.value) return
-  if (nodeId.value == null) {
-    toast.error('خانه مشخص نشده است.')
-    return
-  }
-  const created = await create(nodeId.value, difficulty.value)
-  if (!created) {
-    toast.error(error.value || 'ساخت بازی ناموفق بود.')
-    return
-  }
-  flagMode.value = false
-  gameId.value = created.id
-}
-
-function newGame(): void {
-  gameId.value = null
-  flagMode.value = false
-}
+watch(
+  gameId,
+  async () => {
+    flagMode.value = false
+    if (gameId.value == null) return
+    const joined = await join()
+    if (!joined && error.value) {
+      toast.error(error.value)
+    }
+  },
+  { immediate: true },
+)
 
 async function onReveal(row: number, col: number): Promise<void> {
   if (busy.value || !inProgress.value) return
@@ -129,54 +85,16 @@ async function onFlag(row: number, col: number): Promise<void> {
 <template>
   <div class="h-full overflow-y-auto p-6">
     <div class="mx-auto flex w-full min-w-0 max-w-5xl flex-col gap-4">
-      <header class="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 class="text-lg font-bold">مین‌روب</h1>
-          <p class="text-muted-foreground mt-1 text-sm">
-            خانه‌ها را باز کنید و مین‌ها را پرچم بزنید. نتیجه و امتیاز را سرور مشخص می‌کند.
-          </p>
-        </div>
-        <Button v-if="gameId != null" variant="outline" size="sm" @click="newGame">
-          بازی جدید
-        </Button>
+      <header>
+        <h1 class="text-lg font-bold">مین‌روب</h1>
+        <p class="text-muted-foreground mt-1 text-sm">
+          خانه‌ها را باز کنید و مین‌ها را پرچم بزنید. نتیجه و امتیاز را سرور مشخص می‌کند.
+        </p>
       </header>
 
-      <template v-if="gameId == null">
-        <div class="grid gap-3 sm:grid-cols-3">
-          <button
-            v-for="option in DIFFICULTY_OPTIONS"
-            :key="option.value"
-            type="button"
-            class="bg-card text-card-foreground rounded-xl border p-4 text-start shadow-sm transition-all"
-            :class="
-              difficulty === option.value
-                ? 'ring-primary border-transparent ring-2'
-                : 'hover:bg-accent/40'
-            "
-            :aria-pressed="difficulty === option.value"
-            @click="difficulty = option.value"
-          >
-            <span class="flex items-center justify-between gap-2">
-              <span class="font-semibold">{{ option.label }}</span>
-              <Badge :variant="difficulty === option.value ? 'default' : 'secondary'">
-                {{ option.sizeLabel }}
-              </Badge>
-            </span>
-            <span class="text-muted-foreground mt-2 block text-sm">{{ option.description }}</span>
-            <span class="mt-3 flex items-center gap-1.5 text-sm font-medium">
-              <BombIcon class="size-3.5" />
-              {{ option.minesLabel }}
-            </span>
-          </button>
-        </div>
+      <div v-if="gameId == null" class="text-destructive text-sm">بازی پیدا نشد.</div>
 
-        <Button class="w-full sm:w-auto" size="lg" :disabled="creating" @click="startGame">
-          <PlayIcon class="size-4" />
-          {{ creating ? 'در حال ساخت…' : 'شروع بازی' }}
-        </Button>
-      </template>
-
-      <div v-else-if="loading" class="flex flex-col gap-3">
+      <div v-else-if="loading || joining" class="flex flex-col gap-3">
         <Skeleton class="h-16 w-full" />
         <Skeleton class="h-72 w-full" />
       </div>

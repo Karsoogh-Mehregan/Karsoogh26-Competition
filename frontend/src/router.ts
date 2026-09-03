@@ -14,8 +14,8 @@ export const router = createRouter({
     { path: '/grading', name: 'grading', component: GradingPage, meta: { requiresMentor: true } },
     { path: '/solve', name: 'solve', component: SolvePage, meta: { requiresPlayer: true } },
     {
-      path: '/minesweeper',
-      name: 'minesweeper',
+      path: '/minesweeper/game/:id',
+      name: 'minesweeper-game',
       component: MinesweeperPage,
       meta: { requiresPlayer: true },
     },

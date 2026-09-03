@@ -2,12 +2,12 @@ import { computed, ref, type ComputedRef, type Ref } from 'vue'
 import { ApiError } from '@/lib/http'
 import { useMeQuery } from '@/queries/auth'
 import {
-  useCreateMinesweeperGameMutation,
+  useJoinMinesweeperGameMutation,
   useMinesweeperGameQuery,
   useRevealMinesweeperCellMutation,
   useToggleMinesweeperFlagMutation,
 } from '@/queries/minesweeper'
-import type { MinesweeperDifficulty, MinesweeperGame } from '@/types/api'
+import type { MinesweeperGame } from '@/types/api'
 
 function messageOf(error: unknown): string {
   if (error instanceof ApiError) {
@@ -26,16 +26,24 @@ export function useMinesweeper(gameId: Ref<number | null> | ComputedRef<number |
   const meQuery = useMeQuery()
   const isPlayer = computed(() => meQuery.data.value?.team != null)
 
-  const gameQuery = useMinesweeperGameQuery(gameId, () => isPlayer.value)
-  const createMutation = useCreateMinesweeperGameMutation()
+  const hasJoined = ref(false)
+  const gameQuery = useMinesweeperGameQuery(
+    gameId,
+    () => isPlayer.value && hasJoined.value,
+  )
+  const joinMutation = useJoinMinesweeperGameMutation()
   const revealMutation = useRevealMinesweeperCellMutation()
   const flagMutation = useToggleMinesweeperFlagMutation()
 
   const actionError = ref('')
 
   const game = computed<MinesweeperGame | null>(() => gameQuery.data.value ?? null)
-  const loading = computed(() => gameId.value != null && isPlayer.value && gameQuery.isPending.value)
-  const creating = computed(() => createMutation.isPending.value)
+  const joining = computed(() => joinMutation.isPending.value)
+  const loading = computed(
+    () =>
+      joining.value ||
+      (hasJoined.value && isPlayer.value && gameQuery.isPending.value),
+  )
   const revealing = computed(() => revealMutation.isPending.value)
   const flagging = computed(() => flagMutation.isPending.value)
 
@@ -46,13 +54,21 @@ export function useMinesweeper(gameId: Ref<number | null> | ComputedRef<number |
     return gameQuery.error.value ? messageOf(gameQuery.error.value) : ''
   })
 
-  async function create(
-    node: number,
-    difficulty: MinesweeperDifficulty,
-  ): Promise<MinesweeperGame | null> {
+  async function join(): Promise<MinesweeperGame | null> {
+    const id = gameId.value
+    hasJoined.value = false
+    if (id == null) {
+      actionError.value = 'بازی پیدا نشد.'
+      return null
+    }
     actionError.value = ''
     try {
-      return await createMutation.mutateAsync({ node, difficulty })
+      const result = await joinMutation.mutateAsync(id)
+      if (gameId.value !== id) {
+        return result
+      }
+      hasJoined.value = true
+      return result
     } catch (err) {
       actionError.value = messageOf(err)
       return null
@@ -62,7 +78,7 @@ export function useMinesweeper(gameId: Ref<number | null> | ComputedRef<number |
   async function reveal(row: number, col: number): Promise<MinesweeperGame | null> {
     const id = gameId.value
     if (id == null) {
-      actionError.value = 'ابتدا یک بازی بسازید.'
+      actionError.value = 'بازی پیدا نشد.'
       return null
     }
     actionError.value = ''
@@ -77,7 +93,7 @@ export function useMinesweeper(gameId: Ref<number | null> | ComputedRef<number |
   async function toggleFlag(row: number, col: number): Promise<MinesweeperGame | null> {
     const id = gameId.value
     if (id == null) {
-      actionError.value = 'ابتدا یک بازی بسازید.'
+      actionError.value = 'بازی پیدا نشد.'
       return null
     }
     actionError.value = ''
@@ -92,12 +108,12 @@ export function useMinesweeper(gameId: Ref<number | null> | ComputedRef<number |
   return {
     game,
     loading,
-    creating,
+    joining,
     revealing,
     flagging,
     error,
     isPlayer,
-    create,
+    join,
     reveal,
     toggleFlag,
   }

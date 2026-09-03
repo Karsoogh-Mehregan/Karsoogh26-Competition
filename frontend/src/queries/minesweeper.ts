@@ -1,7 +1,7 @@
 import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, type ComputedRef, type Ref } from 'vue'
-import { createGame, getGame, revealCell, toggleFlag } from '@/services/minesweeper'
-import type { MinesweeperDifficulty, MinesweeperGame } from '@/types/api'
+import { getGame, joinGame, revealCell, toggleFlag } from '@/services/minesweeper'
+import type { MinesweeperGame } from '@/types/api'
 import { queryKeys } from './keys'
 
 export function useMinesweeperGameQuery(
@@ -19,16 +19,10 @@ function cacheGame(queryClient: QueryClient, game: MinesweeperGame): void {
   queryClient.setQueryData(queryKeys.minesweeperGame(game.id), game)
 }
 
-export interface CreateMinesweeperGameVariables {
-  node: number
-  difficulty: MinesweeperDifficulty
-}
-
-export function useCreateMinesweeperGameMutation() {
+export function useJoinMinesweeperGameMutation() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ node, difficulty }: CreateMinesweeperGameVariables) =>
-      createGame(node, difficulty),
+    mutationFn: (gameId: number) => joinGame(gameId),
     onSuccess: (game: MinesweeperGame) => {
       cacheGame(queryClient, game)
     },

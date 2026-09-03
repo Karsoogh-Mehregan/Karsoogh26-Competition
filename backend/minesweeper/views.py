@@ -1,6 +1,6 @@
 from rest_framework import status
 from rest_framework.exceptions import NotFound
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -12,6 +12,7 @@ from minesweeper.exceptions import (
     CannotFlagRevealed,
     CellAlreadyRevealed,
     CellFlagged,
+    GameAlreadyClaimed,
     GameFinished,
     InvalidCell,
     InvalidDifficulty,
@@ -23,7 +24,7 @@ from minesweeper.serializers import (
     CreateGameSerializer,
     PublicGameSerializer,
 )
-from minesweeper.services import create_game, reveal_cell, toggle_flag
+from minesweeper.services import assign_game_to_team, create_game, reveal_cell, toggle_flag
 
 _GAME_PK = OpenApiParameter("pk", int, OpenApiParameter.PATH, description="Minesweeper game id")
 
@@ -54,6 +55,8 @@ def _map_service_error(exc: Exception):
         raise NotFound("بازی پیدا نشد.") from exc
     if isinstance(exc, GameFinished):
         raise Conflict("این بازی تمام شده است.") from exc
+    if isinstance(exc, GameAlreadyClaimed):
+        raise Conflict("این بازی قبلاً گرفته شده است.") from exc
     if isinstance(exc, InvalidCell):
         raise Unprocessable("این خانه روی صفحه نیست.") from exc
     if isinstance(exc, CellAlreadyRevealed):
@@ -78,13 +81,16 @@ def _own_game(request, pk: int) -> MinesweeperGame:
 
 
 class CreateGameView(APIView):
-    permission_classes = [IsAuthenticated, IsTeamMember, GameIsRunning]
+    permission_classes = [IsAuthenticated, IsAdminUser]
     serializer_class = CreateGameSerializer
 
     @extend_schema(
         tags=["minesweeper"],
-        summary="Start a Minesweeper game",
-        description="Creates a game for the caller's own team. Node id and difficulty are required.",
+        summary="Create an unclaimed Minesweeper game",
+        description=(
+            "Staff only. Creates a prepared game with no team. The SPA does not call this; "
+            "Django admin is the intended create path."
+        ),
         request=CreateGameSerializer,
         responses={201: PublicGameSerializer},
         examples=[
@@ -101,13 +107,36 @@ class CreateGameView(APIView):
         payload.is_valid(raise_exception=True)
         try:
             game = create_game(
-                request.user.team,
                 payload.validated_data["node"],
                 payload.validated_data["difficulty"],
             )
         except MinesweeperServiceError as exc:
             _map_service_error(exc)
         return Response(PublicGameSerializer(game).data, status=status.HTTP_201_CREATED)
+
+
+class JoinGameView(APIView):
+    permission_classes = [IsAuthenticated, IsTeamMember, GameIsRunning]
+    serializer_class = PublicGameSerializer
+
+    @extend_schema(
+        tags=["minesweeper"],
+        summary="Join a Minesweeper game",
+        description=(
+            "Claims the game for the caller's team if it is still unclaimed. "
+            "The same team may join again; another team gets 409."
+        ),
+        parameters=[_GAME_PK],
+        request=None,
+        responses=PublicGameSerializer,
+        examples=[OpenApiExample("joined", value=_PUBLIC_IN_PROGRESS, response_only=True)],
+    )
+    def post(self, request, pk: int):
+        try:
+            game = assign_game_to_team(pk, request.user.team)
+        except (MinesweeperServiceError, MinesweeperGame.DoesNotExist) as exc:
+            _map_service_error(exc)
+        return Response(PublicGameSerializer(game).data)
 
 
 class GameDetailView(APIView):

@@ -198,11 +198,6 @@ export interface MinesweeperFinishedGame extends MinesweeperGameBase {
 
 export type MinesweeperGame = MinesweeperActiveGame | MinesweeperFinishedGame
 
-export interface CreateMinesweeperGameRequest {
-  node: number
-  difficulty: MinesweeperDifficulty
-}
-
 export interface MinesweeperCellActionRequest {
   row: number
   col: number

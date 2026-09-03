@@ -1,17 +1,8 @@
 import { get, post } from '@/lib/http'
-import type {
-  CreateMinesweeperGameRequest,
-  MinesweeperCellActionRequest,
-  MinesweeperDifficulty,
-  MinesweeperGame,
-} from '@/types/api'
+import type { MinesweeperCellActionRequest, MinesweeperGame } from '@/types/api'
 
-export function createGame(
-  node: number,
-  difficulty: MinesweeperDifficulty,
-): Promise<MinesweeperGame> {
-  const body: CreateMinesweeperGameRequest = { node, difficulty }
-  return post<MinesweeperGame>('/minesweeper/games/', body)
+export function joinGame(gameId: number): Promise<MinesweeperGame> {
+  return post<MinesweeperGame>(`/minesweeper/games/${gameId}/join/`, {})
 }
 
 export function getGame(gameId: number, signal?: AbortSignal): Promise<MinesweeperGame> {
