@@ -1,13 +1,15 @@
+from django.conf import settings
 from django.db.models import Q
-from django.http import FileResponse, Http404
+from django.http import FileResponse, Http404, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.permissions import GameIsRunning, IsMentor
+from accounts.permissions import GameIsRunning, IsGameGod, IsMentor
 from core.openapi import OpenApiExample, OpenApiParameter, OpenApiTypes, extend_schema
 from game import services
 from game.api_exceptions import Conflict, Unprocessable
@@ -29,7 +31,15 @@ from game.exceptions import (
     OccupancyNotActive,
     SubmissionWindowClosed,
 )
-from game.models import Node, Occupancy, Question, Submission, TeamQuestion
+from game.models import (
+    GameSettings,
+    GameStatus,
+    Node,
+    Occupancy,
+    Question,
+    Submission,
+    TeamQuestion,
+)
 from game.permissions import IsOwnTeam, IsTeamMember
 from game.serializers import (
     ActiveAttemptSerializer,
@@ -37,6 +47,10 @@ from game.serializers import (
     EntryAnswerResultSerializer,
     EntryAnswerSerializer,
     EntrySheetSerializer,
+    GameRestartResultSerializer,
+    GameRestartSerializer,
+    GameSettingsSerializer,
+    GameStateSerializer,
     GradeResultSerializer,
     GradeSerializer,
     GradeSubmissionSerializer,
@@ -540,6 +554,12 @@ class SubmissionGradeView(APIView):
         )
 
 
+def _serve_upload(fieldfile):
+    if settings.USE_S3_MEDIA:
+        return HttpResponseRedirect(fieldfile.url)
+    return FileResponse(fieldfile.open("rb"), as_attachment=True, filename=fieldfile.name)
+
+
 @extend_schema(
     tags=["game"],
     summary="Download submission file",
@@ -559,9 +579,7 @@ class SubmissionMediaView(APIView):
             raise Http404("No file attached.")
         if not request.user.is_staff and submission.occupancy.team_id != request.user.team_id:
             raise PermissionDenied("You cannot access this file.")
-        return FileResponse(
-            submission.file.open("rb"), as_attachment=True, filename=submission.file.name
-        )
+        return _serve_upload(submission.file)
 
 
 @extend_schema(
@@ -579,11 +597,7 @@ class QuestionMediaView(APIView):
         if not question.attachment:
             raise Http404("No attachment.")
         if request.user.is_staff:
-            return FileResponse(
-                question.attachment.open("rb"),
-                as_attachment=True,
-                filename=question.attachment.name,
-            )
+            return _serve_upload(question.attachment)
         if request.user.team_id is None:
             raise PermissionDenied("You cannot access this file.")
         served = TeamQuestion.objects.filter(
@@ -592,11 +606,7 @@ class QuestionMediaView(APIView):
         ).exists()
         if not served:
             raise PermissionDenied("You cannot access this file.")
-        return FileResponse(
-            question.attachment.open("rb"),
-            as_attachment=True,
-            filename=question.attachment.name,
-        )
+        return _serve_upload(question.attachment)
 
 
 class MentorActionView(APIView):
@@ -706,3 +716,126 @@ class ReleaseView(MentorActionView):
 
     def perform(self, holding, data):
         return services.release_attempt(holding, data["reason"])
+
+
+def _game_state_payload(settings_row: GameSettings) -> dict:
+    return {
+        "status": settings_row.status,
+        "status_display": settings_row.get_status_display(),
+        "is_running": settings_row.is_running,
+        "server_time": timezone.now(),
+        "started_at": settings_row.started_at,
+        "accumulated_seconds": settings_row.accumulated_seconds,
+        "running_since": settings_row.running_since,
+        "duration_seconds": settings_row.duration_seconds,
+        "elapsed_seconds": settings_row.elapsed_seconds,
+        "remaining_seconds": settings_row.remaining_seconds,
+        "leaderboard_public": settings_row.leaderboard_public,
+    }
+
+
+@extend_schema(
+    tags=["game"],
+    summary="Game state and server clock",
+    description=(
+        "Status, kick-off, planned finish and the server's own clock. Every client "
+        "derives its countdown from `server_time` so the whole hall sees the same "
+        "numbers regardless of how wrong the local clock is."
+    ),
+    responses=GameStateSerializer,
+    examples=[
+        OpenApiExample(
+            "running",
+            value={
+                "status": "running",
+                "status_display": "در حال اجرا",
+                "is_running": True,
+                "server_time": "2026-09-02T12:00:00+03:30",
+                "started_at": "2026-09-02T11:00:00+03:30",
+                "accumulated_seconds": 0,
+                "running_since": "2026-09-02T11:00:00+03:30",
+                "duration_seconds": 10800,
+                "elapsed_seconds": 3600,
+                "remaining_seconds": 7200,
+                "leaderboard_public": False,
+            },
+            response_only=True,
+        ),
+    ],
+)
+class GameStateView(APIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = GameStateSerializer
+
+    def get(self, request):
+        return Response(GameStateSerializer(_game_state_payload(GameSettings.load())).data)
+
+
+@extend_schema(
+    tags=["game"],
+    summary="Read or change game settings",
+    description=(
+        "Mentor-only. PATCH one or more of status, leaderboard_public, ends_at, "
+        "attempt_ttl_minutes, initial_balance. Any change publishes a `game.state` "
+        "event so every open client re-reads the state without a refresh."
+    ),
+    request=GameSettingsSerializer,
+    responses=GameSettingsSerializer,
+    examples=[
+        OpenApiExample("start", value={"status": "running"}, request_only=True),
+    ],
+)
+class GameSettingsView(APIView):
+    permission_classes = [IsGameGod]
+    serializer_class = GameSettingsSerializer
+
+    def get(self, request):
+        return Response(GameSettingsSerializer(GameSettings.load()).data)
+
+    def patch(self, request):
+        settings_row = GameSettings.load()
+        serializer = GameSettingsSerializer(settings_row, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        settings_row.refresh_from_db()
+        services.publish_on_commit(
+            services.GAME_STATE,
+            {"status": settings_row.status},
+        )
+        return Response(serializer.data)
+
+
+@extend_schema(
+    tags=["game"],
+    summary="Restart the game",
+    description=(
+        "Game god only, and only with `confirm: true` in the body. Deletes every "
+        "occupancy — and the submissions and served-question records that hang off "
+        "them — refunds every team to the starting balance, drops claimed colours and "
+        "draft order, and puts the status back to not_started. The map, the question "
+        "bank and the economy tables are untouched, so the next run starts on the same "
+        "board. `duration_minutes` is deliberately kept."
+    ),
+    request=GameRestartSerializer,
+    responses=GameRestartResultSerializer,
+    examples=[
+        OpenApiExample("request", value={"confirm": True}, request_only=True),
+        OpenApiExample(
+            "wiped",
+            value={"occupancies": 37, "submissions": 21, "teams": 8},
+            response_only=True,
+        ),
+    ],
+)
+class GameRestartView(APIView):
+    permission_classes = [IsGameGod]
+    serializer_class = GameRestartSerializer
+
+    def post(self, request):
+        payload = GameRestartSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        summary = services.restart_game(by=request.user)
+        services.publish_on_commit(services.GAME_STATE, {"status": GameStatus.NOT_STARTED})
+        return Response(GameRestartResultSerializer(summary).data)

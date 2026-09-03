@@ -1,55 +1,50 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { toast } from 'vue-sonner'
-import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import MapHud from './MapHud.vue'
 import { useActing } from '../composables/useActing'
 import { useEntry } from '../composables/useEntry'
-import { useAttemptStore } from '../stores/attempt'
+import { useMapDesign } from '../composables/useMapDesign'
+import { sectorGeometries } from '../lib/mapNeighborhoods'
+import { useInspectorStore } from '../stores/inspector'
 import { useGraph } from '../composables/useGraph.js'
 import { useMapViewport } from '../composables/useMapViewport'
-import { useEnterMinesweeperMutation } from '@/queries/minesweeper'
 
 const HOUSE_FILL = '#E2CFA6'
 
-const { me, teams, actingTeam, isPlayer, claimStart, assignQuestion } = useActing()
-const { canClaimStart, open: openEntrySheet } = useEntry()
-const attemptStore = useAttemptStore()
-const router = useRouter()
-const enterMinesweeperMutation = useEnterMinesweeperMutation()
+const { me, teams, actingTeam, isPlayer } = useActing()
+const { canClaimStart } = useEntry()
+const inspector = useInspectorStore()
 const { nodes, edges, nodeById, adjacency, startEligibleIds } = useGraph()
+const design = useMapDesign()
+const { neighborhoods, roadStyle, tintStrength, haloStrength } = design
+
+// ---- neighbourhoods ----
+// Eight wedges painted behind everything, and one ring per node in its sector's
+// colour. Both are static geometry: nothing here re-renders on a board event.
+const SECTOR_OUTER = 1075
+const SECTOR_INNER = 120
+// The borders follow the real gaps between groups on every ring, so they
+// wander a little instead of cutting straight. Geometry only; computed once.
+const sectorShapes = sectorGeometries(nodes, SECTOR_OUTER, SECTOR_INNER)
+const sectors = computed(() =>
+  sectorShapes.map((shape) => ({
+    ...shape,
+    color: neighborhoods.value[shape.index]?.color ?? '#999999',
+    name: neighborhoods.value[shape.index]?.name ?? '',
+  })),
+)
+
+function haloColor(n) {
+  return design.neighborhoodOf(n).color
+}
 
 const loggedIn = computed(() => !!me.value)
 const hasTeam = computed(() => !!actingTeam.value)
 // A mentor can pick a team to view its state on the map, but only the team
 // itself can move — mentors would otherwise see clickable nodes that 403.
 const canAct = computed(() => loggedIn.value && hasTeam.value && isPlayer.value)
-const pendingNode = ref(null)
-const dialogOpen = computed({
-  get: () => pendingNode.value !== null,
-  set: (open) => {
-    if (!open) pendingNode.value = null
-  },
-})
-
 function isStartNode(n) {
   return !!n && (n.type === 'start' || n.shape === 'diamond')
-}
-
-function isMinesweeperGraphType(n) {
-  return n.type === 'c34' || n.type === 'c45'
-}
-
-function isMinesweeperEntry(n) {
-  return canAct.value && isMinesweeperGraphType(n)
 }
 
 const paintedHoldings = computed(() =>
@@ -239,6 +234,29 @@ function edgePath(e) {
   return { x1: a.x, y1: a.y, x2: b.x, y2: b.y }
 }
 
+// One <path> per road, so the Designer's road style is a `d` string and a
+// class rather than a different element. Curved roads bow away from the map's
+// centre, which reads as streets wrapping around the rings.
+function edgeD(e) {
+  const { x1, y1 } = edgePath(e)
+  const end = e.directed ? shrunkTarget(e) : { x: edgePath(e).x2, y: edgePath(e).y2 }
+  if (roadStyle.value !== 'curved') {
+    return `M ${x1} ${y1} L ${end.x} ${end.y}`
+  }
+  const mx = (x1 + end.x) / 2
+  const my = (y1 + end.y) / 2
+  const len = Math.hypot(end.x - x1, end.y - y1) || 1
+  // Perpendicular, pointing away from the origin.
+  let nx = -(end.y - y1) / len
+  let ny = (end.x - x1) / len
+  if (nx * mx + ny * my < 0) {
+    nx = -nx
+    ny = -ny
+  }
+  const bulge = Math.min(22, len * 0.16)
+  return `M ${x1} ${y1} Q ${mx + nx * bulge} ${my + ny * bulge} ${end.x} ${end.y}`
+}
+
 // shrink a directed edge's endpoint back so the arrowhead doesn't overlap the node circle
 function shrunkTarget(e) {
   const a = nodeById.get(e.source)
@@ -275,13 +293,12 @@ function nodeState(n) {
   return 'disabled'
 }
 
-function isNodeInteractive(n) {
-  return (
-    isNodeAnswerable(n.id) ||
-    isMinesweeperEntry(n) ||
-    isNodeSelectable(n.id) ||
-    isEntryGate(n)
-  )
+function isNodeInteractive() {
+  return loggedIn.value
+}
+
+function isNodeInspected(n) {
+  return inspector.inspection?.nodeCode === n.id
 }
 
 function nodeLabel(n) {
@@ -292,63 +309,38 @@ function nodeLabel(n) {
   return n.id
 }
 
+function isGatewayNode(n) {
+  return design.levelOf(n.id, n.type) === 'toll'
+}
+
+function inspectIntent(n) {
+  const holding = answerableHolding(n.id)
+  if (holding) return { intent: 'solve', occupancyId: holding.id }
+  if (isEntryGate(n)) return { intent: 'entry_gate', occupancyId: null }
+  // A gateway is played, not answered: it never offers a question, and only
+  // offers a board where the server actually has one configured.
+  if (isGatewayNode(n)) {
+    const playable = canAct.value && design.hasMinesweeper(n.id)
+    return { intent: playable ? 'minesweeper' : 'view', occupancyId: null }
+  }
+  if (isNodeSelectable(n.id)) {
+    const claimingStart = isStartNode(n) && actingHeldIds.value.size === 0
+    return { intent: claimingStart ? 'claim_start' : 'reserve', occupancyId: null }
+  }
+  return { intent: 'view', occupancyId: null }
+}
+
+/**
+ * Every node opens the detail panel, even one this team can do nothing with —
+ * seeing who holds a building and how full it is is worth a click on its own.
+ * What the panel *offers* is the intent, decided here where the adjacency and
+ * entry-sheet rules already live.
+ */
 function onNodeClick(n) {
   // A click that ended a pan is a camera move, not a move on the board.
   if (consumedByDrag()) return
-  const holding = answerableHolding(n.id)
-  if (holding) {
-    attemptStore.select(holding.id)
-    router.push({ name: 'solve' })
-    return
-  }
-  if (isEntryGate(n)) {
-    openEntrySheet()
-    return
-  }
-  if (isMinesweeperEntry(n)) {
-    enterMinesweeper(n)
-    return
-  }
-  if (!isNodeSelectable(n.id)) return
-  pendingNode.value = n
-}
-
-async function enterMinesweeper(n) {
-  if (enterMinesweeperMutation.isPending.value) return
-  try {
-    const issued = await enterMinesweeperMutation.mutateAsync(n.id)
-    await router.push({
-      name: 'minesweeper-node',
-      params: { id: n.id },
-      query: { entry: issued.entry },
-    })
-  } catch (err) {
-    toast.error(err.message || 'عملیات ناموفق بود.')
-  }
-}
-
-const pendingIsStart = computed(
-  () => isStartNode(pendingNode.value) && actingHeldIds.value.size === 0,
-)
-
-async function confirmNodeAction() {
-  const node = pendingNode.value
-  const claimStartNode = pendingIsStart.value
-  pendingNode.value = null
-  if (!node || !hasTeam.value) return
-  try {
-    if (claimStartNode) {
-      await claimStart(node.id)
-      toast.success('خانهٔ شروع ثبت شد')
-      return
-    }
-    const result = await assignQuestion(node.id)
-    attemptStore.select(result.id)
-    toast.success(`سؤال ${result.question_id ?? ''} رزرو شد`)
-    router.push({ name: 'solve' })
-  } catch (err) {
-    toast.error(err.message || 'عملیات ناموفق بود.')
-  }
+  const { intent, occupancyId } = inspectIntent(n)
+  inspector.inspect(n.id, intent, occupancyId)
 }
 
 function reservedHoldingsOn(n) {
@@ -357,10 +349,12 @@ function reservedHoldingsOn(n) {
   )
 }
 
+// Team colour is the node's message; only dim it when there is a team to
+// contrast against, and never so far that the colour stops reading.
 function holdingOpacity(holding) {
   if (!holding) return 1
-  if (!actingTeam.value) return 0.32
-  return holding.team_code === actingTeam.value.code ? 1 : 0.32
+  if (!actingTeam.value) return 1
+  return holding.team_code === actingTeam.value.code ? 1 : 0.55
 }
 
 function ringFill(n, ringIndexFromOutside) {
@@ -405,15 +399,8 @@ function shapeOpacity(n) {
   return holdingOpacity(colored)
 }
 
-function startDuel() {
-  pendingNode.value = null
-  toast.info('دوئل هنوز فعال نشده است.')
-}
-
 function slotCount(n) {
-  if (n.type === 'l3' || n.type === 'l4') return 2
-  if (n.type === 'l5' || n.type === 'l6' || n.type === 'center') return 3
-  return 1
+  return design.capacityOf(n.id, n.type)
 }
 
 function visualRadius(n) {
@@ -503,6 +490,13 @@ function shapePath(n) {
       >
         <path d="M 0 0 L 10 5 L 0 10 z" fill="#222" />
       </marker>
+      <!-- عوارضی: a gantry with a barrier arm, instead of an anonymous dot. -->
+      <symbol id="toll-gate" viewBox="-10 -10 20 20">
+        <rect x="-8.5" y="-1" width="3" height="9.5" rx="0.6" />
+        <rect x="5.5" y="-1" width="3" height="9.5" rx="0.6" />
+        <rect x="-8.5" y="-5.5" width="17" height="3.2" rx="0.8" />
+        <rect x="-6" y="2.2" width="12" height="2" rx="0.6" />
+      </symbol>
       <pattern
         id="reserve-hatch"
         patternUnits="userSpaceOnUse"
@@ -513,6 +507,35 @@ function shapePath(n) {
         <line x1="0" y1="0" x2="0" y2="6" stroke="#1a1a1a" stroke-width="2.2" />
       </pattern>
     </defs>
+
+    <!-- neighbourhood wedges: a wash of colour per sector, never a hit target -->
+    <g v-if="tintStrength > 0" class="sectors" aria-hidden="true">
+      <path
+        v-for="sector in sectors"
+        :key="'sector-' + sector.index"
+        :d="sector.d"
+        :fill="sector.color"
+        :fill-opacity="tintStrength"
+        :stroke="sector.color"
+        :stroke-opacity="Math.min(1, tintStrength * 2.2)"
+        class="sector"
+      />
+    </g>
+    <g v-if="tintStrength > 0 && labelsVisible" class="sector-labels" aria-hidden="true">
+      <text
+        v-for="sector in sectors"
+        :key="'sector-label-' + sector.index"
+        :x="sector.label.x"
+        :y="sector.label.y"
+        :font-size="px(11)"
+        :fill="sector.color"
+        class="sector-label"
+        text-anchor="middle"
+        dominant-baseline="middle"
+      >
+        {{ sector.name }}
+      </text>
+    </g>
 
     <!-- outward direction markers: yellow diamond start nodes only -->
     <g class="out-arrows">
@@ -530,14 +553,12 @@ function shapePath(n) {
     </g>
 
     <!-- edges -->
-    <g class="edges">
-      <line
+    <g class="edges" :class="'road-' + roadStyle">
+      <path
         v-for="(e, i) in edges"
         :key="'e-' + i"
-        :x1="edgePath(e).x1"
-        :y1="edgePath(e).y1"
-        :x2="e.directed ? shrunkTarget(e).x : edgePath(e).x2"
-        :y2="e.directed ? shrunkTarget(e).y : edgePath(e).y2"
+        :d="edgeD(e)"
+        fill="none"
         :class="[
           'edge',
           { active: isEdgeActive(e), traversed: isEdgeTraversed(e) },
@@ -556,11 +577,11 @@ function shapePath(n) {
           'node',
           'state-' + nodeState(n),
           'shape-' + n.shape,
-          { 'search-hit': searchHit === n.id },
+          { 'search-hit': searchHit === n.id, 'is-inspected': isNodeInspected(n) },
         ]"
-        :role="isNodeInteractive(n) ? 'button' : undefined"
-        :tabindex="isNodeInteractive(n) ? 0 : undefined"
-        :aria-label="isNodeInteractive(n) ? nodeLabel(n) : undefined"
+        :role="isNodeInteractive() ? 'button' : undefined"
+        :tabindex="isNodeInteractive() ? 0 : undefined"
+        :aria-label="isNodeInteractive() ? nodeLabel(n) : undefined"
         @click="onNodeClick(n)"
         @keydown.enter.prevent="onNodeClick(n)"
         @keydown.space.prevent="onNodeClick(n)"
@@ -569,6 +590,17 @@ function shapePath(n) {
         @focus="hoveredId = n.id"
         @blur="hoveredId = null"
       >
+        <!-- An opaque plate under the node: the team colour must read against
+             neutral ground, not through the neighbourhood wash. -->
+        <circle class="node-plate" :r="visualRadius(n) + 1.5" />
+        <circle
+          v-if="haloStrength > 0"
+          class="node-halo"
+          :r="visualRadius(n) + 6"
+          :stroke="haloColor(n)"
+          :stroke-opacity="haloStrength"
+          fill="none"
+        />
         <template v-if="slotCount(n) > 1">
           <template v-for="(r, i) in slotRadii(n)" :key="n.id + '-ring-' + i">
             <circle
@@ -585,6 +617,20 @@ function shapePath(n) {
               class="node-hatch"
             />
           </template>
+        </template>
+        <template v-else-if="n.type === 'c34' || n.type === 'c45'">
+          <!-- The gantry glyph has gaps; this disc is what actually takes the click. -->
+          <circle :r="n.size * 1.4" fill="transparent" stroke="none" class="node-hit" />
+          <use
+            href="#toll-gate"
+            :x="-n.size * 1.4"
+            :y="-n.size * 1.4"
+            :width="n.size * 2.8"
+            :height="n.size * 2.8"
+            :fill="nodeFill(n)"
+            :opacity="shapeOpacity(n)"
+            class="node-shape node-toll"
+          />
         </template>
         <template v-else-if="n.shape === 'circle'">
           <circle
@@ -684,23 +730,6 @@ function shapePath(n) {
       CENTER
     </text>
   </svg>
-
-    <Dialog v-model:open="dialogOpen">
-      <DialogContent class="sm:max-w-xs" dir="rtl" :show-close-button="false">
-        <DialogHeader class="text-center sm:text-center">
-          <DialogTitle>این خانه</DialogTitle>
-          <DialogDescription>
-            {{ pendingNode ? pendingNode.id : '' }}
-          </DialogDescription>
-        </DialogHeader>
-        <div class="flex flex-col gap-2">
-          <Button class="w-full" @click="confirmNodeAction">
-            {{ pendingIsStart ? 'ورود به این خانه' : 'رزرو این خانه' }}
-          </Button>
-          <Button class="w-full" variant="outline" @click="startDuel">دویل</Button>
-        </div>
-      </DialogContent>
-    </Dialog>
 
     <MapHud :nodes="nodes" @highlight="onSearchHighlight" />
 
@@ -805,6 +834,44 @@ function shapePath(n) {
   box-shadow: inset 0 0 0 2px var(--ring);
 }
 
+.sector,
+.sector-label {
+  pointer-events: none;
+}
+.sector {
+  stroke-width: 1.6px;
+  vector-effect: non-scaling-stroke;
+  stroke-linejoin: round;
+}
+.node-toll {
+  stroke-width: 0.9px;
+  pointer-events: none;
+}
+.node-hit {
+  pointer-events: all;
+}
+.sector-label {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  opacity: 0.55;
+}
+
+/* The neighbourhood's "hollow presence" around every house. */
+.node-plate {
+  fill: #f8f7f3;
+  stroke: none;
+  pointer-events: none;
+}
+.node-halo {
+  stroke-width: 1.6px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.road-dashed .edge {
+  stroke-dasharray: 6 5;
+}
+
 .edge {
   stroke: #8fb9d6;
   stroke-width: 0.8px;
@@ -823,6 +890,19 @@ function shapePath(n) {
 .node {
   cursor: default;
   transition: opacity 0.25s ease;
+}
+/* Which node the house panel is showing. Deliberately louder than hover: the
+   detail beside the map is useless if you lose track of what it belongs to. */
+.is-inspected .node-shape {
+  stroke: #1d4ed8;
+  stroke-width: 3px;
+}
+.is-inspected {
+  filter: drop-shadow(0 0 9px rgba(29, 78, 216, 0.55));
+}
+.search-hit .node-shape {
+  stroke: #b45309;
+  stroke-width: 2.6px;
 }
 .node-shape {
   stroke: #33506b;

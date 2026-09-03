@@ -22,6 +22,7 @@ const {
   teams,
   actingTeam,
   isMentor,
+  isAnnouncer,
   isPlayer,
   loading,
   error,
@@ -139,6 +140,34 @@ const showTeamPicker = computed(() => isMentor.value || isPlayer.value)
             :aria-current="route.path === '/leaderboard' ? 'page' : undefined"
           >
             جدول امتیازات
+          </RouterLink>
+        </Button>
+        <Button as-child size="sm" :variant="route.path === '/inbox' ? 'default' : 'outline'">
+          <RouterLink to="/inbox" :aria-current="route.path === '/inbox' ? 'page' : undefined">
+            پیام‌ها
+          </RouterLink>
+        </Button>
+        <Button
+          v-if="isAnnouncer"
+          as-child
+          size="sm"
+          :variant="route.path === '/messages' ? 'default' : 'outline'"
+        >
+          <RouterLink
+            to="/messages"
+            :aria-current="route.path === '/messages' ? 'page' : undefined"
+          >
+            نوشتن پیام
+          </RouterLink>
+        </Button>
+        <Button
+          v-if="me.is_designer"
+          as-child
+          size="sm"
+          :variant="route.path === '/design' ? 'default' : 'outline'"
+        >
+          <RouterLink to="/design" :aria-current="route.path === '/design' ? 'page' : undefined">
+            طراحی
           </RouterLink>
         </Button>
       </nav>

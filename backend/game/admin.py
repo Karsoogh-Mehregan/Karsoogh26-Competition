@@ -8,6 +8,8 @@ from .models import (
     GameSettings,
     GradeMultiplier,
     LevelConfig,
+    MapDesign,
+    Neighborhood,
     Node,
     Occupancy,
     Question,
@@ -80,8 +82,8 @@ class OccupancyInline(admin.TabularInline):
 
 @admin.register(Node)
 class NodeAdmin(admin.ModelAdmin):
-    list_display = ("code", "name", "level")
-    list_filter = ("level",)
+    list_display = ("code", "name", "level", "archetype")
+    list_filter = ("level", "archetype")
     search_fields = ("code", "name")
     list_select_related = ("level",)
     inlines = [OccupancyInline]
@@ -139,6 +141,8 @@ class GameSettingsAdmin(admin.ModelAdmin):
         "__str__",
         "status",
         "started_at",
+        "duration_minutes",
+        "accumulated_seconds",
         "initial_balance",
         "entry_question_count",
         "entry_required_correct",
@@ -146,7 +150,7 @@ class GameSettingsAdmin(admin.ModelAdmin):
         "entry_max_retries",
         "leaderboard_public",
     )
-    readonly_fields = ("started_at",)
+    readonly_fields = ("started_at", "accumulated_seconds", "running_since")
 
     def has_add_permission(self, request):
         return not GameSettings.objects.exists()
@@ -262,4 +266,21 @@ class EntryAttemptAdmin(admin.ModelAdmin):
         return False
 
     def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(Neighborhood)
+class NeighborhoodAdmin(admin.ModelAdmin):
+    list_display = ("index", "name", "theme", "color")
+    ordering = ("index",)
+
+
+@admin.register(MapDesign)
+class MapDesignAdmin(admin.ModelAdmin):
+    list_display = ("__str__", "road_style", "tint_strength", "halo_strength")
+
+    def has_add_permission(self, request):
+        return not MapDesign.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
         return False

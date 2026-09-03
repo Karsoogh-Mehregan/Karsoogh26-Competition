@@ -2,10 +2,19 @@ from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.conf import settings
+from django.core.validators import RegexValidator
 from django.db import models
 from django.db.models import CheckConstraint, F, Q, UniqueConstraint
 from django.utils import timezone
 
+from .design import (
+    ARCHETYPES,
+    DEFAULT_HALO_STRENGTH,
+    DEFAULT_TINT_STRENGTH,
+    SECTOR_COUNT,
+    NeighborhoodTheme,
+    RoadStyle,
+)
 from .validators import validate_upload_extension, validate_upload_size
 
 MAX_CAPACITY = 3
@@ -141,6 +150,9 @@ class Node(models.Model):
     level = models.ForeignKey(
         LevelConfig, on_delete=models.PROTECT, related_name="nodes", db_column="level"
     )
+    # A Designer's pin. Blank means the renderer picks, and it picks so that no
+    # two neighbours look alike; a pin is honoured even if it breaks that.
+    archetype = models.CharField(max_length=32, blank=True, choices=ARCHETYPES)
 
     class Meta:
         ordering = ["code"]
@@ -279,6 +291,21 @@ class GameSettings(models.Model):
     )
     leaderboard_public = models.BooleanField(default=False)
 
+    # The run ledger. Elapsed time is accumulated running time, not wall time
+    # since kick-off, so pausing the game genuinely pauses every team's timer.
+    accumulated_seconds = models.PositiveIntegerField(
+        default=0,
+        help_text="Seconds the game has spent in the running state, excluding pauses.",
+    )
+    running_since = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Start of the current running stretch; null whenever the game is not running.",
+    )
+    duration_minutes = models.PositiveSmallIntegerField(
+        default=180,
+        help_text="Total playing time. The countdown is this minus elapsed; 0 turns it off.",
+    )
     # Entry phase: every team answers a short sheet before it may take a spawn.
     entry_question_count = models.PositiveSmallIntegerField(
         default=3, help_text="How many questions land on each team's entry sheet."
@@ -306,6 +333,9 @@ class GameSettings(models.Model):
     class Meta:
         verbose_name = "game settings"
         verbose_name_plural = "game settings"
+        # Separate from act_as_mentor on purpose: a mentor grades, a game god
+        # starts, pauses and restarts the whole event.
+        permissions = [("control_game", "Can start, pause, restart and configure the game")]
         constraints = [
             CheckConstraint(condition=Q(id=1), name="gamesettings_singleton"),
             CheckConstraint(
@@ -318,13 +348,49 @@ class GameSettings(models.Model):
         return f"Game settings ({self.get_status_display()})"
 
     def save(self, *args, **kwargs):
-        """Stamp the kick-off time once, so the entry grace has an anchor."""
-        if self.status == GameStatus.RUNNING and self.started_at is None:
-            self.started_at = timezone.now()
-            update_fields = kwargs.get("update_fields")
-            if update_fields is not None:
-                kwargs["update_fields"] = {*update_fields, "started_at"}
+        """Roll the run ledger on every status change, whatever changed it.
+
+        Done here rather than in the view so the admin, a shell session and the
+        API all keep the same books.
+        """
+        previous_status = None
+        if not self._state.adding:
+            previous_status = (
+                type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
+            )
+        touched = self._roll_clock(previous_status)
+        update_fields = kwargs.get("update_fields")
+        if touched and update_fields is not None:
+            kwargs["update_fields"] = {*update_fields, *touched}
         super().save(*args, **kwargs)
+
+    def _roll_clock(self, previous_status) -> tuple:
+        """Bank the stretch that just ended, and open a new one if now running."""
+        if previous_status == self.status:
+            # Self-heal a row that claims to be running but never opened a
+            # stretch — a hand-edited database, or a migration that added the
+            # ledger while the game was already running.
+            if self.status == GameStatus.RUNNING and self.running_since is None:
+                self.running_since = timezone.now()
+                return ("running_since",)
+            return ()
+
+        now = timezone.now()
+        touched = set()
+
+        if previous_status == GameStatus.RUNNING and self.running_since is not None:
+            self.accumulated_seconds += max(0, int((now - self.running_since).total_seconds()))
+            self.running_since = None
+            touched |= {"accumulated_seconds", "running_since"}
+
+        if self.status == GameStatus.RUNNING:
+            self.running_since = now
+            touched.add("running_since")
+            if self.started_at is None:
+                self.started_at = now
+                touched.add("started_at")
+
+        return tuple(touched)
 
     @classmethod
     def load(cls) -> "GameSettings":
@@ -339,16 +405,55 @@ class GameSettings(models.Model):
         return self.status == GameStatus.PAUSED
 
     @property
-    def entry_grace_ends_at(self):
-        """When the sheet stops gating spawns, or None before kick-off."""
+    def elapsed_seconds(self) -> int | None:
+        """Running time so far, frozen while paused. None before kick-off."""
         if self.started_at is None:
             return None
-        return self.started_at + timedelta(minutes=self.entry_grace_minutes)
+        total = self.accumulated_seconds
+        if self.is_running and self.running_since is not None:
+            total += max(0, int((timezone.now() - self.running_since).total_seconds()))
+        return total
+
+    @property
+    def duration_seconds(self) -> int:
+        return self.duration_minutes * 60
+
+    @property
+    def remaining_seconds(self) -> int | None:
+        """Time left of the allotted duration, or None when no limit is set."""
+        if self.duration_minutes == 0:
+            return None
+        return max(0, self.duration_seconds - (self.elapsed_seconds or 0))
+
+    @property
+    def entry_grace_seconds(self) -> int:
+        return self.entry_grace_minutes * 60
+
+    @property
+    def entry_grace_remaining_seconds(self) -> int | None:
+        """Grace left on the run clock, so a pause freezes it. None before kick-off."""
+        elapsed = self.elapsed_seconds
+        if elapsed is None:
+            return None
+        return max(0, self.entry_grace_seconds - elapsed)
+
+    @property
+    def entry_grace_ends_at(self):
+        """Projected wall-clock end of the grace, for the client's countdown.
+
+        A projection, not a stored deadline: the grace burns run time, not wall
+        time, so a paused game has no end to point at and the answer is None
+        until it resumes.
+        """
+        remaining = self.entry_grace_remaining_seconds
+        if remaining is None or not self.is_running:
+            return None
+        return timezone.now() + timedelta(seconds=remaining)
 
     @property
     def entry_grace_over(self) -> bool:
-        ends_at = self.entry_grace_ends_at
-        return ends_at is not None and timezone.now() >= ends_at
+        remaining = self.entry_grace_remaining_seconds
+        return remaining == 0
 
 
 class Question(models.Model):
@@ -537,3 +642,70 @@ class EntryAttempt(models.Model):
     @property
     def is_superseded(self) -> bool:
         return self.superseded_at is not None
+
+
+class Neighborhood(models.Model):
+    """One of the map's eight pizza slices.
+
+    Membership is geometry, not data: a node belongs to sector
+    `floor(theta / 45)`, which the frontend computes from the map JSON. This row
+    only says what that sector is called and how it is painted, which is what a
+    Designer is allowed to change.
+    """
+
+    index = models.PositiveSmallIntegerField(unique=True)
+    name = models.CharField(max_length=64)
+    theme = models.CharField(max_length=16, choices=NeighborhoodTheme.choices)
+    color = models.CharField(
+        max_length=7,
+        validators=[RegexValidator(r"^#[0-9a-f]{6}$", "Color must be a lowercase #rrggbb hex.")],
+    )
+
+    class Meta:
+        ordering = ["index"]
+        constraints = [
+            CheckConstraint(
+                condition=Q(index__gte=0, index__lt=SECTOR_COUNT),
+                name="neighborhood_index_range",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.index}: {self.name}"
+
+
+class MapDesign(models.Model):
+    """The handful of map-wide knobs a Designer turns. Singleton, like GameSettings."""
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+
+    road_style = models.CharField(
+        max_length=12, choices=RoadStyle.choices, default=RoadStyle.STRAIGHT
+    )
+    tint_strength = models.PositiveSmallIntegerField(
+        default=DEFAULT_TINT_STRENGTH,
+        help_text="How strongly each sector is washed with its colour, 0–100.",
+    )
+    halo_strength = models.PositiveSmallIntegerField(
+        default=DEFAULT_HALO_STRENGTH,
+        help_text="Opacity of the neighbourhood ring around every node, 0–100.",
+    )
+
+    class Meta:
+        verbose_name = "map design"
+        verbose_name_plural = "map design"
+        # Distinct from both mentor and game-god rights: a Designer changes how
+        # the board looks, never who holds what or whether the clock runs.
+        permissions = [("design_map", "Can edit the map's look")]
+        constraints = [
+            CheckConstraint(condition=Q(id=1), name="mapdesign_singleton"),
+            CheckConstraint(condition=Q(tint_strength__lte=100), name="mapdesign_tint_range"),
+            CheckConstraint(condition=Q(halo_strength__lte=100), name="mapdesign_halo_range"),
+        ]
+
+    def __str__(self):
+        return "Map design"
+
+    @classmethod
+    def load(cls) -> "MapDesign":
+        return cls.objects.get_or_create(pk=1)[0]

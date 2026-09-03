@@ -13,6 +13,8 @@ from .events import (
     BOARD_NODE_CLAIMED,
     BOARD_RELEASED,
     BOARD_SPAWN_CLAIMED,
+    GAME_STATE,
+    MAP_DESIGN,
     QUESTION_ASSIGNED,
     SUBMISSION_CREATED,
     current_version,
@@ -33,12 +35,15 @@ from .questions import (
     release_expired_attempts,
     submit_answer,
 )
+from .reset import restart_game
 
 __all__ = [
     "BOARD_GRADED",
     "BOARD_NODE_CLAIMED",
     "BOARD_RELEASED",
     "BOARD_SPAWN_CLAIMED",
+    "GAME_STATE",
+    "MAP_DESIGN",
     "MENTOR_RELEASE_REASONS",
     "QUESTION_ASSIGNED",
     "SUBMISSION_CREATED",
@@ -61,6 +66,7 @@ __all__ = [
     "release_attempt",
     "release_expired_attempts",
     "require_entry_clearance",
+    "restart_game",
     "retries_used",
     "retry_entry_question",
     "submit_answer",

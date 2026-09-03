@@ -21,6 +21,19 @@ def _answer_url(code):
     return f"/api/entry/questions/{code}/answer/"
 
 
+def _run_for(settings, *, minutes):
+    """Pretend the game has been running this long.
+
+    The grace burns run time, not wall time, so winding `started_at` back is not
+    enough on its own — `running_since` is what the elapsed clock reads.
+    """
+    past = timezone.now() - timedelta(minutes=minutes)
+    settings.started_at = past
+    settings.running_since = past
+    settings.save(update_fields=["started_at", "running_since"])
+    return settings
+
+
 @pytest.fixture
 def team():
     return Team.objects.create(code="alpha", name="Alpha", balance=400)
@@ -296,10 +309,7 @@ def test_claim_start_opens_once_the_sheet_is_cleared(auth_client, team):
 
 
 def test_grace_window_opens_the_map_for_everyone(auth_client, team, running_game):
-    running_game.started_at = timezone.now() - timedelta(
-        minutes=running_game.entry_grace_minutes + 1
-    )
-    running_game.save(update_fields=["started_at"])
+    _run_for(running_game, minutes=running_game.entry_grace_minutes + 1)
 
     body = auth_client.get(SHEET_URL).json()
     assert body["qualified"] is False
@@ -309,11 +319,28 @@ def test_grace_window_opens_the_map_for_everyone(auth_client, team, running_game
 
 
 def test_grace_is_still_closed_inside_the_window(auth_client, team, running_game):
-    running_game.started_at = timezone.now() - timedelta(minutes=1)
-    running_game.save(update_fields=["started_at"])
+    _run_for(running_game, minutes=1)
 
     assert auth_client.get(SHEET_URL).json()["grace_over"] is False
     assert _claim(auth_client, team.code).status_code == 409
+
+
+def test_a_pause_freezes_the_grace(running_game):
+    """Wall time keeps running while the game does not; the grace must not."""
+    _run_for(running_game, minutes=running_game.entry_grace_minutes - 1)
+    running_game.status = GameStatus.PAUSED
+    running_game.save(update_fields=["status"])
+
+    settings = GameSettings.load()
+    # Wall time now runs far past the window while the game stays stopped.
+    settings.started_at = timezone.now() - timedelta(minutes=settings.entry_grace_minutes * 5)
+    settings.save(update_fields=["started_at"])
+
+    settings = GameSettings.load()
+    assert settings.entry_grace_over is False
+    assert 0 < settings.entry_grace_remaining_seconds <= 60
+    # No wall-clock deadline to point at while the clock is stopped.
+    assert settings.entry_grace_ends_at is None
 
 
 def test_running_stamps_started_at_once():
@@ -486,10 +513,7 @@ def test_every_team_starts_at_the_configured_balance():
 
 def test_the_grace_window_does_not_change_the_starting_balance(client, other_team, running_game):
     """A team that never answered still walks in with a full balance."""
-    running_game.started_at = timezone.now() - timedelta(
-        minutes=running_game.entry_grace_minutes + 1
-    )
-    running_game.save(update_fields=["started_at"])
+    _run_for(running_game, minutes=running_game.entry_grace_minutes + 1)
     other_team.balance = running_game.initial_balance
     other_team.save(update_fields=["balance"])
 

@@ -21,6 +21,12 @@ env = environ.Env(
     DEBUG=(bool, False),
     ALLOWED_HOSTS=(list, []),
     CSRF_TRUSTED_ORIGINS=(list, ["http://localhost:3000", "http://127.0.0.1:3000"]),
+    S3_BUCKET_NAME=(str, ""),
+    S3_ACCESS_KEY=(str, ""),
+    S3_SECRET_KEY=(str, ""),
+    S3_ENDPOINT=(str, ""),
+    S3_REGION=(str, "us-east-1"),
+    S3_PRESIGNED_EXPIRE=(int, 300),
 )
 environ.Env.read_env(BASE_DIR / ".env")
 
@@ -37,15 +43,16 @@ ALLOWED_HOSTS = env("ALLOWED_HOSTS")
 CSRF_TRUSTED_ORIGINS = env("CSRF_TRUSTED_ORIGINS")
 
 
-# Session/CSRF cookie hardening. DEBUG is only true in local dev (see README),
-# so a real deployment gets these without a separate env flag. The contest is
-# now played online by teams over the public internet, not just mentors on a LAN.
-SESSION_COOKIE_SECURE = not DEBUG
-CSRF_COOKIE_SECURE = not DEBUG
+# Session/CSRF cookie hardening. The contest is played online by teams over the
+# public internet, so these default on; they only come off for a plain-HTTP run
+# of the container stack, where DEBUG is off but there is no TLS in front.
+SESSION_COOKIE_SECURE = env.bool("SESSION_COOKIE_SECURE", default=not DEBUG)
+CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=not DEBUG)
 SESSION_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_AGE = 60 * 60 * 24 * 14  # 2 weeks — outlasts the contest
-SECURE_SSL_REDIRECT = not DEBUG
+SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=not DEBUG)
+SECURE_REDIRECT_EXEMPT = [r"^healthz$"]
 # Only trust the forwarded-proto header behind our own reverse proxy.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if not DEBUG else None
 
@@ -61,17 +68,22 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     # Third party
     "rest_framework",
+    "storages",
     # Project
     "teams",
     "accounts",
     "game",
     "minesweeper",
+    "notifications",
 ]
 
 AUTH_USER_MODEL = "accounts.User"
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Serves STATIC_ROOT: uvicorn is not fronted by a web server, and Django
+    # itself only serves /static/ under DEBUG.
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -240,6 +252,44 @@ MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
+# Media goes to S3 (or any S3-compatible endpoint) as soon as a bucket is named;
+# with S3_BUCKET_NAME empty everything falls back to MEDIA_ROOT on disk, which is
+# what development and the test suite run on.
+S3_BUCKET_NAME = env("S3_BUCKET_NAME")
+S3_ACCESS_KEY = env("S3_ACCESS_KEY")
+S3_SECRET_KEY = env("S3_SECRET_KEY")
+S3_ENDPOINT = env("S3_ENDPOINT") or None
+S3_REGION = env("S3_REGION")
+S3_PRESIGNED_EXPIRE = env("S3_PRESIGNED_EXPIRE")
+
+USE_S3_MEDIA = bool(S3_BUCKET_NAME)
+
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
+}
+
+if USE_S3_MEDIA:
+    STORAGES["default"] = {
+        "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+        "OPTIONS": {
+            "access_key": S3_ACCESS_KEY,
+            "secret_key": S3_SECRET_KEY,
+            "bucket_name": S3_BUCKET_NAME,
+            "endpoint_url": S3_ENDPOINT,
+            "region_name": S3_REGION,
+            # MinIO and most self-hosted gateways do not do virtual-host
+            # buckets, and only sign v4.
+            "addressing_style": "path",
+            "signature_version": "s3v4",
+            "file_overwrite": False,
+            "default_acl": None,
+            "querystring_auth": True,
+            "querystring_expire": S3_PRESIGNED_EXPIRE,
+        },
+    }
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
