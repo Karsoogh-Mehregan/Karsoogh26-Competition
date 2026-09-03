@@ -37,6 +37,7 @@ class ReleaseReason(models.TextChoices):
     EXPIRED = "expired", "منقضی شد"
     DUEL_LOST = "duel_lost", "باخت دوئل"
     BOUGHT_OUT = "bought_out", "خریداری شد"
+    ITEM_TAKEOVER = "item_takeover", "آیتم"
 
 
 class AcquisitionSource(models.TextChoices):
