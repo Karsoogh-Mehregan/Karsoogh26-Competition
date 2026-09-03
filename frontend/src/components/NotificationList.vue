@@ -29,10 +29,6 @@ const emit = defineEmits<{ (e: 'open', item: InboxItem): void }>()
 const now = ref(Date.now())
 const ticker = setInterval(() => (now.value = Date.now()), 30_000)
 onBeforeUnmount(() => clearInterval(ticker))
-
-function iconFor(item: InboxItem) {
-  return item.kind === 'announcement' ? MegaphoneIcon : InboxIcon
-}
 </script>
 
 <template>
@@ -56,7 +52,7 @@ function iconFor(item: InboxItem) {
       @click="emit('open', item)"
     >
       <span class="inbox-card-icon" aria-hidden="true">
-        <component :is="iconFor(item)" class="size-4" />
+        <MegaphoneIcon class="size-4" />
       </span>
 
       <span class="inbox-card-text">

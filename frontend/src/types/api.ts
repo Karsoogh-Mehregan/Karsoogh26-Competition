@@ -177,7 +177,6 @@ export interface EntryAnswerResult extends EntrySheet {
 
 // ---- notifications --------------------------------------------------------
 
-export type MessageKind = 'announcement' | 'system'
 export type MessageStatus = 'draft' | 'sent'
 /** A whole category of recipients. Composes with explicit team/person picks. */
 export type AudienceScope = 'all' | 'teams' | 'mentors' | 'designers'
@@ -187,8 +186,6 @@ export interface InboxItem {
   title: string
   body: string
   excerpt: string
-  kind: MessageKind
-  event_key: string
   sender: string
   sent_at: string | null
   created_at: string
@@ -227,7 +224,6 @@ export interface AudienceOptions {
 
 export interface Message {
   id: number
-  kind: MessageKind
   status: MessageStatus
   title: string
   body: string
@@ -239,7 +235,6 @@ export interface Message {
   users: number[]
   audience_label: string
   sender: string
-  event_key: string
   created_at: string
   updated_at: string
   sent_at: string | null

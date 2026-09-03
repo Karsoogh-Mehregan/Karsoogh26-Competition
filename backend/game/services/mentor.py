@@ -47,7 +47,6 @@ def grade_attempt(holding: Occupancy, grade: int) -> Occupancy:
         occupancy.pk: occupancy
         for occupancy in Occupancy.objects.active()
         .filter(node_id=node.pk)
-        .select_related("team")
         .select_for_update(of=("self",))
         .order_by("pk")
     }
@@ -67,13 +66,6 @@ def grade_attempt(holding: Occupancy, grade: int) -> Occupancy:
     holding.save(update_fields=["grade", "grade_multiplier"])
     # Registered before the floor re-rank so the early return below still announces.
     publish_on_commit(BOARD_GRADED, {"node": node.code})
-
-    # Imported here, not at module scope: `notifications.services` reaches back
-    # into `game.services.events` for the SSE publisher, so a top-level import
-    # would close the loop while this package is still being built.
-    from notifications import alerts
-
-    alerts.grade_posted(holding)
 
     ranked = [occupancy for occupancy in locked.values() if occupancy.grade]
     if not ranked:
@@ -103,11 +95,6 @@ def grade_attempt(holding: Occupancy, grade: int) -> Occupancy:
         )
         if delta > 0:
             Team.objects.filter(pk=occupancy.team_id).update(balance=F("balance") + delta)
-            # The team just graded already hears about its own result; this is
-            # for the neighbours the re-rank moved up without them doing a thing.
-            if occupancy.pk != holding.pk:
-                occupancy.node = node
-                alerts.floor_promoted(occupancy)
 
     holding.team.refresh_from_db(fields=["balance"])
     return holding

@@ -11,7 +11,6 @@ import logging
 from django.db import transaction
 
 from game.models import EntryAttempt, GameSettings, GameStatus, Occupancy
-from notifications.models import Message, MessageKind
 from teams.models import Team
 
 logger = logging.getLogger("karsoogh")
@@ -37,12 +36,6 @@ def restart_game(*, by=None) -> dict:
     # team would ever see a sheet. The EntryQuestion bank is content and stays.
     entry_attempts, _ = EntryAttempt.objects.all().delete()
 
-    # Automatic messages narrate the run that just ended — "your answer scored
-    # 90" about an occupancy that no longer exists is noise on the next run.
-    # Hand-written announcements are content and survive, same rule as the
-    # question bank. Notification rows cascade off the messages.
-    system_messages, _ = Message.objects.filter(kind=MessageKind.SYSTEM).delete()
-
     teams = Team.objects.update(
         balance=settings_row.initial_balance,
         color=None,
@@ -65,7 +58,6 @@ def restart_game(*, by=None) -> dict:
         "occupancies": deleted.get("game.Occupancy", 0),
         "submissions": deleted.get("game.Submission", 0),
         "entry_attempts": entry_attempts,
-        "system_messages": system_messages,
         "teams": teams,
     }
     logger.warning("Game restarted by %s: %s", getattr(by, "username", "unknown"), summary)

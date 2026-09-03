@@ -1,8 +1,10 @@
-"""An inbox for every user, filled two ways.
+"""An inbox for every user.
 
-Automatically, by the game itself — a grade posted, an attempt burned, the
-clock started — and by hand, when someone holding `send_announcement` writes a
-message and picks an audience.
+Every message is written by a person holding `send_announcement`, who picks an
+audience. Nothing in the game writes here: an earlier cut had the board narrate
+itself — grade posted, attempt burned, clock started — and it was removed
+deliberately. A notification per board event is noise, and noise is how a
+player learns to ignore the bell. What the board did is on the board.
 
 Two models, because "what was written" and "who has read it" have different
 lifetimes. `Message` is the composed thing plus the audience it was aimed at;
@@ -56,11 +58,6 @@ class AudienceScope(models.TextChoices):
     DESIGNERS = "designers", "همهٔ طراحان"
 
 
-class MessageKind(models.TextChoices):
-    ANNOUNCEMENT = "announcement", "پیام مدیر"
-    SYSTEM = "system", "خودکار"
-
-
 class MessageStatus(models.TextChoices):
     DRAFT = "draft", "پیش‌نویس"
     SENT = "sent", "ارسال‌شده"
@@ -73,9 +70,6 @@ class Message(models.Model):
     until `services.send_message` fans it out.
     """
 
-    kind = models.CharField(
-        max_length=12, choices=MessageKind.choices, default=MessageKind.ANNOUNCEMENT
-    )
     status = models.CharField(
         max_length=8, choices=MessageStatus.choices, default=MessageStatus.DRAFT
     )
@@ -86,7 +80,7 @@ class Message(models.Model):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="sent_messages",
-        help_text="Null for automatic messages: the game itself has no user row.",
+        help_text="Nulled if the account is later deleted; sender_label survives.",
     )
     sender_label = models.CharField(
         max_length=64,
@@ -116,10 +110,6 @@ class Message(models.Model):
     title = models.CharField(max_length=TITLE_MAX)
     body = models.TextField(blank=True)
 
-    # What happened, for automatic messages: `grade.posted`, `game.status`, …
-    # The SPA picks an icon from it; empty on a hand-written announcement.
-    event_key = models.SlugField(max_length=32, blank=True)
-
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     sent_at = models.DateTimeField(null=True, blank=True)
@@ -137,12 +127,6 @@ class Message(models.Model):
                     | Q(status=MessageStatus.SENT, sent_at__isnull=False)
                 ),
                 name="message_sent_has_timestamp",
-            ),
-            # The game never writes a draft: an automatic message describes
-            # something that already happened.
-            CheckConstraint(
-                condition=~Q(kind=MessageKind.SYSTEM) | Q(status=MessageStatus.SENT),
-                name="message_system_is_never_draft",
             ),
         ]
         indexes = [

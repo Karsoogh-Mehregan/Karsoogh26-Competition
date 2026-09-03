@@ -794,7 +794,6 @@ class GameSettingsView(APIView):
 
     def patch(self, request):
         settings_row = GameSettings.load()
-        was = settings_row.status
         serializer = GameSettingsSerializer(settings_row, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
@@ -804,13 +803,6 @@ class GameSettingsView(APIView):
             services.GAME_STATE,
             {"status": settings_row.status},
         )
-        if settings_row.status != was:
-            # Hooked to the API rather than to GameSettings.save(): flipping the
-            # status from a shell or the Django admin is a repair, and a repair
-            # should not announce itself to the whole hall.
-            from notifications import alerts
-
-            alerts.game_status_changed(settings_row.status)
         return Response(serializer.data)
 
 

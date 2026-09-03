@@ -117,22 +117,15 @@ def release_expired_attempts(*, node: Node | None = None) -> int:
     )
     if node is not None:
         qs = qs.filter(node=node)
-    # Fetched rather than counted: each one owes its team a notification, and
-    # the team and node have to be read before the update erases the shortlist.
-    expired = list(qs.select_related("team", "node"))
-    if not expired:
+    ids = list(qs.values_list("pk", flat=True))
+    if not ids:
         return 0
-    released = Occupancy.objects.filter(pk__in=[row.pk for row in expired]).update(
+    released = Occupancy.objects.filter(pk__in=ids).update(
         released_at=now,
         release_reason=ReleaseReason.EXPIRED,
     )
     if released:
         publish_on_commit(BOARD_RELEASED, {"reason": ReleaseReason.EXPIRED})
-        # Local import: see the note in `game.services.mentor.grade_attempt`.
-        from notifications import alerts
-
-        for row in expired:
-            alerts.attempt_expired(row)
     return released
 
 

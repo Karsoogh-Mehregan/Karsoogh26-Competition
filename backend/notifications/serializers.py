@@ -5,7 +5,7 @@ from core.openapi import extend_schema_field
 from teams.models import Team
 
 from .models import AudienceScope, Message, MessageStatus, Notification
-from .services import SYSTEM_SENDER_LABEL, audience_size, describe_audience
+from .services import audience_size, describe_audience
 
 User = get_user_model()
 
@@ -20,7 +20,7 @@ def _sender_name(message: Message) -> str:
         return message.sender_label
     if message.sender_id is not None:
         return message.sender.get_full_name() or message.sender.username
-    return SYSTEM_SENDER_LABEL
+    return ""
 
 
 class InboxItemSerializer(serializers.ModelSerializer):
@@ -34,8 +34,6 @@ class InboxItemSerializer(serializers.ModelSerializer):
     title = serializers.CharField(source="message.title", read_only=True)
     body = serializers.CharField(source="message.body", read_only=True)
     excerpt = serializers.CharField(source="message.excerpt", read_only=True)
-    kind = serializers.CharField(source="message.kind", read_only=True)
-    event_key = serializers.CharField(source="message.event_key", read_only=True)
     sent_at = serializers.DateTimeField(source="message.sent_at", read_only=True)
     sender = serializers.SerializerMethodField()
     is_read = serializers.BooleanField(read_only=True)
@@ -47,8 +45,6 @@ class InboxItemSerializer(serializers.ModelSerializer):
             "title",
             "body",
             "excerpt",
-            "kind",
-            "event_key",
             "sender",
             "sent_at",
             "created_at",
@@ -129,7 +125,6 @@ class MessageSerializer(serializers.ModelSerializer):
         model = Message
         fields = (
             "id",
-            "kind",
             "status",
             "title",
             "body",
@@ -139,7 +134,6 @@ class MessageSerializer(serializers.ModelSerializer):
             "users",
             "audience_label",
             "sender",
-            "event_key",
             "created_at",
             "updated_at",
             "sent_at",

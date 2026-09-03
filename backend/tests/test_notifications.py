@@ -13,13 +13,7 @@ from django.utils import timezone
 from game.services import events
 from game.sse import build_frame
 from notifications import services
-from notifications.models import (
-    AudienceScope,
-    Message,
-    MessageKind,
-    MessageStatus,
-    Notification,
-)
+from notifications.models import AudienceScope, Message, MessageStatus, Notification
 from teams.models import Team
 
 pytestmark = pytest.mark.django_db
@@ -624,25 +618,13 @@ def test_audience_options_are_announcer_only(announcer, alpha_user, alpha):
     assert {user["username"] for user in body["users"]} == {"boss", "alpha-user"}
 
 
-# ---- the automatic half ----------------------------------------------------
+# ---- nothing writes automatically ------------------------------------------
 
 
-def test_announce_writes_a_system_message(alpha_user, alpha):
-    message = services.announce(
-        title="زمان تمام شد",
-        body="متن",
-        teams=[alpha],
-        event_key="attempt.expired",
-    )
-
-    assert message.kind == MessageKind.SYSTEM
-    assert message.status == MessageStatus.SENT
-    assert message.sender_label == services.SYSTEM_SENDER_LABEL
-    assert Notification.objects.get(user=alpha_user).message == message
-
-
-def test_grading_a_submission_reaches_the_team(alpha, alpha_user):
-    """The whole automatic path, end to end: a mentor grades, the team is told."""
+def test_the_game_does_not_write_to_the_inbox(alpha, alpha_user, mentor_user):
+    """Grading used to notify the team. It was removed on request — a
+    notification per board event is noise, and what the board did is on the
+    board. This pins that the whole automatic path is gone, not just muted."""
     from game.models import (
         AnswerType,
         GameSettings,
@@ -653,7 +635,7 @@ def test_grading_a_submission_reaches_the_team(alpha, alpha_user):
         Question,
         Submission,
     )
-    from game.services.questions import grade_submission
+    from game.services.questions import grade_submission, release_expired_attempts
 
     settings_row = GameSettings.load()
     settings_row.status = GameStatus.RUNNING
@@ -674,99 +656,26 @@ def test_grading_a_submission_reaches_the_team(alpha, alpha_user):
     submission = Submission.objects.create(occupancy=holding, body="۴۲", submitted_by=alpha_user)
 
     grade_submission(submission, 90)
+    release_expired_attempts()
 
-    notification = Notification.objects.get(user=alpha_user)
-    assert notification.message.event_key == "grade.posted"
-    assert "نانوایی" in notification.message.title
-    assert notification.read_at is None
-
-
-def test_an_alert_that_fails_does_not_take_the_move_down(alpha, monkeypatch, caplog):
-    """Notifications are a courtesy; a broken one must never roll back a grade."""
-    from notifications import alerts
-
-    def explode(**kwargs):
-        raise RuntimeError("no")
-
-    monkeypatch.setattr(alerts, "announce", explode)
-
-    class FakeNode:
-        name = ""
-        code = "e1"
-
-    class FakeOccupancy:
-        node = FakeNode()
-        team = alpha
-        grade = 90
-        floor = 1
-        points = 100
-
-    with caplog.at_level("ERROR", logger="karsoogh"):
-        alerts.grade_posted(FakeOccupancy())
-
-    assert "Notification failed" in caplog.text
-
-
-# ---- the audience preview --------------------------------------------------
-
-
-PREVIEW_URL = "/api/messages/audience-preview/"
-
-
-def test_preview_counts_without_writing_anything(announcer, alpha, beta, alpha_user, beta_user):
-    body = (
-        session(announcer)
-        .post(
-            PREVIEW_URL,
-            {"scopes": [], "teams": ["alpha", "beta"], "users": []},
-            content_type="application/json",
-        )
-        .json()
-    )
-
-    assert body["count"] == 2
-    assert body["label"] == "۲ تیم".replace("۲", "2")
     assert Message.objects.count() == 0
+    assert Notification.objects.count() == 0
 
 
-def test_preview_excludes_the_caller(announcer, alpha_user):
-    """It has to match what a real send would do, or the number lies."""
-    body = (
-        session(announcer)
-        .post(
-            PREVIEW_URL,
-            {"scopes": ["all"], "users": [announcer.pk]},
-            content_type="application/json",
-        )
-        .json()
+def test_changing_the_game_status_does_not_write_to_the_inbox(announcer, alpha_user):
+    from game.models import GameStatus
+
+    session(announcer)  # any session; the endpoint is game-god gated below
+    god = User.objects.create_user("god", password="x")
+    god.groups.add(Group.objects.get(name="GameGods"))
+
+    session(god).patch(
+        "/api/game/settings/",
+        {"status": GameStatus.RUNNING},
+        content_type="application/json",
     )
 
-    assert body["count"] == 1
-    assert body["label"] == "همه"
-
-
-def test_preview_is_announcer_only(alpha_user):
-    assert (
-        session(alpha_user)
-        .post(PREVIEW_URL, {"scopes": ["all"]}, content_type="application/json")
-        .status_code
-        == 403
-    )
-
-
-def test_preview_of_nothing_is_zero(announcer, alpha_user):
-    body = session(announcer).post(PREVIEW_URL, {}, content_type="application/json").json()
-
-    assert body["count"] == 0
-    assert body["label"] == "بدون گیرنده"
-
-
-def test_audience_label_names_one_team_but_counts_many(announcer, alpha, beta):
-    one = draft(teams=[alpha])
-    many = draft(teams=[alpha, beta])
-
-    assert services.describe_audience(one) == "تیم Alpha"
-    assert services.describe_audience(many) == "2 تیم"
+    assert Notification.objects.count() == 0
 
 
 # ---- the detail page and read receipts -------------------------------------

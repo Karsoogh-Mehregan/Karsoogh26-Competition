@@ -208,15 +208,7 @@ def test_zero_grade_submission_publishes_grade_then_release(
     with django_capture_on_commit_callbacks(execute=True):
         grade_submission(submission, 0)
 
-    # The notification sits between the two: grading tells the team its score
-    # before the zero-grade release frees the slot. It appears here and not in
-    # `test_grade_publishes_even_when_no_floor_is_awarded` because this team has
-    # an account to deliver to.
-    assert [kind for kind, _ in recorded] == [
-        events.BOARD_GRADED,
-        events.NOTIFICATION_CREATED,
-        events.BOARD_RELEASED,
-    ]
+    assert [kind for kind, _ in recorded] == [events.BOARD_GRADED, events.BOARD_RELEASED]
 
 
 def test_submission_publishes_for_mentors(

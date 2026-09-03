@@ -333,7 +333,6 @@ def test_restart_clears_the_board(game_god, played_board):
         "occupancies": 2,
         "submissions": 1,
         "entry_attempts": 0,
-        "system_messages": 0,
         "teams": 1,
     }
     assert Occupancy.objects.count() == 0

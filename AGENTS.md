@@ -112,7 +112,11 @@ it" (`Notification` — one row per recipient). `services.send_message` resolves
 count is then one indexed query, and a mentor added to a group an hour later must not
 retroactively appear to have been addressed. A draft has no `Notification` rows at all.
 The author is excluded from their own fan-out — an announcement belongs in Sent, not in its
-writer's bell.
+writer's bell. **Nothing in `game/` writes to the inbox.** An earlier cut had the board narrate
+itself (grade posted, attempt expired, clock started); it was removed deliberately in
+`notifications/migrations/0006` — a notification per board event is noise, and noise is how a
+player learns to ignore the bell. What the board did is on the board. If an organiser wants the
+hall told the game has started, they send it.
 
 **The audience is a union of three selections, not one choice.** `Message.scopes` is a list
 of `AudienceScope` values (`all` / `teams` / `mentors` / `designers`), and `Message.teams`

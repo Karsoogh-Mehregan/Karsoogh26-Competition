@@ -1,8 +1,7 @@
 """Composing, addressing and delivering messages.
 
-The mechanism only. The wording of the automatic messages lives in
-`notifications/alerts.py`, so game code calls something named after what
-happened and never has to know how delivery works.
+Every message here is hand-written by an announcer through the API: a draft
+first, then `send_message` fans it out. Nothing in `game/` writes to the inbox.
 """
 
 import logging
@@ -14,7 +13,7 @@ from django.utils import timezone
 
 from game.services.events import NOTIFICATION_CREATED, publish_on_commit
 
-from .models import AudienceScope, Message, MessageKind, MessageStatus, Notification
+from .models import AudienceScope, Message, MessageStatus, Notification
 
 logger = logging.getLogger("karsoogh")
 
@@ -23,8 +22,6 @@ User = get_user_model()
 MENTOR_PERM = "game.act_as_mentor"
 DESIGNER_PERM = "game.design_map"
 SEND_PERM = "notifications.send_announcement"
-
-SYSTEM_SENDER_LABEL = "سامانه"
 
 
 def users_with_perm(perm: str) -> QuerySet:
@@ -208,7 +205,7 @@ def send_message(message: Message) -> int:
         # other one — the client refetches its own inbox.
         publish_on_commit(
             NOTIFICATION_CREATED,
-            {"title": message.title, "kind": message.kind},
+            {"title": message.title},
             recipients=user_ids,
         )
 
@@ -219,41 +216,6 @@ def send_message(message: Message) -> int:
         len(user_ids),
     )
     return len(user_ids)
-
-
-def announce(
-    *,
-    title: str,
-    body: str = "",
-    scopes: list[str] | None = None,
-    teams=(),
-    users=(),
-    event_key: str = "",
-    sender=None,
-    sender_label: str = "",
-) -> Message:
-    """Write a message and send it in one step. The automatic path.
-
-    `alerts.py` is the only caller worth reading; everything hand-written goes
-    through the API, which creates a draft first.
-    """
-    message = Message.objects.create(
-        kind=MessageKind.SYSTEM if sender is None else MessageKind.ANNOUNCEMENT,
-        status=MessageStatus.SENT,
-        sent_at=timezone.now(),
-        sender=sender,
-        sender_label=sender_label or (SYSTEM_SENDER_LABEL if sender is None else ""),
-        scopes=list(scopes or []),
-        title=title,
-        body=body,
-        event_key=event_key,
-    )
-    if teams:
-        message.teams.set(teams)
-    if users:
-        message.users.set(users)
-    send_message(message)
-    return message
 
 
 # ---- inbox -----------------------------------------------------------------

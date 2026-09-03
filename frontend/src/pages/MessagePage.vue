@@ -7,11 +7,10 @@
  * straight out of the card. A message of any length gets a page with room for
  * it, and reading is what marks it read.
  */
-import { ArrowRightIcon, InboxIcon, MegaphoneIcon } from '@lucide/vue'
+import { ArrowRightIcon, MegaphoneIcon } from '@lucide/vue'
 import { computed, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useMeQuery } from '@/queries/auth'
@@ -68,12 +67,9 @@ const sentAt = computed(() => {
     <div v-else class="message-page-body">
       <div class="message-page-meta">
         <span class="message-page-icon" aria-hidden="true">
-          <component :is="item.kind === 'announcement' ? MegaphoneIcon : InboxIcon" class="size-4" />
+          <MegaphoneIcon class="size-4" />
         </span>
         <span class="message-page-sender">{{ item.sender }}</span>
-        <Badge variant="outline" class="font-normal">
-          {{ item.kind === 'announcement' ? 'پیام مدیر' : 'اعلان خودکار' }}
-        </Badge>
         <time class="message-page-time">{{ sentAt }}</time>
       </div>
 

@@ -19,7 +19,6 @@ class NotificationInline(admin.TabularInline):
 class MessageAdmin(admin.ModelAdmin):
     list_display = (
         "title",
-        "kind",
         "status",
         "audience",
         "sender_label",
@@ -28,7 +27,7 @@ class MessageAdmin(admin.ModelAdmin):
         "created_at",
         "sent_at",
     )
-    list_filter = ("kind", "status")
+    list_filter = ("status",)
     search_fields = ("title", "body", "sender_label")
     list_select_related = ("sender",)
     autocomplete_fields = ("sender",)
