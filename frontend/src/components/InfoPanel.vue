@@ -142,6 +142,11 @@ const showTeamPicker = computed(() => isMentor.value || isPlayer.value)
             جدول امتیازات
           </RouterLink>
         </Button>
+        <Button as-child size="sm" :variant="route.path === '/inbox' ? 'default' : 'outline'">
+          <RouterLink to="/inbox" :aria-current="route.path === '/inbox' ? 'page' : undefined">
+            پیام‌ها
+          </RouterLink>
+        </Button>
         <Button
           v-if="isAnnouncer"
           as-child
@@ -152,7 +157,7 @@ const showTeamPicker = computed(() => isMentor.value || isPlayer.value)
             to="/messages"
             :aria-current="route.path === '/messages' ? 'page' : undefined"
           >
-            ارسال پیام
+            نوشتن پیام
           </RouterLink>
         </Button>
       </nav>

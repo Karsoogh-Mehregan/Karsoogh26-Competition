@@ -101,8 +101,11 @@ writer's bell. `services.users_with_perm` resolves the mentor/designer audiences
 same reasoning as `accounts.permissions.has_game_god_rights`. A permission that does not
 exist yet (`game.design_map`, which arrives with the designer work) resolves to an empty
 audience rather than raising. Sending is gated on `notifications.send_announcement`
-(`CanSendAnnouncement`), seeded onto the existing **GameGods** group by
-`notifications/migrations/0002` — no new group. The automatic half lives in
+(`CanSendAnnouncement`), backed by its own **Notifier** group — running the clock and
+speaking to the hall are different jobs, so `migrations/0003` moved the grant off GameGods
+(carrying its members across) and onto Notifier; someone who does both goes in both groups.
+`/api/auth/me/` reports it as `is_announcer`, and the SPA hides the composer on that flag
+rather than on `is_game_god`. The automatic half lives in
 `notifications/alerts.py`, one function per moment, every one best-effort: an alert that
 raises is logged and swallowed, because a notification must never roll back the move that
 caused it. `game/` calls those with a **local import inside the function** — `notifications`

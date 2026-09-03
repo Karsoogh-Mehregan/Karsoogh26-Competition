@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { queryClient } from '@/lib/queryClient'
 import { meQueryOptions } from '@/queries/auth'
 import GradingPage from '@/pages/GradingPage.vue'
+import InboxPage from '@/pages/InboxPage.vue'
 import LeaderboardPage from '@/pages/LeaderboardPage.vue'
 import MessagesPage from '@/pages/MessagesPage.vue'
 import MapPage from '@/pages/MapPage.vue'
@@ -14,6 +15,7 @@ export const router = createRouter({
     { path: '/grading', name: 'grading', component: GradingPage, meta: { requiresMentor: true } },
     { path: '/solve', name: 'solve', component: SolvePage, meta: { requiresPlayer: true } },
     { path: '/leaderboard', name: 'leaderboard', component: LeaderboardPage, meta: { requiresAuth: true } },
+    { path: '/inbox', name: 'inbox', component: InboxPage, meta: { requiresAuth: true } },
     { path: '/messages', name: 'messages', component: MessagesPage, meta: { requiresAnnouncer: true } },
   ],
 })

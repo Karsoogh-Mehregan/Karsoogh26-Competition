@@ -102,9 +102,9 @@ class Message(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
-        # Sending is its own right: narrower than running the game, and nothing
-        # to do with grading. Seeded onto GameGods in 0002, grantable to anyone
-        # else from the admin.
+        # Sending is its own right: nothing to do with grading, and — since
+        # 0003 moved it off GameGods onto the Notifier group — not implied by
+        # running the game either.
         permissions = [("send_announcement", "Can send announcements")]
         constraints = [
             # A team-addressed message needs a team, and only a team-addressed

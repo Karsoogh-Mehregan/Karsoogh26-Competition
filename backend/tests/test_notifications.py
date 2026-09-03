@@ -67,8 +67,16 @@ def mentor_user():
 
 @pytest.fixture
 def announcer():
-    """A game god, who migration 0002 hands `send_announcement`."""
+    """A member of Notifier, the group migration 0003 hands `send_announcement`."""
     user = User.objects.create_user("boss", password="x")
+    user.groups.add(Group.objects.get(name="Notifier"))
+    return user
+
+
+@pytest.fixture
+def game_god():
+    """Runs the clock, and — since 0003 — may not announce on that basis alone."""
+    user = User.objects.create_user("clockkeeper", password="x")
     user.groups.add(Group.objects.get(name="GameGods"))
     return user
 
@@ -345,12 +353,30 @@ def test_the_inbox_needs_a_session():
 # ---- the composer ----------------------------------------------------------
 
 
-def test_only_an_announcer_may_compose(alpha_user, mentor_user, announcer):
+def test_only_an_announcer_may_compose(alpha_user, mentor_user, game_god, announcer):
+    """Notifier alone. Running the clock is not a licence to speak to the hall."""
     payload = {"title": "خبر", "body": "متن", "audience": "all"}
 
     assert session(alpha_user).post(MESSAGES_URL, payload, "application/json").status_code == 403
     assert session(mentor_user).post(MESSAGES_URL, payload, "application/json").status_code == 403
+    assert session(game_god).post(MESSAGES_URL, payload, "application/json").status_code == 403
     assert session(announcer).post(MESSAGES_URL, payload, "application/json").status_code == 201
+
+
+def test_the_notifier_group_carries_the_permission(announcer, game_god):
+    assert announcer.has_perm("notifications.send_announcement")
+    assert not game_god.has_perm("notifications.send_announcement")
+
+
+def test_the_notifier_group_starts_empty(django_user_model):
+    """0003 does not carry GameGods members across; that is the point of the split."""
+    assert Group.objects.get(name="Notifier").user_set.count() == 0
+
+
+def test_me_reports_the_right_to_announce(announcer, mentor_user):
+    """The SPA hides the composer on this flag, so it must track the API's gate."""
+    assert session(announcer).get("/api/auth/me/").json()["is_announcer"] is True
+    assert session(mentor_user).get("/api/auth/me/").json()["is_announcer"] is False
 
 
 def test_posting_saves_a_draft_and_delivers_nothing(announcer, alpha_user):
