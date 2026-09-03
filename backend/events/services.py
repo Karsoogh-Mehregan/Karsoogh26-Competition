@@ -3,10 +3,11 @@ from collections.abc import Callable
 from datetime import timedelta
 
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import Q
 from django.utils import timezone
 
-from teams.models import Team
+from teams.ledger import apply_balance_change
+from teams.models import BalanceReason, Team
 
 from .exceptions import (
     AuctionError,
@@ -325,7 +326,12 @@ def _settle_locked_charity_bag(event: CharityBagEvent, now) -> None:
         )
         payout = entry.amount * 2 if wins else 0
         if payout:
-            Team.objects.filter(pk=entry.team_id).update(balance=F("balance") + payout)
+            apply_balance_change(
+                entry.team,
+                payout,
+                reason=BalanceReason.EVENT,
+                detail=f"Charity Bag #{event.pk}: payout",
+            )
         entry.final_payout = payout
         entry.settled_at = now
         entry.save(update_fields=["final_payout", "settled_at"])
@@ -410,7 +416,9 @@ def enter_charity_bag(
     if amount <= 0 or amount > locked_team.balance:
         raise CharityBagInsufficientBalance("مبلغ باید مثبت و حداکثر برابر موجودی فعلی تیم باشد.")
 
-    Team.objects.filter(pk=locked_team.pk).update(balance=F("balance") - amount)
+    apply_balance_change(
+        locked_team, -amount, reason=BalanceReason.EVENT, detail=f"Charity Bag #{event.pk}: entry"
+    )
     return CharityBagParticipation.objects.create(
         event=event,
         team=locked_team,
@@ -604,7 +612,8 @@ def create_centipede_game(player_one: Team, player_two: Team) -> CentipedeGame:
     )
     if len(players) != 2 or any(player.balance < 100 for player in players):
         raise CentipedeInvalidAction("هر بازیکن برای ورود به هزارپا به ۱۰۰ گلوریوم نیاز دارد.")
-    Team.objects.filter(pk__in=[player.pk for player in players]).update(balance=F("balance") - 100)
+    for player in players:
+        apply_balance_change(player, -100, reason=BalanceReason.EVENT, detail="Centipede: entry")
     return CentipedeGame.objects.create(
         player_one=player_one,
         player_two=player_two,
@@ -679,7 +688,12 @@ def play_centipede_action(
                 game.player_two_id: game.player_two_final_payout,
             }
             for player in players:
-                Team.objects.filter(pk=player.pk).update(balance=F("balance") + payouts[player.pk])
+                apply_balance_change(
+                    player,
+                    payouts[player.pk],
+                    reason=BalanceReason.EVENT,
+                    detail=f"Centipede #{game.pk}: payout",
+                )
             game.status = CentipedeStatus.FINISHED
             game.finished_at = timezone.now()
             if game.player_one_final_payout != game.player_two_final_payout:
@@ -721,7 +735,12 @@ def _play_legacy_centipede_action(
     if action == CentipedeAction.TAKE:
         now = timezone.now()
         locked_team = Team.objects.select_for_update(of=("self",)).get(pk=acting_team.pk)
-        Team.objects.filter(pk=locked_team.pk).update(balance=F("balance") + displayed_reward)
+        apply_balance_change(
+            locked_team,
+            displayed_reward,
+            reason=BalanceReason.EVENT,
+            detail=f"Centipede #{game.pk}: payout",
+        )
         game.status = CentipedeStatus.FINISHED
         game.active_player = None
         game.winner = acting_team
@@ -1030,7 +1049,7 @@ def create_auction_event(
         first = teams[offset]
         second = teams[offset + 1] if offset + 1 < len(teams) else None
         automatic = second is None
-        pair = AuctionPair.objects.create(
+        AuctionPair.objects.create(
             event=event,
             team_one=first,
             team_two=second,
@@ -1042,7 +1061,12 @@ def create_auction_event(
             settled_at=now if automatic else None,
         )
         if automatic:
-            Team.objects.filter(pk=pair.team_one_id).update(balance=F("balance") + reward)
+            apply_balance_change(
+                first,
+                reward,
+                reason=BalanceReason.EVENT,
+                detail=f"Auction #{event.pk}: automatic award",
+            )
     if all(pair.automatic_award for pair in event.pairs.all()):
         event.status = AuctionStatus.FINISHED
         event.settled_at = now
@@ -1069,7 +1093,12 @@ def _settle_locked_auction(event: AuctionEvent, now) -> AuctionEvent:
         pair.settled_at = now
         pair.save(update_fields=["status", "winner", "settled_at"])
         if pair.winner_id:
-            Team.objects.filter(pk=pair.winner_id).update(balance=F("balance") + event.reward)
+            apply_balance_change(
+                pair.highest_bidder,
+                event.reward,
+                reason=BalanceReason.EVENT,
+                detail=f"Auction #{event.pk}: payout",
+            )
     event.status = AuctionStatus.FINISHED
     event.settled_at = now
     event.save(update_fields=["status", "settled_at", "updated_at"])
@@ -1117,7 +1146,9 @@ def place_auction_bid(
     locked_team = Team.objects.select_for_update(of=("self",)).get(pk=team.pk)
     if delta > locked_team.balance:
         raise AuctionError("موجودی آزاد تیم برای این پیشنهاد کافی نیست.")
-    Team.objects.filter(pk=team.pk).update(balance=F("balance") - delta)
+    apply_balance_change(
+        locked_team, -delta, reason=BalanceReason.EVENT, detail=f"Auction #{event.pk}: bid"
+    )
     if team.pk == pair.team_one_id:
         pair.team_one_bid = amount
     else:
@@ -1244,13 +1275,17 @@ def spin_wheel(event_id: int, team: Team, request_id, *, randbelow=secrets.randb
     if locked_team.balance < event.spin_cost:
         raise WheelError("موجودی تیم برای چرخاندن گردونه کافی نیست.")
     prize = _weighted_prize(candidates, randbelow)
-    Team.objects.filter(pk=team.pk).update(balance=F("balance") - event.spin_cost)
+    apply_balance_change(
+        locked_team, -event.spin_cost, reason=BalanceReason.EVENT, detail=f"Wheel #{event.pk}: spin"
+    )
     event.total_collected += event.spin_cost
     payout = 0
     delivery = WheelDeliveryStatus.NOT_APPLICABLE
     if prize.prize_type == WheelPrizeType.GLORIUM:
         payout = prize.glorium_amount
-        Team.objects.filter(pk=team.pk).update(balance=F("balance") + payout)
+        apply_balance_change(
+            locked_team, payout, reason=BalanceReason.EVENT, detail=f"Wheel #{event.pk}: payout"
+        )
     elif prize.prize_type == WheelPrizeType.MERCHANDISE:
         delivery = WheelDeliveryStatus.PENDING
         if prize.stock is not None:
@@ -1328,7 +1363,9 @@ def start_pig_game(event_id: int, team: Team) -> PigGame:
     locked_team = Team.objects.select_for_update(of=("self",)).get(pk=team.pk)
     if locked_team.balance < event.entry_fee:
         raise PigError("موجودی تیم برای پرداخت ورودی کافی نیست.")
-    Team.objects.filter(pk=team.pk).update(balance=F("balance") - event.entry_fee)
+    apply_balance_change(
+        locked_team, -event.entry_fee, reason=BalanceReason.EVENT, detail=f"Pig #{event.pk}: entry"
+    )
     return PigGame.objects.create(
         event=event,
         team=team,
@@ -1364,7 +1401,9 @@ def play_pig_action(
     PigActionReceipt.objects.create(game=game, request_id=request_id, action=action)
     if action == "cash_out":
         locked_team = Team.objects.select_for_update(of=("self",)).get(pk=team.pk)
-        Team.objects.filter(pk=locked_team.pk).update(balance=F("balance") + game.pot)
+        apply_balance_change(
+            locked_team, game.pot, reason=BalanceReason.EVENT, detail=f"Pig #{game.pk}: payout"
+        )
         game.final_payout = game.pot
         game.status = PigGameStatus.FINISHED_CASHED_OUT
         game.finished_at = timezone.now()
@@ -1384,7 +1423,9 @@ def play_pig_action(
         game.pot = min(game.pot + amount_added, game.max_pot)
         if game.pot >= game.max_pot:
             locked_team = Team.objects.select_for_update(of=("self",)).get(pk=team.pk)
-            Team.objects.filter(pk=locked_team.pk).update(balance=F("balance") + game.pot)
+            apply_balance_change(
+                locked_team, game.pot, reason=BalanceReason.EVENT, detail=f"Pig #{game.pk}: payout"
+            )
             game.final_payout = game.pot
             game.status = PigGameStatus.FINISHED_MAX_POT
             game.finished_at = timezone.now()

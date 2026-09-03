@@ -37,9 +37,7 @@ export function useLoginMutation() {
         // The sheet is per-team and cached forever, so it must not outlive
         // the session that drew it.
         queryClient.invalidateQueries({ queryKey: queryKeys.entrySheet() }),
-      ])
-      return Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.teams() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.balanceEventsRoot() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.territoryGames() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.charityBags() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.centipedeGames() }),

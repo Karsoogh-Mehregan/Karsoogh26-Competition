@@ -92,9 +92,10 @@ const showTeamPicker = computed(() => isMentor.value || isPlayer.value)
       </p>
       <nav v-if="me" class="mt-3 flex flex-wrap gap-2">
         <Button
+          v-if="isMentor"
           as-child
           size="sm"
-          :variant="route.path === '/events' ? 'default' : 'outline'"
+          :variant="route.path === '/grading' ? 'default' : 'outline'"
         >
           <RouterLink
             to="/grading"
@@ -122,6 +123,9 @@ const showTeamPicker = computed(() => isMentor.value || isPlayer.value)
             :aria-current="route.path === '/leaderboard' ? 'page' : undefined"
           >
             جدول امتیازات
+          </RouterLink>
+        </Button>
+        <Button as-child size="sm" :variant="route.path === '/events' ? 'default' : 'outline'">
           <RouterLink to="/events" :aria-current="route.path === '/events' ? 'page' : undefined">
             <Gamepad2Icon class="size-3.5" />
             همه رویدادها

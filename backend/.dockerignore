@@ -5,6 +5,7 @@ __pycache__/
 .env
 db.sqlite3
 db.sqlite3.orphan-backup
+db.before-merge-*.sqlite3
 staticfiles/
 media/
 tests/

@@ -7,6 +7,7 @@ class BalanceReason(models.TextChoices):
     INITIAL = "initial", "موجودی اولیه"
     ENTRY = "entry", "رزرو خانه"
     GRADE = "grade", "نمره خانه"
+    EVENT = "event", "رویداد"
 
 
 def active_holdings():

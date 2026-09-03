@@ -16,7 +16,9 @@ from events.models import (
 
 
 class Command(BaseCommand):
-    help = "Delete event matches/history while preserving users, teams, balances, and configuration."
+    help = (
+        "Delete event matches/history while preserving users, teams, balances, and configuration."
+    )
 
     @transaction.atomic
     def handle(self, *args, **options):

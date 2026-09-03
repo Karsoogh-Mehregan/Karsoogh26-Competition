@@ -1,9 +1,8 @@
 <script setup>
 import 'vue-sonner/style.css'
 import EntrySheetDialog from './components/EntrySheetDialog.vue'
-import { onUnmounted, watch } from 'vue'
+import { onUnmounted, ref, watch } from 'vue'
 import { MenuIcon } from '@lucide/vue'
-import { ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import InfoPanel from './components/InfoPanel.vue'
 import NotificationPanel from './components/NotificationPanel.vue'
@@ -63,6 +62,7 @@ watch(() => route.fullPath, () => {
     </div>
   </div>
 
+  </div>
   <Sheet v-model:open="mobilePanelOpen">
     <SheetContent
       side="right"
