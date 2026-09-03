@@ -313,6 +313,15 @@ export interface TeamItem {
   display_name: string
 }
 
+export interface UseItemPayload {
+  item_type: ItemType
+  node_code?: string
+}
+
+export interface UseItemResult {
+  detail: string
+}
+
 export interface BalanceEvent {
   id: number
   delta: number
