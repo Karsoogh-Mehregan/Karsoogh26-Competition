@@ -11,7 +11,7 @@ import logging
 from django.db import transaction
 
 from game.models import EntryAttempt, GameSettings, GameStatus, Occupancy
-from teams.models import Team
+from teams.models import BalanceEvent, Team
 
 logger = logging.getLogger("karsoogh")
 
@@ -36,6 +36,10 @@ def restart_game(*, by=None) -> dict:
     # team would ever see a sheet. The EntryQuestion bank is content and stays.
     entry_attempts, _ = EntryAttempt.objects.all().delete()
 
+    # The score log is run state, not content. Left behind, last contest's
+    # credits and charges would still show in the team panel.
+    balance_events, _ = BalanceEvent.objects.all().delete()
+
     teams = Team.objects.update(
         balance=settings_row.initial_balance,
         color=None,
@@ -58,6 +62,7 @@ def restart_game(*, by=None) -> dict:
         "occupancies": deleted.get("game.Occupancy", 0),
         "submissions": deleted.get("game.Submission", 0),
         "entry_attempts": entry_attempts,
+        "balance_events": balance_events,
         "teams": teams,
     }
     logger.warning("Game restarted by %s: %s", getattr(by, "username", "unknown"), summary)

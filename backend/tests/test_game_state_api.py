@@ -333,10 +333,28 @@ def test_restart_clears_the_board(game_god, played_board):
         "occupancies": 2,
         "submissions": 1,
         "entry_attempts": 0,
+        "balance_events": 0,
         "teams": 1,
     }
     assert Occupancy.objects.count() == 0
     assert Submission.objects.count() == 0
+
+
+def test_restart_clears_balance_events(game_god, team):
+    from teams.models import BalanceEvent, BalanceReason
+
+    BalanceEvent.objects.create(
+        team=team, delta=400, balance_after=400, reason=BalanceReason.INITIAL
+    )
+    BalanceEvent.objects.create(
+        team=team, delta=-20, balance_after=380, reason=BalanceReason.ENTRY, detail="L1_2"
+    )
+
+    response = _restart(game_god)
+
+    assert response.status_code == 200
+    assert response.json()["balance_events"] == 2
+    assert BalanceEvent.objects.count() == 0
 
 
 def test_restart_clears_the_entry_sheets(game_god, team):

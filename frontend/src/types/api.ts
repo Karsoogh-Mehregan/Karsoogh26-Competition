@@ -468,6 +468,7 @@ export interface GameRestartResult {
   occupancies: number
   submissions: number
   entry_attempts: number
+  balance_events: number
   teams: number
 }
 
