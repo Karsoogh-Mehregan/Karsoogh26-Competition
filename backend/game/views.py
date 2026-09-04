@@ -1,3 +1,5 @@
+from pathlib import PurePosixPath
+
 from django.conf import settings
 from django.db.models import Q
 from django.http import FileResponse, Http404, HttpResponseRedirect
@@ -562,8 +564,18 @@ def _is_mentor(user) -> bool:
 def _serve_upload(fieldfile):
     if settings.USE_S3_MEDIA:
         return HttpResponseRedirect(fieldfile.url)
-    # Inline so the grading dialog can preview images and PDFs in-place.
-    return FileResponse(fieldfile.open("rb"), as_attachment=False, filename=fieldfile.name)
+
+    # POSIX basename: FileField stores "submissions/2026/09/a.pdf". On Windows,
+    # os.path.basename keeps the whole path and MIME sniffing breaks.
+    filename = PurePosixPath(fieldfile.name).name
+    response = FileResponse(
+        fieldfile.open("rb"),
+        as_attachment=False,
+        filename=filename,
+    )
+    # Default clickjacking middleware is DENY; allow same-origin iframe preview.
+    response["X-Frame-Options"] = "SAMEORIGIN"
+    return response
 
 
 @extend_schema(

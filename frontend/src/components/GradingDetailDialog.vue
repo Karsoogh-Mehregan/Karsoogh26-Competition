@@ -128,7 +128,7 @@ async function submitGrade() {
           بررسی پاسخ {{ detail ? detail.id : submissionId }}
         </DialogTitle>
         <DialogDescription v-if="detail">
-          {{ detail.team_name }} · {{ detail.question.title }} · خانه {{ detail.node_code }}
+          {{ detail.team_name }} · {{ detail.question.code }} · خانه {{ detail.node_code }}
         </DialogDescription>
         <DialogDescription v-else>
           در حال بارگذاری پاسخ…
@@ -145,18 +145,22 @@ async function submitGrade() {
       </p>
 
       <div v-else-if="detail" class="flex flex-col gap-4">
-        <section class="flex flex-col gap-2">
-          <h3 class="text-sm font-semibold">صورت سؤال</h3>
-          <p class="text-sm leading-7 whitespace-pre-wrap">{{ detail.question.body }}</p>
+        <section class="flex flex-col gap-1.5">
           <a
             v-if="questionAttachmentUrl"
             :href="questionAttachmentUrl"
             target="_blank"
             rel="noopener noreferrer"
-            class="text-primary text-sm underline-offset-4 hover:underline"
+            class="text-primary w-fit text-base font-semibold underline underline-offset-4"
           >
-            پیوست سؤال
+            سؤال {{ detail.question.code }}
           </a>
+          <p v-else class="text-base font-semibold">
+            سؤال {{ detail.question.code }}
+          </p>
+          <p v-if="!questionAttachmentUrl" class="text-muted-foreground text-xs">
+            پیوست صورت سؤال ندارد
+          </p>
           <p v-if="detail.question.answer_key" class="bg-muted rounded-md p-3 text-sm leading-7 whitespace-pre-wrap">
             <span class="text-muted-foreground font-medium">کلید:</span>
             {{ detail.question.answer_key }}
@@ -181,14 +185,14 @@ async function submitGrade() {
             v-else-if="fileKind === 'pdf' && fileUrl"
             :src="fileUrl"
             title="پیش‌نمایش PDF"
-            class="h-[70vh] w-full rounded-md border"
+            class="h-[70vh] w-full rounded-md border bg-muted"
           />
           <a
             v-if="fileUrl"
             :href="fileUrl"
             target="_blank"
             rel="noopener noreferrer"
-            class="text-primary text-sm underline-offset-4 hover:underline"
+            class="text-primary w-fit text-sm underline-offset-4 hover:underline"
           >
             باز کردن فایل{{ detail.file_name ? ` (${detail.file_name})` : '' }}
           </a>

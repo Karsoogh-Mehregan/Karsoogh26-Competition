@@ -110,7 +110,7 @@ function rowTo(row: SubmissionRow) {
                 <CardTitle class="text-base">پاسخ {{ row.id }}</CardTitle>
               </CardHeader>
               <CardContent class="text-muted-foreground text-sm">
-                {{ row.team_name }} · {{ row.question_title }} · خانه {{ row.node_code }}
+                {{ row.team_name }} · {{ row.question_code }} · خانه {{ row.node_code }}
               </CardContent>
             </Card>
           </RouterLink>
