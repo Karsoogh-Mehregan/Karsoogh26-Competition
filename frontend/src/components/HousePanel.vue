@@ -125,14 +125,17 @@ const selectedDuelTarget = computed(
   () => duelTargetsHere.value.find((row) => row.floor === selectedDuelFloor.value) ?? null,
 )
 
-// The house is full but nothing here is challengeable — worth saying why,
-// rather than silently hiding the section on a house the player is eyeing.
-const houseIsFull = computed(
-  () => !!spec.value && spec.value.floors.every((slot) => slot.status === 'owned'),
-)
-const showDuelSection = computed(
-  () => isPlayer.value && houseIsFull.value && spec.value?.level !== 'toll',
-)
+/**
+ * Show the section only where the server actually offers a duel on this node.
+ *
+ * Keying it off "is this house full" was wrong in three ways at once: it opened
+ * on a house the team is *standing in* (you cannot duel your own building), on
+ * one nowhere near the team (a duel is only ever against a neighbour), and on
+ * one whose owners are all mid-duel or resting. `/api/duels/targets/` has
+ * already applied every one of those rules, so a node with no rows is a node
+ * with no duel — and the panel stops advertising one.
+ */
+const showDuelSection = computed(() => isPlayer.value && duelTargetsHere.value.length > 0)
 
 async function requestDuel() {
   const target = selectedDuelTarget.value
@@ -354,47 +357,41 @@ async function saveDesign() {
           </li>
         </ul>
 
-        <!-- A duel is aimed at a full building; the floor is the player's pick. -->
+        <!-- Only rendered where the server offers a duel: a full house next
+             door that this team is not already sitting in. -->
         <section v-if="showDuelSection" class="house-duel" aria-label="دوئل برای این ساختمان">
           <h3 class="house-duel-title">
             <SwordsIcon class="size-3.5" />
             دوئل
           </h3>
 
-          <template v-if="duelTargetsHere.length">
-            <div class="flex flex-col gap-1.5">
-              <Label for="duel-floor">طبقه‌ای که می‌خواهید تصاحب کنید</Label>
-              <select id="duel-floor" v-model="selectedDuelFloor" class="house-select">
-                <option v-for="row in duelTargetsHere" :key="row.occupancy_id" :value="row.floor">
-                  طبقهٔ {{ row.floor }} — {{ row.team.name }} ({{ formatBalance(row.cost) }})
-                </option>
-              </select>
-            </div>
+          <div class="flex flex-col gap-1.5">
+            <Label for="duel-floor">طبقه‌ای که می‌خواهید تصاحب کنید</Label>
+            <select id="duel-floor" v-model="selectedDuelFloor" class="house-select">
+              <option v-for="row in duelTargetsHere" :key="row.occupancy_id" :value="row.floor">
+                طبقهٔ {{ row.floor }} — {{ row.team.name }} ({{ formatBalance(row.cost) }})
+              </option>
+            </select>
+          </div>
 
-            <p v-if="duelBlockedReason" class="text-muted-foreground text-xs">
-              {{ duelBlockedReason }}
-            </p>
+          <p v-if="duelBlockedReason" class="text-muted-foreground text-xs">
+            {{ duelBlockedReason }}
+          </p>
 
-            <Button
-              class="w-full"
-              :disabled="!selectedDuelTarget || !canDuel || duelSubmitting"
-              :aria-busy="duelSubmitting"
-              @click="requestDuel"
-            >
-              <Loader2Icon v-if="duelSubmitting" class="size-4 animate-spin" />
-              <SwordsIcon v-else class="size-4" />
-              درخواست دوئل
-              <span v-if="selectedDuelTarget">
-                ({{ formatBalance(selectedDuelTarget.cost) }})
-              </span>
-            </Button>
-            <p class="text-muted-foreground text-xs">
-              ورودی دوئل هنگام درخواست کسر می‌شود؛ در صورت برد بازمی‌گردد و طبقه به شما می‌رسد.
-            </p>
-          </template>
+          <Button
+            class="w-full"
+            :disabled="!selectedDuelTarget || !canDuel || duelSubmitting"
+            :aria-busy="duelSubmitting"
+            @click="requestDuel"
+          >
+            <Loader2Icon v-if="duelSubmitting" class="size-4 animate-spin" />
+            <SwordsIcon v-else class="size-4" />
+            درخواست دوئل
+            <span v-if="selectedDuelTarget">({{ formatBalance(selectedDuelTarget.cost) }})</span>
+          </Button>
 
-          <p v-else class="text-muted-foreground text-xs">
-            {{ duelBlockedReason || 'الان هیچ طبقه‌ای از این ساختمان قابل دوئل نیست.' }}
+          <p class="text-muted-foreground text-xs">
+            ورودی دوئل هنگام درخواست کسر می‌شود؛ در صورت برد بازمی‌گردد و طبقه به شما می‌رسد.
           </p>
         </section>
 
@@ -590,8 +587,11 @@ async function saveDesign() {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
-  padding: 0.85rem 0 0;
-  border-block-start: 1px solid var(--border);
+  margin: 0.7rem 0.9rem 0;
+  padding: 0.75rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: color-mix(in oklab, var(--muted) 35%, transparent);
 }
 .house-duel-title {
   display: flex;

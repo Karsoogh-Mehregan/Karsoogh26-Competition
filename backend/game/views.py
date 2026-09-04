@@ -861,7 +861,16 @@ class GameSettingsView(APIView):
         OpenApiExample("request", value={"confirm": True}, request_only=True),
         OpenApiExample(
             "wiped",
-            value={"occupancies": 37, "submissions": 21, "teams": 8},
+            value={
+                "occupancies": 37,
+                "submissions": 21,
+                "entry_attempts": 8,
+                "duels": 3,
+                "rooms_requeued": 6,
+                "minesweeper_attempts": 12,
+                "minesweeper_boards": 4,
+                "teams": 8,
+            },
             response_only=True,
         ),
     ],

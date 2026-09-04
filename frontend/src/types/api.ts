@@ -465,6 +465,11 @@ export interface GameRestartResult {
   occupancies: number
   submissions: number
   entry_attempts: number
+  duels: number
+  /** Rooms kept, with their place in the judge rotation cleared. */
+  rooms_requeued: number
+  minesweeper_attempts: number
+  minesweeper_boards: number
   teams: number
 }
 

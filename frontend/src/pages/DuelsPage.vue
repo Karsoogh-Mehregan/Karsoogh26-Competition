@@ -34,7 +34,7 @@ import { useActing } from '@/composables/useActing'
 import { useDuels } from '@/composables/useDuels'
 import { useMapDesign } from '@/composables/useMapDesign'
 import { formatBalance, formatRelativeTime } from '@/lib/format'
-import type { Duel, DuelTarget } from '@/types/api'
+import type { Duel, DuelTarget, DuelTeam } from '@/types/api'
 
 const { actingTeam } = useActing()
 const {
@@ -110,6 +110,23 @@ function houseLabel(duel: Duel | DuelTarget): string {
   return name || ('node_code' in duel ? duel.node_code : '')
 }
 
+/**
+ * The duel's id, as something a player can quote.
+ *
+ * Two duels between the same pair over the same floor differ only by their
+ * outcome and how long ago they were, which is not enough to point at one in a
+ * message to an organiser. Left in Latin digits on purpose — like the node
+ * codes, this is a key to look up, not a number to read.
+ */
+function duelRef(duel: Duel): string {
+  return `#${duel.id}`
+}
+
+/** Bolds the viewer's own team, so a column of names is scannable at a glance. */
+function isOwnSide(team: DuelTeam): boolean {
+  return !!actingTeam.value && actingTeam.value.code === team.code
+}
+
 function outcomeFor(duel: Duel): string {
   if (duel.status === 'open') return 'در جریان'
   const own = actingTeam.value?.code
@@ -175,6 +192,7 @@ async function onCallWinner(duel: Duel, winnerCode: string) {
         <Card v-if="active" class="flex flex-col gap-3 p-4">
           <div class="flex flex-wrap items-center gap-2">
             <Badge>دوئل فعال</Badge>
+            <Badge variant="outline" class="font-normal">{{ duelRef(active) }}</Badge>
             <span class="font-bold">{{ active.attacker.name }}</span>
             <span class="text-muted-foreground">در برابر</span>
             <span class="font-bold">{{ active.attacked.name }}</span>
@@ -207,6 +225,7 @@ async function onCallWinner(duel: Duel, winnerCode: string) {
 
           <template v-if="judging">
             <p class="text-sm">
+              <span class="text-muted-foreground me-1 text-xs">{{ duelRef(judging) }}</span>
               <span class="font-bold">{{ judging.attacker.name }}</span>
               <span class="text-muted-foreground"> در برابر </span>
               <span class="font-bold">{{ judging.attacked.name }}</span>
@@ -313,7 +332,9 @@ async function onCallWinner(duel: Duel, winnerCode: string) {
             <Table>
               <TableHeader>
                 <TableRow class="hover:bg-transparent">
-                  <TableHead class="border-e">طرفین</TableHead>
+                  <TableHead class="w-14 border-e text-center">شناسه</TableHead>
+                  <TableHead class="border-e">مهاجم</TableHead>
+                  <TableHead class="border-e">مدافع</TableHead>
                   <TableHead class="border-e">ساختمان</TableHead>
                   <TableHead class="border-e text-end">ورودی</TableHead>
                   <TableHead class="border-e">نتیجه</TableHead>
@@ -321,12 +342,23 @@ async function onCallWinner(duel: Duel, winnerCode: string) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                <TableEmpty v-if="pastDuels.length === 0" :colspan="5">
+                <TableEmpty v-if="pastDuels.length === 0" :colspan="7">
                   <span class="text-muted-foreground text-sm">هنوز دوئلی انجام نشده است.</span>
                 </TableEmpty>
                 <TableRow v-for="duel in pastDuels" :key="duel.id">
-                  <TableCell class="border-e">
-                    {{ duel.attacker.name }} — {{ duel.attacked.name }}
+                  <!-- Latin digits, like the node codes: this is a lookup key an
+                       organiser reads back in admin, not a quantity. -->
+                  <TableCell class="text-muted-foreground border-e text-center text-xs">
+                    {{ duelRef(duel) }}
+                  </TableCell>
+                  <!-- Attacker and defender in their own columns: which side a
+                       team was on decides what the stake did, so the two must be
+                       readable down the column rather than parsed out of one cell. -->
+                  <TableCell class="border-e" :class="isOwnSide(duel.attacker) && 'font-bold'">
+                    {{ duel.attacker.name }}
+                  </TableCell>
+                  <TableCell class="border-e" :class="isOwnSide(duel.attacked) && 'font-bold'">
+                    {{ duel.attacked.name }}
                   </TableCell>
                   <TableCell class="border-e">
                     <span>{{ houseLabel(duel) }} · طبقهٔ {{ duel.floor }}</span>

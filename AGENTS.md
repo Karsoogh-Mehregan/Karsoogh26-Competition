@@ -169,6 +169,28 @@ item takeovers and duel wins alike — and the three behavioural checks that use
 reserved floors in `grade_attempt`) go through that set instead. Points already paid to the
 loser are **not** clawed back; the rules do not ask for it.
 
+**A restart clears state, never content — and every app owes it a line.**
+`game/services/reset.py` is the game god's wipe, and it is the one function a new
+app is most likely to break without noticing. The rule it applies: anything a *team*
+did is state and goes; anything an *organiser* configured is content and stays. So
+nodes, edges, questions, the economy tables, `MinesweeperSettings` and duel `Room`s
+survive; occupancies, submissions, entry attempts, `Duel`s and Minesweeper attempts
+do not. A row can be both — a `Room` is content, but its `last_assigned_at` is the
+judge rotation's cursor, so the room survives with that field cleared.
+
+Two traps live here, and the duels app hit the first one. `Duel.target` is a
+**PROTECT** FK onto `Occupancy`, so `Occupancy.objects.all().delete()` raises
+`ProtectedError` the moment a single duel has been played — the restart does not
+half-run, it aborts, and the game god sees a 500 on a button that used to work.
+Duels are therefore deleted *before* occupancies. The second trap is quieter:
+anything hanging off `Team` rather than `Occupancy` is invisible to that cascade.
+Entry sheets were already handled for exactly this reason, and Minesweeper
+attempts had the same hole — a crossing is what opens the one-way road past a
+`C34`/`C45`, so leaving them behind handed every team the outer rings for free on
+the next run. Adding a model? Decide which side of the line it is on, and if it is
+state, delete it here and report it in the summary — `GameRestartResultSerializer`
+names each count separately so a wipe is auditable rather than a bare "done".
+
 **Five roles, not two.** Besides mentors (`act_as_mentor`), game gods
 (`control_game`), announcers (`send_announcement`, see **Notifications** below) and duel
 judges (`duels.judge_duel`, see **Duels** below), a
