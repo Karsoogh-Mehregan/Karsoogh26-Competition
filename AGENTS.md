@@ -329,7 +329,15 @@ is graded, and released rows never extend reach; reach follows `Edge.directed` o
 set. A team with no active holdings may only take the start node matching its `Team.color`.
 It costs `LevelConfig.entry_cost` and takes the lowest free slot up to `capacity`. Posting
 again to a node the team already holds only tops up a missing question — it never charges
-twice. The team answers through `POST /api/occupancies/<pk>/question/` and
+twice. **A team may hold only `GameSettings.max_open_attempts` unanswered questions at once**
+(default 2, 0 turns the cap off): `claim_node` counts active holdings that have a question, no
+grade and no `Submission` (`movement.open_attempt_count`) and refuses the move over the cap.
+The count is about hoarding, not grading — an answer stops counting the instant it is *sent*,
+so a team may sit on any number of ungraded submissions, and an expired reservation is swept
+by `release_expired_attempts` before the count is taken. The check runs under a lock on the
+team row, taken *after* the node's occupancy rows so the order matches the duels app; it
+raises inside `claim_node`'s transaction, which rolls the reservation and its entry cost back.
+The team answers through `POST /api/occupancies/<pk>/question/` and
 `/submit/` (`IsTeamMember`, ownership enforced inside `submit_answer`); a mentor grades the
 resulting `Submission` through `/api/submissions/…`, so `assign-question/`'s response carries
 no `submission_id` — none exists until the team actually answers.

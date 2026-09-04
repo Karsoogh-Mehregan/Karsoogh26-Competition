@@ -367,6 +367,7 @@ class GameStateSerializer(serializers.Serializer):
     leaderboard_public = serializers.BooleanField(read_only=True)
     leaderboard_frozen = serializers.BooleanField(read_only=True)
     design_locked = serializers.BooleanField(read_only=True)
+    max_open_attempts = serializers.IntegerField(read_only=True)
 
 
 class GameSettingsSerializer(serializers.ModelSerializer):
@@ -381,6 +382,7 @@ class GameSettingsSerializer(serializers.ModelSerializer):
             "design_locked",
             "duration_minutes",
             "initial_balance",
+            "max_open_attempts",
         )
 
 

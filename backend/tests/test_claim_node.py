@@ -20,7 +20,7 @@ from game.models import (
     Occupancy,
     Question,
 )
-from game.services import assign_question
+from game.services import assign_question, open_attempt_count
 from teams.models import Team
 from teams.start_colors import color_for_start
 
@@ -327,3 +327,81 @@ class TestGuards:
         client.force_authenticate(mentor)
 
         assert client.post(claim_url("alpha", START_CODE)).status_code == 403
+
+
+class TestOpenAttemptCap:
+    """A team may hoard only `max_open_attempts` unanswered questions at a time."""
+
+    @pytest.fixture
+    def forked_start(self, graph):
+        """e3 hangs off the spawn as well, so a third move is reachable at all."""
+        undirected(graph[START_CODE], graph["e3"])
+        return graph
+
+    def submit_url(self, holding: Occupancy) -> str:
+        return reverse("game:occupancy-submit", kwargs={"pk": holding.pk})
+
+    def test_a_third_open_question_is_refused(
+        self, client_team, running_game, forked_start, questions, team
+    ):
+        assert client_team.post(claim_url("alpha", START_CODE)).status_code == 200
+        assert client_team.post(claim_url("alpha", "e1")).status_code == 200
+        team.refresh_from_db()
+        balance = team.balance
+
+        response = client_team.post(claim_url("alpha", "e3"))
+
+        assert response.status_code == 409
+        assert not Occupancy.objects.filter(team=team, node__code="e3").exists()
+        team.refresh_from_db()
+        assert team.balance == balance
+
+    def test_an_answered_question_stops_counting(
+        self, client_team, running_game, forked_start, questions, team
+    ):
+        client_team.post(claim_url("alpha", START_CODE))
+        client_team.post(claim_url("alpha", "e1"))
+        spawn = Occupancy.objects.active().get(team=team, node__code=START_CODE)
+
+        assert client_team.post(self.submit_url(spawn), {"body": "answer"}).status_code == 201
+        assert client_team.post(claim_url("alpha", "e3")).status_code == 200
+
+    def test_an_ungraded_submission_still_does_not_count(
+        self, client_team, running_game, forked_start, questions, team
+    ):
+        """The cap is about hoarding, not about grading: the mentor is not the gate."""
+        client_team.post(claim_url("alpha", START_CODE))
+        client_team.post(claim_url("alpha", "e1"))
+        spawn = Occupancy.objects.active().get(team=team, node__code=START_CODE)
+        client_team.post(self.submit_url(spawn), {"body": "answer"})
+
+        spawn.refresh_from_db()
+        assert spawn.grade is None
+        assert open_attempt_count(team) == 1
+
+    def test_an_expired_attempt_stops_counting(
+        self, client_team, running_game, forked_start, questions, team
+    ):
+        client_team.post(claim_url("alpha", START_CODE))
+        client_team.post(claim_url("alpha", "e1"))
+        Occupancy.objects.active().filter(team=team, node__code="e1").update(
+            expires_at=timezone.now() - timedelta(minutes=1)
+        )
+
+        assert client_team.post(claim_url("alpha", "e3")).status_code == 200
+
+    def test_zero_turns_the_cap_off(self, client_team, running_game, forked_start, questions, team):
+        running_game.max_open_attempts = 0
+        running_game.save(update_fields=["max_open_attempts"])
+
+        client_team.post(claim_url("alpha", START_CODE))
+        client_team.post(claim_url("alpha", "e1"))
+
+        assert client_team.post(claim_url("alpha", "e3")).status_code == 200
+        assert open_attempt_count(team) == 3
+
+    def test_granted_seats_do_not_count(self, running_game, forked_start, questions, team):
+        """An item takeover or a duel win carries no question, so it is not hoarding."""
+        hold(team, forked_start["m1"], source="duel", floor=1)
+
+        assert open_attempt_count(team) == 0
