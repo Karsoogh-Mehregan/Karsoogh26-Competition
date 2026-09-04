@@ -25,6 +25,9 @@ MAP_DESIGN = "map.design"
 DUEL_UPDATED = "duel.updated"
 MINESWEEPER_CLEARED = "minesweeper.cleared"
 RESYNC = "resync"
+# Named rather than an SSE comment: EventSource hands comments to nobody, so a
+# comment cannot tell the client the stream is still alive.
+HEARTBEAT = "heartbeat"
 
 MENTOR_ONLY = frozenset({SUBMISSION_CREATED})
 

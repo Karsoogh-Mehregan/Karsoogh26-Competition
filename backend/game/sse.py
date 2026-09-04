@@ -80,6 +80,9 @@ RESYNC_FRAME = Frame(
     mentor_only=False,
 )
 
+# Carries no id, so a heartbeat never moves the client's Last-Event-ID cursor.
+HEARTBEAT_PAYLOAD = _encode(events.HEARTBEAT, "{}")
+
 
 def parse_xread(response) -> list:
     """Flatten [[stream, [(id, fields), ...]], ...]; XREAD returns [] on timeout."""
@@ -245,7 +248,7 @@ async def _stream(
             try:
                 frame = await asyncio.wait_for(queue.get(), settings.SSE_HEARTBEAT_SECONDS)
             except TimeoutError:
-                yield b": keepalive\n\n"
+                yield HEARTBEAT_PAYLOAD
                 continue
             if not _visible_to(frame, is_mentor=is_mentor, user_id=user_id, board=board):
                 continue

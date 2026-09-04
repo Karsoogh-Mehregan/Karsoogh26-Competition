@@ -8,6 +8,20 @@ import type { GameState, Me } from '@/types/api'
 const MIN_INTERVAL_MS = 1800
 const JITTER_MS = 600
 
+const HEARTBEAT = 'heartbeat'
+const RESYNC = 'resync'
+
+// The server sends a heartbeat every SSE_HEARTBEAT_SECONDS (15s). Silence for
+// much longer than that means the connection is half-open — a state the browser
+// does not report, because from its side the socket is still established.
+const STALE_MS = 40_000
+const WATCHDOG_MS = 5_000
+const REOPEN_BASE_MS = 2_000
+const REOPEN_MAX_MS = 30_000
+// Wide on purpose: a restart fails every client's stream at the same instant,
+// so the jitter is what stops the whole hall reconnecting in one burst.
+const REOPEN_JITTER_MS = 5_000
+
 type QueryKey = readonly unknown[]
 
 function viewerSeesFrozenLeaderboard(): boolean {
@@ -60,11 +74,21 @@ const RESYNC_KEYS: QueryKey[] = [
   queryKeys.duelsRoot(),
 ]
 
+// Subscribed types are derived from the routing table rather than listed a
+// second time: an event with no `addEventListener` never fires, so a list that
+// drifts from ROUTES drops those frames silently.
+const STREAM_EVENTS = [...Object.keys(ROUTES), RESYNC, HEARTBEAT]
+
 function createBoardStream() {
   const pending = new Map<string, QueryKey>()
   let timer: ReturnType<typeof setTimeout> | null = null
   let lastFlush = 0
   let close: (() => void) | null = null
+  let running = false
+  let watchdog: ReturnType<typeof setInterval> | null = null
+  let reopenTimer: ReturnType<typeof setTimeout> | null = null
+  let attempt = 0
+  let lastSeenAt = 0
 
   function invalidate(keys: QueryKey[]) {
     for (const queryKey of keys) {
@@ -90,7 +114,13 @@ function createBoardStream() {
   }
 
   function onEvent(eventType: string) {
-    if (eventType === 'resync') {
+    // Any frame proves the stream is alive, the heartbeat included — it carries
+    // no route and exists only to say so.
+    lastSeenAt = Date.now()
+    streamConnected.value = true
+    if (eventType === HEARTBEAT) return
+
+    if (eventType === RESYNC) {
       pending.clear()
       if (timer !== null) {
         clearTimeout(timer)
@@ -104,20 +134,70 @@ function createBoardStream() {
     if (route) schedule(route())
   }
 
-  function start() {
-    if (close !== null) return
+  function open() {
+    lastSeenAt = Date.now()
     close = openBoardStream({
+      events: STREAM_EVENTS,
       onEvent,
       onOpen: () => {
+        attempt = 0
+        lastSeenAt = Date.now()
         streamConnected.value = true
       },
-      onError: () => {
+      onError: (closed) => {
         streamConnected.value = false
+        if (closed) reopen()
       },
     })
   }
 
+  function reopen() {
+    if (!running || reopenTimer !== null) return
+    close?.()
+    close = null
+    const wait =
+      Math.min(REOPEN_MAX_MS, REOPEN_BASE_MS * 2 ** attempt) + Math.random() * REOPEN_JITTER_MS
+    attempt += 1
+    reopenTimer = setTimeout(() => {
+      reopenTimer = null
+      open()
+    }, wait)
+  }
+
+  function checkLiveness() {
+    if (!running || close === null || reopenTimer !== null) return
+    if (Date.now() - lastSeenAt <= STALE_MS) return
+    streamConnected.value = false
+    attempt = 0
+    reopen()
+  }
+
+  function start() {
+    if (running) return
+    running = true
+    open()
+    watchdog = setInterval(checkLiveness, WATCHDOG_MS)
+    // Timers do not run while the device sleeps, so a tab coming back to the
+    // foreground is checked at once rather than on the next tick.
+    document.addEventListener('visibilitychange', onVisibility)
+  }
+
+  function onVisibility() {
+    if (document.visibilityState === 'visible') checkLiveness()
+  }
+
   function stop() {
+    running = false
+    document.removeEventListener('visibilitychange', onVisibility)
+    if (watchdog !== null) {
+      clearInterval(watchdog)
+      watchdog = null
+    }
+    if (reopenTimer !== null) {
+      clearTimeout(reopenTimer)
+      reopenTimer = null
+    }
+    attempt = 0
     close?.()
     close = null
     streamConnected.value = false

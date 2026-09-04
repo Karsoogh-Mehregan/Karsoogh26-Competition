@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed } from 'vue'
 import { useBoard } from '@/composables/useBoard'
+import { streamConnected } from '@/lib/boardStreamState'
 import { getMapDesign, updateMapDesign, updateNodeDesign } from '@/services/design'
 import type { MapDesign, MapDesignPatch, NodeDesign, NodeDesignPatch } from '@/types/api'
 import { queryKeys } from './keys'
@@ -11,8 +12,10 @@ export function useMapDesignQuery(enabled: () => boolean) {
     queryKey: computed(() => queryKeys.mapDesign(board.value)),
     queryFn: ({ signal }) => getMapDesign(board.value, signal),
     enabled,
-    // Changes arrive as `map.design` SSE frames; there is nothing to poll for.
+    // Changes arrive as `map.design` SSE frames; polling only covers the gap
+    // while the stream is down.
     staleTime: Infinity,
+    refetchInterval: computed(() => (streamConnected.value ? false : 60_000)),
   })
 }
 
