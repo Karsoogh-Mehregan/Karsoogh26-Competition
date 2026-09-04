@@ -7,7 +7,7 @@
  * on the map, where the model doubles as a live preview.
  */
 import { Loader2Icon, PaintbrushIcon } from '@lucide/vue'
-import { computed, reactive, ref, watch } from 'vue'
+import { reactive, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 
 import { Badge } from '@/components/ui/badge'
@@ -16,18 +16,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useActing } from '@/composables/useActing'
 import { useMapDesign } from '@/composables/useMapDesign'
 import { THEME_LIST } from '@/lib/house/themes'
 import { ApiError } from '@/lib/http'
 import { useUpdateMapDesignMutation } from '@/queries/design'
 import type { Neighborhood, RoadStyle } from '@/types/api'
 
-const { me } = useActing()
-const { design, loading, neighborhoods } = useMapDesign()
+const { design, loading, neighborhoods, designLocked, canDesign } = useMapDesign()
 const { mutateAsync: save, isPending: saving } = useUpdateMapDesignMutation()
 
-const isDesigner = computed(() => me.value?.is_designer ?? false)
 
 const ROAD_STYLES: { value: RoadStyle; label: string; hint: string }[] = [
   { value: 'straight', label: 'مستقیم', hint: 'خط راست بین دو خانه.' },
@@ -89,7 +86,13 @@ async function saveNeighborhoods() {
         <h1 class="text-lg font-bold">طراحی نقشه</h1>
       </header>
 
-      <p v-if="!isDesigner" class="text-muted-foreground text-sm">این صفحه فقط برای طراحان است.</p>
+      <p v-if="designLocked" class="text-muted-foreground text-sm">
+        طراحی نقشه قفل شده است. تا وقتی گردانندهٔ بازی قفل را باز نکند نمی‌توان چیزی را تغییر داد.
+      </p>
+
+      <p v-else-if="!canDesign" class="text-muted-foreground text-sm">
+        این صفحه فقط برای طراحان است.
+      </p>
 
       <div v-else-if="loading" class="flex flex-col gap-3">
         <Skeleton class="h-40 w-full" />

@@ -26,6 +26,7 @@ import { LEVEL_CAPACITY, levelForType, type Level } from '@/lib/mapLevels'
 import { SECTOR_COUNT, sectorOf, type PolarNode } from '@/lib/mapNeighborhoods'
 import { useMeQuery } from '@/queries/auth'
 import { useMapDesignQuery } from '@/queries/design'
+import { useGameStateQuery } from '@/queries/gameState'
 import type { MapDesign, Neighborhood, RoadStyle } from '@/types/api'
 
 interface MapNodeLike extends PolarNode {
@@ -54,7 +55,15 @@ export function useMapDesign() {
   const meQuery = useMeQuery()
   const enabled = () => meQuery.data.value != null
   const query = useMapDesignQuery(enabled)
+  const gameState = useGameStateQuery(enabled)
   const { nodes, nodeById, adjacency } = useGraph()
+
+  // A game god may freeze the board's look mid-event; the API refuses the write
+  // either way, so this only keeps the controls off screens that cannot use them.
+  const designLocked = computed(() => gameState.data.value?.design_locked ?? false)
+  const canDesign = computed(
+    () => (meQuery.data.value?.is_designer ?? false) && !designLocked.value,
+  )
 
   const design = computed<MapDesign | null>(() => query.data.value ?? null)
   const loading = computed(() => enabled() && query.isPending.value)
@@ -175,6 +184,8 @@ export function useMapDesign() {
   return {
     design,
     loading,
+    designLocked,
+    canDesign,
     neighborhoods,
     roadStyle,
     tintStrength,

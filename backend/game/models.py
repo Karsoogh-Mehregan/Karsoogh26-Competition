@@ -344,6 +344,13 @@ class GameSettings(models.Model):
         max_length=12, choices=GameStatus.choices, default=GameStatus.NOT_STARTED
     )
     leaderboard_public = models.BooleanField(default=False)
+    design_locked = models.BooleanField(
+        default=False,
+        help_text=(
+            "Freeze the map's look. While on, Designers may not write the design and "
+            "the design pages disappear for them."
+        ),
+    )
 
     # The run ledger. Elapsed time is accumulated running time, not wall time
     # since kick-off, so pausing the game genuinely pauses every team's timer.

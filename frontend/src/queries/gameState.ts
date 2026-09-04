@@ -8,10 +8,16 @@ import { queryKeys } from './keys'
 // if the SSE `game.state` event is missed.
 const STATE_REFETCH_MS = 60_000
 
+// Shared with the router guard (router.ts), which needs `design_locked` before
+// it may resolve a navigation to the Designer's page.
+export const gameStateQueryOptions = {
+  queryKey: queryKeys.gameState(),
+  queryFn: ({ signal }: { signal?: AbortSignal }) => getGameState(signal),
+}
+
 export function useGameStateQuery(enabled: () => boolean) {
   return useQuery({
-    queryKey: queryKeys.gameState(),
-    queryFn: ({ signal }) => getGameState(signal),
+    ...gameStateQueryOptions,
     enabled,
     refetchInterval: STATE_REFETCH_MS,
     refetchOnWindowFocus: true,

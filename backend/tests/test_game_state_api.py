@@ -276,6 +276,15 @@ def test_settings_never_expose_a_writable_started_at(game_god):
     assert GameSettings.load().started_at == stamped
 
 
+def test_the_design_lock_is_a_game_god_switch(game_god, player):
+    assert _patch(game_god, {"design_locked": True}).status_code == 200
+    assert GameSettings.load().design_locked is True
+    assert player.get(STATE_URL).json()["design_locked"] is True
+
+    _patch(game_god, {"design_locked": False})
+    assert player.get(STATE_URL).json()["design_locked"] is False
+
+
 def test_leaderboard_opens_to_teams_when_published(game_god, player):
     assert player.get("/api/leaderboard/").status_code == 403
 

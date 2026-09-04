@@ -769,6 +769,7 @@ def _game_state_payload(settings_row: GameSettings) -> dict:
         "elapsed_seconds": settings_row.elapsed_seconds,
         "remaining_seconds": settings_row.remaining_seconds,
         "leaderboard_public": settings_row.leaderboard_public,
+        "design_locked": settings_row.design_locked,
     }
 
 
@@ -796,6 +797,7 @@ def _game_state_payload(settings_row: GameSettings) -> dict:
                 "elapsed_seconds": 3600,
                 "remaining_seconds": 7200,
                 "leaderboard_public": False,
+                "design_locked": False,
             },
             response_only=True,
         ),
@@ -823,7 +825,7 @@ class GameStateView(APIView):
     tags=["game"],
     summary="Read or change game settings",
     description=(
-        "Mentor-only. PATCH one or more of status, leaderboard_public, ends_at, "
+        "Mentor-only. PATCH one or more of status, leaderboard_public, design_locked, ends_at, "
         "attempt_ttl_minutes, initial_balance. Any change publishes a `game.state` "
         "event so every open client re-reads the state without a refresh."
     ),
