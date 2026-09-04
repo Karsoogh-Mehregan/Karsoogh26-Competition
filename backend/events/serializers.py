@@ -1,6 +1,7 @@
 from django.utils import timezone
 from rest_framework import serializers
 
+from core.boards import Board
 from core.openapi import extend_schema_field
 from teams.models import Team
 
@@ -265,6 +266,10 @@ class EnterCharityBagSerializer(serializers.Serializer):
 
 
 class CreateCharityBagSerializer(serializers.Serializer):
+    board = serializers.ChoiceField(
+        choices=Board.choices,
+        help_text="Which contest this instance runs for. Required — never defaulted.",
+    )
     starts_at = serializers.DateTimeField(required=False)
     ends_at = serializers.DateTimeField(required=False)
     duration_seconds = serializers.IntegerField(required=False, min_value=1, max_value=3600)
@@ -590,6 +595,10 @@ class AuctionEventSerializer(serializers.ModelSerializer):
 
 
 class CreateAuctionEventSerializer(serializers.Serializer):
+    board = serializers.ChoiceField(
+        choices=Board.choices,
+        help_text="Which contest this instance runs for. Required — never defaulted.",
+    )
     duration_seconds = serializers.IntegerField(min_value=1, required=False)
 
 
@@ -677,6 +686,10 @@ class WheelEventSerializer(serializers.ModelSerializer):
 
 
 class CreateWheelEventSerializer(serializers.Serializer):
+    board = serializers.ChoiceField(
+        choices=Board.choices,
+        help_text="Which contest this instance runs for. Required — never defaulted.",
+    )
     spin_cost = serializers.IntegerField(min_value=1, default=10)
     prizes = WheelPrizeConfigSerializer(many=True)
 
@@ -729,6 +742,10 @@ class PigEventSerializer(serializers.ModelSerializer):
 
 
 class CreatePigEventSerializer(serializers.Serializer):
+    board = serializers.ChoiceField(
+        choices=Board.choices,
+        help_text="Which contest this instance runs for. Required — never defaulted.",
+    )
     max_pot = serializers.IntegerField(min_value=1)
 
 

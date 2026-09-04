@@ -21,6 +21,7 @@ from django.contrib.auth.models import Permission
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from core.boards import Board
 from duels.exceptions import (
     AlreadyInDuel,
     BuildingNotFull,
@@ -76,9 +77,11 @@ def levels():
 @pytest.fixture
 def board(levels):
     """A spawn the attacker sits on, wired to a hard house with three floors."""
-    home = Node.objects.create(code="S1", name="Home", level=levels["spawn"])
-    house = Node.objects.create(code="H1", name="North Tower", level=levels["hard"])
-    away = Node.objects.create(code="H2", name="Far Tower", level=levels["hard"])
+    home = Node.objects.create(board=Board.GIRLS, code="S1", name="Home", level=levels["spawn"])
+    house = Node.objects.create(
+        board=Board.GIRLS, code="H1", name="North Tower", level=levels["hard"]
+    )
+    away = Node.objects.create(board=Board.GIRLS, code="H2", name="Far Tower", level=levels["hard"])
     for a, b in ((home, house), (home, away)):
         first, second = sorted((a, b), key=lambda node: node.pk)
         Edge.objects.create(a=first, b=second)
@@ -87,13 +90,15 @@ def board(levels):
 
 @pytest.fixture
 def attacker():
-    return Team.objects.create(code="alpha", name="Alpha", balance=5000)
+    return Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=5000)
 
 
 @pytest.fixture
 def defenders():
     return [
-        Team.objects.create(code=f"d{index}", name=f"Defender {index}", balance=100)
+        Team.objects.create(
+            board=Board.GIRLS, code=f"d{index}", name=f"Defender {index}", balance=100
+        )
         for index in range(1, 4)
     ]
 
@@ -164,7 +169,9 @@ class TestEligibility:
         self, running_game, board, attacker, defenders, seated_attacker, levels
     ):
         """Winning would seat one team twice on one building."""
-        small = Node.objects.create(code="E1", name="Cottage", level=levels["easy"])
+        small = Node.objects.create(
+            board=Board.GIRLS, code="E1", name="Cottage", level=levels["easy"]
+        )
         first, second = sorted((board["home"], small), key=lambda node: node.pk)
         Edge.objects.create(a=first, b=second)
         seat(small, attacker, slot=1, floor=1)
@@ -179,7 +186,7 @@ class TestEligibility:
         with one floor under attack is still open on its other two.
         """
         request_duel(attacker, full_house[1].pk)
-        other = Team.objects.create(code="gamma", name="Gamma", balance=5000)
+        other = Team.objects.create(board=Board.GIRLS, code="gamma", name="Gamma", balance=5000)
         Occupancy.objects.create(team=other, node=board["home"], slot=2, is_spawn=True)
         assert {row["floor"] for row in challengeable_targets(other)} == {1, 3}
 
@@ -268,7 +275,7 @@ class TestRequesting:
     def test_a_defender_already_defending_cannot_be_challenged_again(
         self, running_game, board, attacker, full_house, seated_attacker, room
     ):
-        other = Team.objects.create(code="gamma", name="Gamma", balance=5000)
+        other = Team.objects.create(board=Board.GIRLS, code="gamma", name="Gamma", balance=5000)
         Occupancy.objects.create(team=other, node=board["home"], slot=2, is_spawn=True)
         second_judge = User.objects.create_user("judge2", password="secret")
         second_judge.user_permissions.add(Permission.objects.get(codename="judge_duel"))
@@ -318,7 +325,7 @@ class TestRequesting:
     def test_a_busy_judge_is_not_offered_twice(
         self, running_game, board, attacker, full_house, seated_attacker, room
     ):
-        other = Team.objects.create(code="gamma", name="Gamma", balance=5000)
+        other = Team.objects.create(board=Board.GIRLS, code="gamma", name="Gamma", balance=5000)
         Occupancy.objects.create(team=other, node=board["home"], slot=2, is_spawn=True)
         request_duel(attacker, full_house[1].pk)
         with pytest.raises(NoRoomAvailable):
@@ -418,7 +425,7 @@ class TestResolving:
             resolve_duel(duel, attacker, by=duel.mentor)
 
     def test_the_winner_must_be_one_of_the_two_teams(self, duel):
-        outsider = Team.objects.create(code="zeta", name="Zeta", balance=0)
+        outsider = Team.objects.create(board=Board.GIRLS, code="zeta", name="Zeta", balance=0)
         with pytest.raises(InvalidTarget):
             resolve_duel(duel, outsider, by=duel.mentor)
 
@@ -602,7 +609,7 @@ class TestApi:
     ):
         created = player.post("/api/duels/", {"occupancy": full_house[1].pk}, format="json").json()
 
-        outsider = Team.objects.create(code="zeta", name="Zeta", balance=0)
+        outsider = Team.objects.create(board=Board.GIRLS, code="zeta", name="Zeta", balance=0)
         user = User.objects.create_user("u-zeta", password="secret", team=outsider)
         client = APIClient()
         client.force_authenticate(user)

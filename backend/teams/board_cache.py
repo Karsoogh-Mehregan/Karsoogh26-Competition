@@ -8,26 +8,29 @@ from .serializers import TeamSerializer
 SNAPSHOT_TTL_SECONDS = 60
 
 
-def _render(request) -> list[dict]:
+def _render(request, board: str) -> list[dict]:
     # `with_holdings()` prefetches the toll attempts too, so the whole board's
     # crossings cost one query rather than one per team.
     serializer = TeamSerializer(
-        Team.objects.with_holdings(),
+        Team.objects.filter(board=board).with_holdings(),
         many=True,
         context={"request": request, "unmasked": True},
     )
     return [dict(row) for row in serializer.data]
 
 
-def snapshot(request) -> list[dict]:
+def snapshot(request, board: str) -> list[dict]:
     version = events.current_version()
     if version is None:
-        return _render(request)
+        return _render(request, board)
 
-    key = f"board:snapshot:{version}"
+    # The board is part of the key, not just the version: the two contests move
+    # under one SSE version, so a shared key would hand one contest the other's
+    # teams.
+    key = f"board:snapshot:{version}:{board}"
     rows = cache.get(key)
     if rows is None:
-        rows = _render(request)
+        rows = _render(request, board)
         cache.set(key, rows, timeout=SNAPSHOT_TTL_SECONDS)
     return rows
 

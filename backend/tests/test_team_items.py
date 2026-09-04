@@ -4,6 +4,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 
+from core.boards import Board
 from teams.models import ItemType, Team, TeamItem
 
 pytestmark = pytest.mark.django_db
@@ -15,12 +16,12 @@ ITEMS_URL = "/api/teams/me/items/"
 
 @pytest.fixture
 def alpha():
-    return Team.objects.create(code="alpha", name="Alpha")
+    return Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha")
 
 
 @pytest.fixture
 def beta():
-    return Team.objects.create(code="beta", name="Beta")
+    return Team.objects.create(board=Board.GIRLS, code="beta", name="Beta")
 
 
 def test_team_member_sees_only_own_items(client, alpha, beta):

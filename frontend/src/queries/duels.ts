@@ -51,9 +51,9 @@ function invalidateDuels(queryClient: ReturnType<typeof useQueryClient>) {
     queryClient.invalidateQueries({ queryKey: queryKeys.duelsRoot() }),
     // A duel moves money now and a floor when it closes, so the board and the
     // wallet log are both stale.
-    queryClient.invalidateQueries({ queryKey: queryKeys.teams() }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.teamsRoot() }),
     queryClient.invalidateQueries({ queryKey: queryKeys.balanceEventsRoot() }),
-    queryClient.invalidateQueries({ queryKey: queryKeys.leaderboard() }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.leaderboardRoot() }),
   ])
 }
 

@@ -19,7 +19,7 @@ export function useItemMutation() {
       const tasks = [queryClient.invalidateQueries({ queryKey: queryKeys.items() })]
       if (payload.item_type !== 'gilari_100') {
         tasks.push(
-          queryClient.invalidateQueries({ queryKey: queryKeys.teams() }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.teamsRoot() }),
           queryClient.invalidateQueries({ queryKey: queryKeys.attemptsRoot() }),
         )
       }

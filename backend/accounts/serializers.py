@@ -60,4 +60,8 @@ class MeSerializer(serializers.ModelSerializer):
     def get_team(self, user: User) -> dict | None:
         if user.team_id is None:
             return None
-        return {"code": user.team.code, "name": user.team.name}
+        return {
+            "code": user.team.code,
+            "name": user.team.name,
+            "board": user.team.board,
+        }

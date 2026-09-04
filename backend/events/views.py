@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import MENTOR_PERM, IsMentor
+from core.boards import board_filter
 from core.openapi import OpenApiExample, OpenApiParameter, extend_schema
 from game.api_exceptions import Conflict
 from teams.models import Team
@@ -156,6 +157,10 @@ class EventAvailabilityMixin:
                     raise PermissionDenied(str(exc)) from exc
 
 
+def _on_board(manager, board):
+    return manager.all() if board is None else manager.filter(board=board)
+
+
 _GAME_PK = OpenApiParameter("pk", int, OpenApiParameter.PATH, description="Territory game id")
 
 
@@ -280,8 +285,8 @@ class TerritoryTurnView(EventAvailabilityMixin, APIView):
         return Response(TerritoryGameStateSerializer(game).data)
 
 
-def charity_bags():
-    return CharityBagEvent.objects.prefetch_related(
+def charity_bags(board=None):
+    return _on_board(CharityBagEvent.objects, board).prefetch_related(
         Prefetch(
             "participations",
             queryset=CharityBagParticipation.objects.select_related("team"),
@@ -304,7 +309,7 @@ class CharityBagListCreateView(EventAvailabilityMixin, APIView):
     def get(self, request):
         sync_due_charity_bags()
         serializer = CharityBagEventSerializer(
-            charity_bags(),
+            charity_bags(board_filter(request)),
             many=True,
             context={"request": request},
         )
@@ -320,7 +325,7 @@ class CharityBagListCreateView(EventAvailabilityMixin, APIView):
         )
         ends_at = payload.validated_data.get("ends_at", starts_at + timedelta(seconds=duration))
         try:
-            event = create_charity_bag(starts_at, ends_at)
+            event = create_charity_bag(starts_at, ends_at, board=payload.validated_data["board"])
         except CharityBagError as exc:
             raise Conflict(str(exc)) from exc
         return _charity_response(
@@ -566,8 +571,8 @@ class OlympicsPlayerRunView(EventAvailabilityMixin, APIView):
         return _olympics_response(match)
 
 
-def auction_events():
-    return AuctionEvent.objects.prefetch_related(
+def auction_events(board=None):
+    return _on_board(AuctionEvent.objects, board).prefetch_related(
         Prefetch(
             "pairs",
             queryset=AuctionPair.objects.select_related(
@@ -602,7 +607,9 @@ class AuctionEventListCreateView(EventAvailabilityMixin, APIView):
     def get(self, request):
         _sync_expired_auctions()
         return Response(
-            AuctionEventSerializer(auction_events(), many=True, context={"request": request}).data
+            AuctionEventSerializer(
+                auction_events(board_filter(request)), many=True, context={"request": request}
+            ).data
         )
 
     def post(self, request):
@@ -611,9 +618,10 @@ class AuctionEventListCreateView(EventAvailabilityMixin, APIView):
         try:
             configuration = require_event_enabled(EventCode.LIMITED_AUCTION)
             event = create_auction_event(
+                board=payload.validated_data["board"],
                 duration_seconds=payload.validated_data.get("duration_seconds")
                 or configuration.duration_seconds
-                or 600
+                or 600,
             )
         except AuctionError as exc:
             raise Conflict(str(exc)) from exc
@@ -663,10 +671,14 @@ class AuctionResolveView(EventAvailabilityMixin, APIView):
         return _auction_response(event, request)
 
 
-def wheel_events():
-    return WheelEvent.objects.select_related("grand_prize_winner").prefetch_related(
-        Prefetch("prizes", queryset=WheelPrize.objects.all()),
-        Prefetch("spins", queryset=WheelSpin.objects.select_related("team", "prize")),
+def wheel_events(board=None):
+    return (
+        _on_board(WheelEvent.objects, board)
+        .select_related("grand_prize_winner")
+        .prefetch_related(
+            Prefetch("prizes", queryset=WheelPrize.objects.all()),
+            Prefetch("spins", queryset=WheelSpin.objects.select_related("team", "prize")),
+        )
     )
 
 
@@ -684,7 +696,9 @@ class WheelEventListCreateView(EventAvailabilityMixin, APIView):
 
     def get(self, request):
         return Response(
-            WheelEventSerializer(wheel_events(), many=True, context={"request": request}).data
+            WheelEventSerializer(
+                wheel_events(board_filter(request)), many=True, context={"request": request}
+            ).data
         )
 
     def post(self, request):
@@ -752,8 +766,8 @@ class WheelDeliveryView(EventAvailabilityMixin, APIView):
         return Response(WheelSpinSerializer(spin).data)
 
 
-def pig_events():
-    return PigEvent.objects.prefetch_related(
+def pig_events(board=None):
+    return _on_board(PigEvent.objects, board).prefetch_related(
         Prefetch(
             "games",
             queryset=PigGame.objects.select_related("team").prefetch_related(
@@ -777,14 +791,19 @@ class PigEventListCreateView(EventAvailabilityMixin, APIView):
 
     def get(self, request):
         return Response(
-            PigEventSerializer(pig_events(), many=True, context={"request": request}).data
+            PigEventSerializer(
+                pig_events(board_filter(request)), many=True, context={"request": request}
+            ).data
         )
 
     def post(self, request):
         payload = CreatePigEventSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         try:
-            event = create_pig_event(max_pot=payload.validated_data["max_pot"])
+            event = create_pig_event(
+                board=payload.validated_data["board"],
+                max_pot=payload.validated_data["max_pot"],
+            )
         except PigError as exc:
             raise Conflict(str(exc)) from exc
         return _pig_response(event, request, response_status=status.HTTP_201_CREATED)

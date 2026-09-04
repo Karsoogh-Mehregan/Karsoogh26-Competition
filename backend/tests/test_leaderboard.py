@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from rest_framework.test import APIClient
 
+from core.boards import Board
 from game.models import GameSettings
 from teams.models import Team
 
@@ -15,9 +16,9 @@ User = get_user_model()
 
 @pytest.fixture
 def teams():
-    Team.objects.create(code="alpha", name="Alpha", balance=100)
-    Team.objects.create(code="bravo", name="Bravo", balance=300)
-    Team.objects.create(code="charlie", name="Charlie", balance=200)
+    Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=100)
+    Team.objects.create(board=Board.GIRLS, code="bravo", name="Bravo", balance=300)
+    Team.objects.create(board=Board.GIRLS, code="charlie", name="Charlie", balance=200)
 
 
 @pytest.fixture

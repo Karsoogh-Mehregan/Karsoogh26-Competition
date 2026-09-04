@@ -7,6 +7,8 @@ from django.db import models
 from django.db.models import CheckConstraint, F, Q, UniqueConstraint
 from django.utils import timezone
 
+from core.boards import Board
+
 from .design import (
     ARCHETYPES,
     DEFAULT_HALO_STRENGTH,
@@ -185,7 +187,12 @@ class GradeMultiplier(models.Model):
 
 
 class Node(models.Model):
-    code = models.SlugField(max_length=32, unique=True)
+    # Each board holds its own full copy of the map, under the same codes: the
+    # girls' `L1_0` and the boys' `L1_0` are two rows. Scoping the uniqueness
+    # rather than prefixing the codes is what lets one graph_data.json render
+    # both boards and one colour table serve both spawns.
+    board = models.CharField(max_length=8, choices=Board.choices)
+    code = models.SlugField(max_length=32)
     name = models.CharField(max_length=64, blank=True)
     level = models.ForeignKey(
         LevelConfig, on_delete=models.PROTECT, related_name="nodes", db_column="level"
@@ -195,7 +202,14 @@ class Node(models.Model):
     archetype = models.CharField(max_length=32, blank=True, choices=ARCHETYPES)
 
     class Meta:
-        ordering = ["code"]
+        ordering = ["board", "code"]
+        constraints = [
+            UniqueConstraint(fields=["board", "code"], name="node_unique_per_board"),
+            # `choices` is only enforced by full_clean, and nothing here calls it.
+            # Without this a blank board saves cleanly and the node belongs to
+            # neither contest, which nothing else would notice.
+            CheckConstraint(condition=Q(board__in=Board.values), name="node_board_valid"),
+        ]
 
     def __str__(self):
         return self.name or self.code
@@ -203,7 +217,12 @@ class Node(models.Model):
 
 class Edge(models.Model):
     """A link between two nodes. Directed ones run a -> b; undirected ones are
-    normalised to a.id < b.id, so each unordered pair stores once."""
+    normalised to a.id < b.id, so each unordered pair stores once.
+
+    No board column: both endpoints carry one. A cross-board edge is rejected by
+    `import_graph`, and would be untraversable anyway, because a node is only
+    ever resolved as (the acting team's board, code).
+    """
 
     a = models.ForeignKey(Node, on_delete=models.CASCADE, related_name="edges_a")
     b = models.ForeignKey(Node, on_delete=models.CASCADE, related_name="edges_b")

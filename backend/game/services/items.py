@@ -143,8 +143,9 @@ def _publish_takeover(team: Team, node: Node, *, released: bool) -> None:
         publish_on_commit(
             BOARD_RELEASED,
             {"node": node.code, "reason": ReleaseReason.ITEM_TAKEOVER},
+            board=team.board,
         )
-    publish_on_commit(BOARD_NODE_CLAIMED, {"team": team.code, "node": node.code})
+    publish_on_commit(BOARD_NODE_CLAIMED, {"team": team.code, "node": node.code}, board=team.board)
 
 
 @transaction.atomic

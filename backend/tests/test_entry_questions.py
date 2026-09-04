@@ -7,6 +7,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.utils import timezone
 
+from core.boards import Board
 from game.models import EntryAttempt, EntryQuestion, GameSettings, GameStatus, LevelConfig, Node
 from teams.models import Team
 
@@ -36,12 +37,12 @@ def _run_for(settings, *, minutes):
 
 @pytest.fixture
 def team():
-    return Team.objects.create(code="alpha", name="Alpha", balance=400)
+    return Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=400)
 
 
 @pytest.fixture
 def other_team():
-    return Team.objects.create(code="beta", name="Beta", balance=400)
+    return Team.objects.create(board=Board.GIRLS, code="beta", name="Beta", balance=400)
 
 
 @pytest.fixture
@@ -76,7 +77,9 @@ def questions():
 def spawn_starts():
     spawn = LevelConfig.objects.get(level="spawn")
     for code in ("L1_0", "L1_4"):
-        Node.objects.get_or_create(code=code, defaults={"name": code, "level": spawn})
+        Node.objects.get_or_create(
+            board=Board.GIRLS, code=code, defaults={"name": code, "level": spawn}
+        )
 
 
 def _solve(client, sheet, count):

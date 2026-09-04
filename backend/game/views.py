@@ -12,6 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import MENTOR_PERM, GameIsRunning, IsGameGod, IsMentor
+from core.boards import board_filter
 from core.openapi import OpenApiExample, OpenApiParameter, OpenApiTypes, extend_schema
 from game import services
 from game.api_exceptions import Conflict, Unprocessable
@@ -489,6 +490,12 @@ class SubmissionListView(generics.ListAPIView):
         if team:
             qs = qs.filter(occupancy__team__code=team)
 
+        # One queue serves both contests, which is the point of running them in
+        # one instance; `?board=` only narrows it.
+        board = board_filter(self.request)
+        if board:
+            qs = qs.filter(occupancy__team__board=board)
+
         return qs
 
 
@@ -702,7 +709,7 @@ class AssignQuestionView(APIView):
         team = Team.objects.filter(code=team_code).first()
         if team is None:
             raise NotFound(f"تیم «{team_code}» پیدا نشد.")
-        node = Node.objects.select_related("level").filter(code=node_code).first()
+        node = Node.objects.select_related("level").filter(board=team.board, code=node_code).first()
         if node is None:
             raise NotFound(f"خانهٔ «{node_code}» پیدا نشد.")
 
@@ -900,6 +907,10 @@ class GameRestartView(APIView):
         payload = GameRestartSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
 
-        summary = services.restart_game(by=request.user)
-        services.publish_on_commit(services.GAME_STATE, {"status": GameStatus.NOT_STARTED})
+        board = payload.validated_data.get("board")
+        summary = services.restart_game(by=request.user, board=board)
+        # Unaddressed even for a one-board restart: the frame carries the shared
+        # clock's state, and a board restart does not move the clock at all.
+        if board is None:
+            services.publish_on_commit(services.GAME_STATE, {"status": GameStatus.NOT_STARTED})
         return Response(GameRestartResultSerializer(summary).data)

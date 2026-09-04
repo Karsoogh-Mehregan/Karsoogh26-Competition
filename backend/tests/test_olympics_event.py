@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.test import Client
 
+from core.boards import Board
 from events.exceptions import (
     OlympicsInvalidConfiguration,
     OlympicsInvalidResult,
@@ -34,8 +35,8 @@ User = get_user_model()
 @pytest.fixture
 def players():
     return (
-        Team.objects.create(code="alpha", name="Alpha", balance=500),
-        Team.objects.create(code="beta", name="Beta", balance=500),
+        Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=500),
+        Team.objects.create(board=Board.GIRLS, code="beta", name="Beta", balance=500),
     )
 
 
@@ -307,14 +308,14 @@ def test_only_mentor_operates_but_participant_can_read(client, players):
         == 403
     )
 
-    outsider = Team.objects.create(code="gamma", name="Gamma")
+    outsider = Team.objects.create(board=Board.GIRLS, code="gamma", name="Gamma")
     outsider_user = User.objects.create_user("gamma", password="secret", team=outsider)
     client.force_login(outsider_user)
     assert client.get(f"/api/events/olympics/matches/{match.pk}/").status_code == 403
 
 
 def test_team_list_contains_only_its_physical_matches(client, players):
-    outsider = Team.objects.create(code="gamma", name="Gamma")
+    outsider = Team.objects.create(board=Board.GIRLS, code="gamma", name="Gamma")
     own = create_olympics_match(OlympicsMiniGame.COIN_NEAR_WALL, *players)
     create_olympics_match(OlympicsMiniGame.COIN_NEAR_WALL, players[1], outsider)
     user = User.objects.create_user("alpha", password="secret", team=players[0])
@@ -368,7 +369,7 @@ def test_player_run_cannot_be_replaced_or_submitted_for_wrong_round(players):
 
 def test_player_run_rejects_outsider_and_invalid_scores(client, players, zones):
     match = active_match(OlympicsMiniGame.MARBLE_TARGET, players, zones)
-    outsider = Team.objects.create(code="outsider", name="Outsider")
+    outsider = Team.objects.create(board=Board.GIRLS, code="outsider", name="Outsider")
     client.force_login(User.objects.create_user("outsider", team=outsider))
     url = f"/api/events/olympics/matches/{match.pk}/player-run/"
     response = client.post(

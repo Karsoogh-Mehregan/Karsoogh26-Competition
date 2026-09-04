@@ -27,7 +27,7 @@ export function useAnswerEntryMutation() {
     onSuccess: (result: EntryAnswerResult) => {
       queryClient.setQueryData(queryKeys.entrySheet(), result)
       // Qualifying stamps draft_order on the team row.
-      return queryClient.invalidateQueries({ queryKey: queryKeys.teams() })
+      return queryClient.invalidateQueries({ queryKey: queryKeys.teamsRoot() })
     },
   })
 }

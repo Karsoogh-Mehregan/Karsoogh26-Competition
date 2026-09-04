@@ -1,3 +1,6 @@
+/** Which of the two parallel contests a team plays in. Organisers have none. */
+export type Board = 'girls' | 'boys'
+
 export interface Holding {
   id: number
   node_code: string
@@ -39,7 +42,7 @@ export interface Me {
   is_announcer: boolean
   is_designer: boolean
   is_duel_mentor: boolean
-  team: { code: string; name: string } | null
+  team: { code: string; name: string; board: Board } | null
 }
 
 export interface LoginCredentials {
@@ -259,6 +262,7 @@ export interface EnterCharityBagInput {
 }
 
 export interface CreateCharityBagInput {
+  board: Board
   starts_at?: string
   ends_at?: string
   duration_seconds?: number

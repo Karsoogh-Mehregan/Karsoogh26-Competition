@@ -11,6 +11,7 @@ from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
+from core.boards import Board
 from game.services.events import NOTIFICATION_CREATED, publish_on_commit
 
 from .models import AudienceScope, Message, MessageStatus, Notification
@@ -50,6 +51,9 @@ def users_with_perm(perm: str) -> QuerySet:
 
 SCOPE_FILTERS = {
     AudienceScope.TEAMS: lambda: Q(team__isnull=False),
+    # One contest's hall. Organisers hold no team, so neither scope reaches them.
+    AudienceScope.GIRLS: lambda: Q(team__board=Board.GIRLS),
+    AudienceScope.BOYS: lambda: Q(team__board=Board.BOYS),
     AudienceScope.MENTORS: lambda: Q(pk__in=users_with_perm(MENTOR_PERM)),
     AudienceScope.DESIGNERS: lambda: Q(pk__in=users_with_perm(DESIGNER_PERM)),
 }

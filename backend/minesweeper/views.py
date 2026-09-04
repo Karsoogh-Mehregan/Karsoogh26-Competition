@@ -113,9 +113,10 @@ def _own_attempt(request, attempt_id: int) -> MinesweeperAttempt:
     return attempt
 
 
-def _node_by_code(node_code: str) -> Node:
+def _node_by_code(request, node_code: str) -> Node:
+    """The node by that code *on the caller's board*. The other copy is a 404."""
     try:
-        return Node.objects.get(code=node_code)
+        return Node.objects.get(board=request.user.team.board, code=node_code)
     except Node.DoesNotExist:
         raise NotFound("بازی پیدا نشد.") from None
 
@@ -145,7 +146,7 @@ class EnterPlayView(APIView):
         ],
     )
     def post(self, request, node_code: str):
-        node = _node_by_code(node_code)
+        node = _node_by_code(request, node_code)
         try:
             token = issue_entry(
                 request.session,
@@ -178,7 +179,7 @@ class StartPlayView(APIView):
     def post(self, request, node_code: str):
         payload = StartPlaySerializer(data=request.data)
         payload.is_valid(raise_exception=True)
-        node = _node_by_code(node_code)
+        node = _node_by_code(request, node_code)
         try:
             require_graph_access(request.user.team, node)
             consume_entry(

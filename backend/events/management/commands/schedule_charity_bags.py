@@ -4,11 +4,15 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
+from core.boards import Board
 from events.models import CharityBagEvent
 
 
 class Command(BaseCommand):
-    help = "Create the configured Charity Bag instances for one competition day."
+    help = (
+        "Create the configured Charity Bag instances for one competition day, "
+        "one per board so both contests run the same schedule."
+    )
 
     def add_arguments(self, parser):
         parser.add_argument("--date", help="Competition date in YYYY-MM-DD; defaults to today.")
@@ -30,15 +34,18 @@ class Command(BaseCommand):
             except ValueError as exc:
                 raise CommandError(f"Invalid Charity Bag schedule time: {value}") from exc
             starts_at = timezone.make_aware(datetime.combine(event_date, clock), tz)
-            _, created = CharityBagEvent.objects.get_or_create(
-                starts_at=starts_at,
-                defaults={"ends_at": starts_at + duration},
-            )
-            created_count += int(created)
+            for board in Board.values:
+                _, created = CharityBagEvent.objects.get_or_create(
+                    board=board,
+                    starts_at=starts_at,
+                    defaults={"ends_at": starts_at + duration},
+                )
+                created_count += int(created)
 
         self.stdout.write(
             self.style.SUCCESS(
                 f"Charity Bag schedule ready: {created_count} new instance(s), "
-                f"{len(settings.CHARITY_BAG_SCHEDULE_TIMES)} configured."
+                f"{len(settings.CHARITY_BAG_SCHEDULE_TIMES)} slot(s) x "
+                f"{len(Board.values)} board(s) configured."
             )
         )

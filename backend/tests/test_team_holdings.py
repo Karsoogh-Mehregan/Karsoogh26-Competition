@@ -6,6 +6,7 @@ from django.contrib.auth.models import Group
 from django.core.cache import cache
 from django.utils import timezone
 
+from core.boards import Board
 from game.models import LevelConfig, Node, Occupancy
 from teams.models import Team
 
@@ -32,15 +33,15 @@ def nodes():
     easy = LevelConfig.objects.get(level="easy")
     hard = LevelConfig.objects.get(level="hard")
     return {
-        "e1": Node.objects.create(code="e1", name="Easy 1", level=easy),
-        "e2": Node.objects.create(code="e2", name="Easy 2", level=easy),
-        "h1": Node.objects.create(code="h1", name="Hard 1", level=hard),
+        "e1": Node.objects.create(board=Board.GIRLS, code="e1", name="Easy 1", level=easy),
+        "e2": Node.objects.create(board=Board.GIRLS, code="e2", name="Easy 2", level=easy),
+        "h1": Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard),
     }
 
 
 @pytest.fixture
 def team():
-    return Team.objects.create(code="alpha", name="Alpha", balance=42)
+    return Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=42)
 
 
 def test_occupancy_defaults_to_attempt_source(team, nodes):
@@ -79,7 +80,7 @@ def test_with_holdings_matches_unprefetched(team, nodes):
 
 def test_with_holdings_does_not_scale_with_team_count(nodes, django_assert_num_queries):
     for slot, code in enumerate(("alpha", "beta", "gamma"), start=1):
-        other = Team.objects.create(code=code, name=code.title())
+        other = Team.objects.create(board=Board.GIRLS, code=code, name=code.title())
         Occupancy.objects.create(node=nodes["e1"], team=other, slot=slot)
 
     with django_assert_num_queries(3):  # teams, holdings prefetch, won-toll prefetch

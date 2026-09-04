@@ -10,6 +10,7 @@ from django.contrib.auth.models import Group
 from django.test import Client
 from django.utils import timezone
 
+from core.boards import Board
 from game.services import events
 from game.sse import build_frame
 from notifications import services
@@ -40,12 +41,12 @@ def send_url(pk: int) -> str:
 
 @pytest.fixture
 def alpha():
-    return Team.objects.create(code="alpha", name="Alpha", balance=400)
+    return Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=400)
 
 
 @pytest.fixture
 def beta():
-    return Team.objects.create(code="beta", name="Beta", balance=400)
+    return Team.objects.create(board=Board.GIRLS, code="beta", name="Beta", balance=400)
 
 
 @pytest.fixture
@@ -223,7 +224,9 @@ def test_send_publishes_a_frame_addressed_to_its_recipients(
     monkeypatch.setattr(
         events,
         "publish",
-        lambda kind, payload=None, *, recipients=None: calls.append((kind, payload, recipients)),
+        lambda kind, payload=None, *, recipients=None, board=None: calls.append(
+            (kind, payload, recipients)
+        ),
     )
 
     with django_capture_on_commit_callbacks(execute=True):
@@ -642,7 +645,7 @@ def test_the_game_does_not_write_to_the_inbox(alpha, alpha_user, mentor_user):
     settings_row.save(update_fields=["status"])
 
     easy = LevelConfig.objects.get(pk="easy")
-    node = Node.objects.create(code="e1", name="نانوایی", level=easy)
+    node = Node.objects.create(board=Board.GIRLS, code="e1", name="نانوایی", level=easy)
     question = Question.objects.create(
         level=easy, code="q1", title="سؤال", body="متن", answer_type=AnswerType.TEXT
     )

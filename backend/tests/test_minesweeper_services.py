@@ -8,6 +8,7 @@ import pytest
 from django.db import connection
 from django.utils import timezone
 
+from core.boards import Board
 from game.models import Edge, LevelConfig, Node, Occupancy
 from game.services.events import MINESWEEPER_CLEARED
 from minesweeper.exceptions import (
@@ -59,17 +60,18 @@ _NEIGHBOR_OFFSETS = (
 
 @pytest.fixture
 def team():
-    return Team.objects.create(code="alpha", name="Alpha")
+    return Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha")
 
 
 @pytest.fixture
 def other_team():
-    return Team.objects.create(code="beta", name="Beta")
+    return Team.objects.create(board=Board.GIRLS, code="beta", name="Beta")
 
 
 @pytest.fixture
 def node():
     return Node.objects.create(
+        board=Board.GIRLS,
         code="ms1",
         name="MS 1",
         level=LevelConfig.objects.get(level="easy"),
@@ -98,6 +100,7 @@ def grant_access(team: Team, node: Node) -> Occupancy:
     """Seat `team` on a spawn home undirected-adjacent to `node`."""
     spawn = LevelConfig.objects.get(level="spawn")
     home = Node.objects.create(
+        board=Board.GIRLS,
         code=f"ms-home-{team.pk}-{node.pk}",
         name="home",
         level=spawn,
@@ -186,6 +189,7 @@ class TestMapEntry:
         _configure(node)
         grant_access(team, node)
         other = Node.objects.create(
+            board=Board.GIRLS,
             code="ms-other",
             name="Other",
             level=LevelConfig.objects.get(level="easy"),
@@ -986,7 +990,8 @@ class TestWin:
 
         reveal_cell(attempt.pk, 0, 3)
 
-        assert published == [((MINESWEEPER_CLEARED,), {})]
+        # Addressed at the winner's board: the other contest is not told a gate opened.
+        assert published == [((MINESWEEPER_CLEARED,), {"board": Board.GIRLS})]
 
     def test_won_attempt_rejects_reveal_and_flag(self, team, node):
         attempt = _split_attempt(team, node)

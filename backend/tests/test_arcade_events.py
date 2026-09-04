@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.utils import timezone
 
+from core.boards import Board
 from events.exceptions import AuctionError, PigError, WheelError
 from events.models import (
     AuctionBid,
@@ -34,9 +35,9 @@ User = get_user_model()
 @pytest.fixture
 def teams():
     return [
-        Team.objects.create(code="alpha", name="Alpha", balance=500),
-        Team.objects.create(code="beta", name="Beta", balance=400),
-        Team.objects.create(code="gamma", name="Gamma", balance=300),
+        Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=500),
+        Team.objects.create(board=Board.GIRLS, code="beta", name="Beta", balance=400),
+        Team.objects.create(board=Board.GIRLS, code="gamma", name="Gamma", balance=300),
     ]
 
 
@@ -74,7 +75,7 @@ def wheel_prizes():
 
 
 def test_auction_snapshots_ranking_pairs_and_automatic_odd_award(teams):
-    event = create_auction_event(now=timezone.now())
+    event = create_auction_event(board=Board.GIRLS, now=timezone.now())
 
     pairs = list(event.pairs.all())
     assert event.status == AuctionStatus.ACTIVE
@@ -91,7 +92,7 @@ def test_auction_snapshots_ranking_pairs_and_automatic_odd_award(teams):
 
 
 def test_auction_bid_commits_only_increment_and_serializes_highest(teams):
-    event = create_auction_event(now=timezone.now())
+    event = create_auction_event(board=Board.GIRLS, now=timezone.now())
     pair = event.pairs.get(automatic_award=False)
 
     place_auction_bid(pair.pk, teams[0], 100, uuid4())
@@ -110,7 +111,7 @@ def test_auction_bid_commits_only_increment_and_serializes_highest(teams):
 
 
 def test_auction_settlement_is_idempotent_and_both_bids_stay_paid(teams):
-    event = create_auction_event(now=timezone.now())
+    event = create_auction_event(board=Board.GIRLS, now=timezone.now())
     pair = event.pairs.get(automatic_award=False)
     place_auction_bid(pair.pk, teams[0], 100, uuid4())
     place_auction_bid(pair.pk, teams[1], 120, uuid4())
@@ -125,7 +126,7 @@ def test_auction_settlement_is_idempotent_and_both_bids_stay_paid(teams):
 
 
 def test_auction_bid_retry_does_not_charge_twice(teams):
-    event = create_auction_event(now=timezone.now())
+    event = create_auction_event(board=Board.GIRLS, now=timezone.now())
     pair = event.pairs.get(automatic_award=False)
     request_id = uuid4()
     place_auction_bid(pair.pk, teams[0], 50, request_id)
@@ -135,7 +136,7 @@ def test_auction_bid_retry_does_not_charge_twice(teams):
 
 
 def test_wheel_glorium_spin_is_atomic_and_retry_safe(teams, wheel_prizes):
-    event = create_wheel_event(prizes=wheel_prizes)
+    event = create_wheel_event(board=Board.GIRLS, prizes=wheel_prizes)
     start_wheel_event(event.pk)
     request_id = uuid4()
 
@@ -150,7 +151,7 @@ def test_wheel_glorium_spin_is_atomic_and_retry_safe(teams, wheel_prizes):
 
 
 def test_wheel_merchandise_stock_and_delivery(teams, wheel_prizes):
-    event = create_wheel_event(prizes=wheel_prizes)
+    event = create_wheel_event(board=Board.GIRLS, prizes=wheel_prizes)
     start_wheel_event(event.pk)
     spin = spin_wheel(event.pk, teams[0], uuid4(), randbelow=lambda _: 5)
 
@@ -164,7 +165,7 @@ def test_wheel_merchandise_stock_and_delivery(teams, wheel_prizes):
 
 
 def test_grand_prize_closes_wheel_and_cannot_be_claimed_twice(teams, wheel_prizes):
-    event = create_wheel_event(prizes=wheel_prizes)
+    event = create_wheel_event(board=Board.GIRLS, prizes=wheel_prizes)
     start_wheel_event(event.pk)
     spin_wheel(event.pk, teams[0], uuid4(), randbelow=lambda _: 7)
 
@@ -177,11 +178,11 @@ def test_grand_prize_closes_wheel_and_cannot_be_claimed_twice(teams, wheel_prize
 
 def test_wheel_requires_exactly_one_grand_prize(wheel_prizes):
     with pytest.raises(WheelError):
-        create_wheel_event(prizes=wheel_prizes[:-1])
+        create_wheel_event(board=Board.GIRLS, prizes=wheel_prizes[:-1])
 
 
 def test_pig_entry_roll_cashout_and_retry(teams):
-    event = create_pig_event(max_pot=500)
+    event = create_pig_event(board=Board.GIRLS, max_pot=500)
     game = start_pig_game(event.pk, teams[0])
     roll_id = uuid4()
     play_pig_action(game.pk, teams[0], "roll", roll_id, roll_die=lambda: 4)
@@ -199,7 +200,7 @@ def test_pig_entry_roll_cashout_and_retry(teams):
 
 
 def test_pig_rolled_one_loses_pot_and_finishes(teams):
-    event = create_pig_event(max_pot=500)
+    event = create_pig_event(board=Board.GIRLS, max_pot=500)
     game = start_pig_game(event.pk, teams[0])
     play_pig_action(game.pk, teams[0], "roll", uuid4(), roll_die=lambda: 6)
     play_pig_action(game.pk, teams[0], "roll", uuid4(), roll_die=lambda: 1)
@@ -212,7 +213,7 @@ def test_pig_rolled_one_loses_pot_and_finishes(teams):
 
 
 def test_pig_caps_and_automatically_pays_max_pot(teams):
-    event = create_pig_event(max_pot=50)
+    event = create_pig_event(board=Board.GIRLS, max_pot=50)
     game = start_pig_game(event.pk, teams[0])
     play_pig_action(game.pk, teams[0], "roll", uuid4(), roll_die=lambda: 6)
 
@@ -224,11 +225,11 @@ def test_pig_caps_and_automatically_pays_max_pot(teams):
 
 
 def test_pig_rejects_cashout_at_zero_and_insufficient_entry(teams):
-    event = create_pig_event(max_pot=500)
+    event = create_pig_event(board=Board.GIRLS, max_pot=500)
     game = start_pig_game(event.pk, teams[0])
     with pytest.raises(PigError):
         play_pig_action(game.pk, teams[0], "cash_out", uuid4())
-    poor = Team.objects.create(code="poor", name="Poor", balance=199)
+    poor = Team.objects.create(board=Board.GIRLS, code="poor", name="Poor", balance=199)
     with pytest.raises(PigError):
         start_pig_game(event.pk, poor)
 
@@ -239,7 +240,7 @@ def test_api_permissions_keep_operator_and_team_actions_separate(
     client.force_login(mentor)
     wheel = client.post(
         "/api/events/prize-wheel/events/",
-        {"spin_cost": 10, "prizes": wheel_prizes},
+        {"board": Board.GIRLS, "spin_cost": 10, "prizes": wheel_prizes},
         content_type="application/json",
     )
     assert wheel.status_code == 201
@@ -259,7 +260,7 @@ def test_api_permissions_keep_operator_and_team_actions_separate(
     assert (
         client.post(
             "/api/events/limited-auction/events/",
-            {"duration_seconds": 600},
+            {"board": Board.GIRLS, "duration_seconds": 600},
             content_type="application/json",
         ).status_code
         == 403

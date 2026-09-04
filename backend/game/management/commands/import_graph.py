@@ -4,6 +4,10 @@ The JSON is the single source of truth for the map; the frontend keeps the
 layout fields (x/y/color/shape/theta/r) and the backend keeps only the topology,
 sharing node ids so the two halves address the same map.
 
+One board at a time. The girls' and the boys' contests each hold a full copy of
+the map under the same node codes, so run this once per board; each run only
+ever sees and touches its own board's rows.
+
 Upsert only: rows are never deleted, so Occupancy's PROTECT FK is never tripped
 and re-running is safe mid-game.
 """
@@ -15,6 +19,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
+from core.boards import Board
 from game.models import Edge, Node
 
 DEFAULT_PATH = Path("frontend/src/data/graph_data.json")
@@ -39,6 +44,12 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
+            "--board",
+            required=True,
+            choices=[value for value, _label in Board.choices],
+            help="Which contest's copy of the map to import into.",
+        )
+        parser.add_argument(
             "--file",
             type=Path,
             default=settings.BASE_DIR.parent / DEFAULT_PATH,
@@ -59,8 +70,9 @@ class Command(BaseCommand):
         except json.JSONDecodeError as exc:
             raise CommandError(f"{path} is not valid JSON: {exc}") from exc
 
+        board = options["board"]
         with transaction.atomic():
-            nodes = self._import_nodes(data.get("nodes", []))
+            nodes = self._import_nodes(data.get("nodes", []), board)
             self._import_edges(data.get("edges", []), nodes)
             self._ensure_toll_boards()
             if options["dry_run"]:
@@ -81,7 +93,7 @@ class Command(BaseCommand):
         if counts["created"]:
             self.stdout.write(f"Toll boards: {counts['created']} created.")
 
-    def _import_nodes(self, raw_nodes):
+    def _import_nodes(self, raw_nodes, board):
         unknown = sorted({n["type"] for n in raw_nodes if n["type"] not in TYPE_TO_LEVEL})
         if unknown:
             raise CommandError(
@@ -97,10 +109,10 @@ class Command(BaseCommand):
                 raise CommandError(f"Node {code} appears twice with different types.")
             wanted[code] = level
 
-        existing = {node.code: node for node in Node.objects.all()}
+        existing = {node.code: node for node in Node.objects.filter(board=board)}
 
         to_create = [
-            Node(code=code, level_id=level)
+            Node(board=board, code=code, level_id=level)
             for code, level in wanted.items()
             if code not in existing
         ]
@@ -116,7 +128,7 @@ class Command(BaseCommand):
         Node.objects.bulk_update(to_update, ["level"])
 
         self._report("Nodes", len(to_create), len(to_update), len(wanted))
-        return {node.code: node for node in Node.objects.filter(code__in=wanted)}
+        return {node.code: node for node in Node.objects.filter(board=board, code__in=wanted)}
 
     def _import_edges(self, raw_edges, nodes):
         missing = sorted(
@@ -125,7 +137,10 @@ class Command(BaseCommand):
         if missing:
             raise CommandError(f"Edge endpoints with no matching node: {', '.join(missing)}.")
 
-        existing = {(e.a_id, e.b_id): e for e in Edge.objects.all()}
+        node_ids = {node.pk for node in nodes.values()}
+        existing = {
+            (e.a_id, e.b_id): e for e in Edge.objects.filter(a_id__in=node_ids, b_id__in=node_ids)
+        }
         pending = {}
         to_create = []
         to_update = []
@@ -133,6 +148,10 @@ class Command(BaseCommand):
         for e in raw_edges:
             directed = bool(e["directed"])
             a, b = nodes[e["source"]], nodes[e["target"]]
+            if a.board != b.board:
+                raise CommandError(
+                    f"{a.code} and {b.code} are on different boards; an edge may not cross."
+                )
             if not directed and a.pk > b.pk:
                 a, b = b, a
             key = (a.pk, b.pk)

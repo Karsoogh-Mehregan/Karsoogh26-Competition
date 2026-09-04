@@ -145,6 +145,7 @@ def challengeable_targets(team: Team) -> list[dict]:
 
     candidates = (
         Occupancy.objects.active()
+        .filter(team__board=team.board)
         .exclude(team=team)
         .filter(floor__isnull=False)
         .exclude(node__level_id__in=_UNDUELLABLE_LEVELS)
@@ -479,8 +480,13 @@ def _announce(duel: Duel) -> None:
             "node": duel.node.code,
             "reason": ReleaseReason.DUEL_LOST,
         },
+        board=duel.attacker.board,
     )
-    publish_on_commit(BOARD_NODE_CLAIMED, {"team": duel.attacker.code, "node": duel.node.code})
+    publish_on_commit(
+        BOARD_NODE_CLAIMED,
+        {"team": duel.attacker.code, "node": duel.node.code},
+        board=duel.attacker.board,
+    )
 
 
 def _notify(duel: Duel, *, opened: bool) -> None:

@@ -8,6 +8,7 @@ from django.contrib.auth.models import Group
 from django.test import Client
 from django.utils import timezone
 
+from core.boards import Board
 from game.models import GameSettings, GameStatus
 from teams.models import Team
 
@@ -22,7 +23,7 @@ RESTART_URL = "/api/game/restart/"
 
 @pytest.fixture
 def team():
-    return Team.objects.create(code="alpha", name="Alpha", balance=400)
+    return Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=400)
 
 
 # Each role gets its own Client: they share one session cookie jar otherwise,
@@ -310,8 +311,8 @@ def played_board(team):
 
     spawn = LevelConfig.objects.get(level="spawn")
     easy = LevelConfig.objects.get(level="easy")
-    start = Node.objects.create(code="L1_0", name="L1_0", level=spawn)
-    house = Node.objects.create(code="L1_2", name="L1_2", level=easy)
+    start = Node.objects.create(board=Board.GIRLS, code="L1_0", name="L1_0", level=spawn)
+    house = Node.objects.create(board=Board.GIRLS, code="L1_2", name="L1_2", level=easy)
 
     team.color = "#d92121"
     team.draft_order = 1
@@ -339,6 +340,7 @@ def test_restart_clears_the_board(game_god, played_board):
     response = _restart(game_god)
     assert response.status_code == 200
     assert response.json() == {
+        "board": "all",
         "occupancies": 2,
         "submissions": 1,
         "entry_attempts": 0,
@@ -415,7 +417,7 @@ def played_duel(played_board):
         mentor=judge,
         last_assigned_at=timezone.now(),
     )
-    defender = Team.objects.create(code="defender", name="Defender", balance=100)
+    defender = Team.objects.create(board=Board.GIRLS, code="defender", name="Defender", balance=100)
     target = Occupancy.objects.filter(team=played_board).order_by("pk").last()
 
     return Duel.objects.create(
@@ -473,7 +475,7 @@ def test_restart_clears_toll_crossings(game_god, team):
     )
 
     toll = LevelConfig.objects.get(level="toll")
-    gate = Node.objects.create(code="C34_9", name="Gate", level=toll)
+    gate = Node.objects.create(board=Board.GIRLS, code="C34_9", name="Gate", level=toll)
     difficulty = DifficultyConfig.objects.first()
     board = MinesweeperGame.objects.create(
         node=gate,

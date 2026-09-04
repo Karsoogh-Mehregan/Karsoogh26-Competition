@@ -54,6 +54,8 @@ class AudienceScope(models.TextChoices):
 
     ALL = "all", "همه"
     TEAMS = "teams", "همهٔ تیم‌ها"
+    GIRLS = "girls", "تیم‌های دختران"
+    BOYS = "boys", "تیم‌های پسران"
     MENTORS = "mentors", "همهٔ منتورها"
     DESIGNERS = "designers", "همهٔ طراحان"
 

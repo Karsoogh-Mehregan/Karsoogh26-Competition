@@ -2,6 +2,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 
+from core.boards import Board
 from events.exceptions import InvalidStartingCell, InvalidTarget, NotPlayersTurn
 from events.models import TerritoryAction, TerritoryCell, TerritoryGameStatus, TerritoryTurn
 from events.services import create_territory_game, play_territory_turn
@@ -15,8 +16,8 @@ User = get_user_model()
 @pytest.fixture
 def players():
     return (
-        Team.objects.create(code="alpha", name="Alpha"),
-        Team.objects.create(code="beta", name="Beta"),
+        Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha"),
+        Team.objects.create(board=Board.GIRLS, code="beta", name="Beta"),
     )
 
 
@@ -235,7 +236,7 @@ def test_turn_api_rejects_a_client_supplied_die(client, game, players):
 
 
 def test_nonparticipant_cannot_read_or_move(client, game):
-    outsider = Team.objects.create(code="gamma", name="Gamma")
+    outsider = Team.objects.create(board=Board.GIRLS, code="gamma", name="Gamma")
     user = User.objects.create_user("user-gamma", password="secret", team=outsider)
     client.force_login(user)
 
@@ -276,7 +277,7 @@ def test_mentor_creates_game_and_board_but_team_cannot(client, players):
 
 
 def test_team_list_only_contains_its_games(client, game, players):
-    outsider = Team.objects.create(code="gamma", name="Gamma")
+    outsider = Team.objects.create(board=Board.GIRLS, code="gamma", name="Gamma")
     other_game = create_territory_game(players[1], outsider, cell_value=lambda: 1)
     user = User.objects.create_user("user-alpha", password="secret", team=players[0])
     client.force_login(user)

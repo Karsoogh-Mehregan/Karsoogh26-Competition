@@ -6,6 +6,7 @@ from django.contrib.auth.models import Group
 from django.core.management import call_command
 from django.utils import timezone
 
+from core.boards import Board
 from events.exceptions import (
     CharityBagAlreadyEntered,
     CharityBagInsufficientBalance,
@@ -27,15 +28,17 @@ User = get_user_model()
 @pytest.fixture
 def teams():
     return (
-        Team.objects.create(code="alpha", name="Alpha", balance=100),
-        Team.objects.create(code="beta", name="Beta", balance=100),
+        Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=100),
+        Team.objects.create(board=Board.GIRLS, code="beta", name="Beta", balance=100),
     )
 
 
 @pytest.fixture
 def active_event():
     now = timezone.now()
-    return create_charity_bag(now - timedelta(seconds=5), now + timedelta(minutes=5))
+    return create_charity_bag(
+        now - timedelta(seconds=5), now + timedelta(minutes=5), board=Board.GIRLS
+    )
 
 
 def _expire(event):
@@ -169,7 +172,7 @@ def test_only_mentor_can_create_an_instance(client, teams):
     client.force_login(team_user)
     denied = client.post(
         "/api/events/charity-bag/instances/",
-        {"duration_seconds": 300},
+        {"board": Board.GIRLS, "duration_seconds": 300},
         content_type="application/json",
     )
     assert denied.status_code == 403
@@ -179,7 +182,7 @@ def test_only_mentor_can_create_an_instance(client, teams):
     client.force_login(mentor)
     created = client.post(
         "/api/events/charity-bag/instances/",
-        {"duration_seconds": 300},
+        {"board": Board.GIRLS, "duration_seconds": 300},
         content_type="application/json",
     )
     assert created.status_code == 201
@@ -193,7 +196,8 @@ def test_schedule_command_is_configurable_and_idempotent(settings):
     call_command("schedule_charity_bags", date="2026-09-02")
     call_command("schedule_charity_bags", date="2026-09-02")
 
-    assert CharityBagEvent.objects.count() == 3
+    # One instance per slot per board: both contests run the same schedule.
+    assert CharityBagEvent.objects.count() == 3 * len(Board.values)
     assert {
         int((event.ends_at - event.starts_at).total_seconds())
         for event in CharityBagEvent.objects.all()

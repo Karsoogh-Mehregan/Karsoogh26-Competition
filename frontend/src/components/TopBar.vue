@@ -5,10 +5,12 @@ import AdminDialog from '@/components/AdminDialog.vue'
 import NotificationBell from '@/components/NotificationBell.vue'
 import { Button } from '@/components/ui/button'
 import { useActing } from '@/composables/useActing'
+import { useBoard } from '@/composables/useBoard'
 import { formatClock, useGameClock } from '@/composables/useGameClock'
 import { useStage } from '@/composables/useStage'
 
 const { me, isGameGod } = useActing()
+const { board, canSwitchBoard, setViewingBoard } = useBoard()
 const { state, status, isRunning, elapsedSeconds, remainingSeconds, isOvertime, isEndingSoon } =
   useGameClock()
 const { title, hint, stepIndex, onPath, steps } = useStage()
@@ -32,6 +34,12 @@ const remainingLabel = computed(() => {
   if (remainingSeconds.value === null) return null
   return isOvertime.value ? 'پایان' : formatClock(remainingSeconds.value)
 })
+
+// Organisers only. A team's board comes from its account and is not a choice.
+const BOARDS = [
+  { value: 'girls', label: 'دختران' },
+  { value: 'boys', label: 'پسران' },
+] as const
 
 function stepState(index: number): 'done' | 'current' | 'todo' {
   if (!onPath.value) return 'todo'
@@ -90,6 +98,20 @@ function stepState(index: number): 'done' | 'current' | 'todo' {
       </span>
     </div>
 
+    <div v-if="canSwitchBoard" class="boards" role="group" aria-label="انتخاب زمین">
+      <button
+        v-for="option in BOARDS"
+        :key="option.value"
+        type="button"
+        class="board-tab"
+        :class="{ 'is-active': board === option.value }"
+        :aria-pressed="board === option.value"
+        @click="setViewingBoard(option.value)"
+      >
+        {{ option.label }}
+      </button>
+    </div>
+
     <NotificationBell />
 
     <Button
@@ -108,6 +130,29 @@ function stepState(index: number): 'done' | 'current' | 'todo' {
 </template>
 
 <style scoped>
+.boards {
+  display: inline-flex;
+  gap: 0.15rem;
+  padding: 0.15rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--muted);
+}
+
+.board-tab {
+  padding: 0.2rem 0.6rem;
+  border-radius: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.board-tab.is-active {
+  background: var(--card);
+  color: var(--foreground);
+  font-weight: 600;
+}
+
 .topbar {
   display: flex;
   align-items: center;

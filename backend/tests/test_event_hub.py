@@ -2,6 +2,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 
+from core.boards import Board
 from events.models import EventCode, EventConfiguration, MatchmakingStatus, TerritoryGame
 from teams.models import Team
 
@@ -12,8 +13,8 @@ User = get_user_model()
 @pytest.fixture
 def teams():
     return [
-        Team.objects.create(code="alpha", name="Alpha", balance=500),
-        Team.objects.create(code="beta", name="Beta", balance=500),
+        Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=500),
+        Team.objects.create(board=Board.GIRLS, code="beta", name="Beta", balance=500),
     ]
 
 

@@ -12,6 +12,7 @@ import pytest
 from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 
+from core.boards import Board
 from game.models import GameSettings, GameStatus, LevelConfig, Node, Occupancy
 from game.services import grade_attempt
 from teams.models import Team
@@ -23,8 +24,11 @@ THREADS = 8
 
 def test_only_one_team_wins_the_last_slot():
     easy = LevelConfig.objects.get(level="easy")  # capacity 1
-    node = Node.objects.create(code="e1", name="Easy 1", level=easy)
-    teams = [Team.objects.create(code=f"r{i}", name=f"Racer {i}") for i in range(THREADS)]
+    node = Node.objects.create(board=Board.GIRLS, code="e1", name="Easy 1", level=easy)
+    teams = [
+        Team.objects.create(board=Board.GIRLS, code=f"r{i}", name=f"Racer {i}")
+        for i in range(THREADS)
+    ]
 
     barrier = threading.Barrier(THREADS)
     winners, losers = [], []
@@ -67,13 +71,13 @@ def test_simultaneous_grades_build_one_consistent_tower():
     settings.save(update_fields=["status"])
 
     medium = LevelConfig.objects.get(level="medium")  # capacity 2, floors 200 / 250
-    node = Node.objects.create(code="m1", name="Medium 1", level=medium)
+    node = Node.objects.create(board=Board.GIRLS, code="m1", name="Medium 1", level=medium)
     assigned = timezone.now()
     judged = [("top", 100), ("bottom", 60)]
     for slot, (code, _) in enumerate(judged, start=1):
         Occupancy.objects.create(
             node=node,
-            team=Team.objects.create(code=code, name=code),
+            team=Team.objects.create(board=Board.GIRLS, code=code, name=code),
             slot=slot,
             question_assigned_at=assigned,
         )

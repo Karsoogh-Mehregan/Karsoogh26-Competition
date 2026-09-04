@@ -12,6 +12,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from core.boards import Board
 from game.models import Edge, GameSettings, GameStatus, LevelConfig, Node, Occupancy
 from game.services.mentor import Conflict
 from game.services.movement import claim_node, expandable_node_ids, is_reachable
@@ -50,9 +51,9 @@ def running_game():
 def road():
     """L3_0 -> C34_0 -> L4_0: the map's real shape, one-way through the gate."""
     levels = {row.pk: row for row in LevelConfig.objects.all()}
-    near = Node.objects.create(code="L3_0", name="Near", level=levels["medium"])
-    gate = Node.objects.create(code="C34_0", name="Gate", level=levels["toll"])
-    far = Node.objects.create(code="L4_0", name="Far", level=levels["medium"])
+    near = Node.objects.create(board=Board.GIRLS, code="L3_0", name="Near", level=levels["medium"])
+    gate = Node.objects.create(board=Board.GIRLS, code="C34_0", name="Gate", level=levels["toll"])
+    far = Node.objects.create(board=Board.GIRLS, code="L4_0", name="Far", level=levels["medium"])
     Edge.objects.create(a=near, b=gate, directed=True)
     Edge.objects.create(a=gate, b=far, directed=True)
     MinesweeperSettings.objects.create(node=gate, difficulty_id=MinesweeperDifficulty.EASY)
@@ -61,12 +62,12 @@ def road():
 
 @pytest.fixture
 def team():
-    return Team.objects.create(code="alpha", name="Alpha", balance=400)
+    return Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=400)
 
 
 @pytest.fixture
 def other_team():
-    return Team.objects.create(code="beta", name="Beta", balance=400)
+    return Team.objects.create(board=Board.GIRLS, code="beta", name="Beta", balance=400)
 
 
 def seat(team, node, slot=1):
@@ -93,7 +94,10 @@ class TestEnteringAGate:
         seat(
             team,
             Node.objects.create(
-                code="elsewhere", name="Elsewhere", level=LevelConfig.objects.get(level="easy")
+                board=Board.GIRLS,
+                code="elsewhere",
+                name="Elsewhere",
+                level=LevelConfig.objects.get(level="easy"),
             ),
         )
         with pytest.raises(NodeUnreachable):

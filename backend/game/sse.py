@@ -12,6 +12,7 @@ from redis.asyncio import Redis
 
 from accounts.permissions import MENTOR_PERM
 from game.services import events
+from teams.models import Team
 
 logger = logging.getLogger("karsoogh")
 
@@ -27,6 +28,9 @@ class Frame(NamedTuple):
     # Notifications ride the one shared stream, so addressing happens here on
     # the way out rather than in a per-user stream key.
     recipients: frozenset = frozenset()
+    # Empty means "both contests". Otherwise only teams on this board see it —
+    # organisers, who have no board, always do.
+    board: str = ""
 
 
 def _text(value) -> str:
@@ -63,6 +67,7 @@ def build_frame(entry_id, fields: dict) -> Frame:
         payload=_encode(event_type, data, stream_id),
         mentor_only=event_type in events.MENTOR_ONLY,
         recipients=_recipients(_text(fields.get(b"u") or fields.get("u"))),
+        board=_text(fields.get(b"b") or fields.get("b")),
     )
 
 
@@ -196,8 +201,18 @@ class Hub:
 hub = Hub()
 
 
-def _visible_to(frame: Frame, *, is_mentor: bool, user_id: int | None) -> bool:
+def _visible_to(
+    frame: Frame,
+    *,
+    is_mentor: bool,
+    user_id: int | None,
+    board: str | None = None,
+) -> bool:
     if frame.mentor_only and not is_mentor:
+        return False
+    # A board frame reaches only that contest. A viewer with no board is an
+    # organiser and sees both.
+    if frame.board and board is not None and frame.board != board:
         return False
     # An addressed frame reaches only its recipients — a notification hint must
     # not tell the whole hall that somebody got a message.
@@ -210,6 +225,7 @@ async def _stream(
     is_mentor: bool,
     replayed: list[Frame],
     user_id: int | None = None,
+    board: str | None = None,
 ):
     retry_ms = settings.SSE_RETRY_MS + random.randint(0, settings.SSE_RETRY_JITTER_MS)
     try:
@@ -218,7 +234,7 @@ async def _stream(
 
         high_water = None
         for frame in replayed:
-            if not _visible_to(frame, is_mentor=is_mentor, user_id=user_id):
+            if not _visible_to(frame, is_mentor=is_mentor, user_id=user_id, board=board):
                 continue
             high_water = frame.id or high_water
             yield frame.payload
@@ -229,7 +245,7 @@ async def _stream(
             except TimeoutError:
                 yield b": keepalive\n\n"
                 continue
-            if not _visible_to(frame, is_mentor=is_mentor, user_id=user_id):
+            if not _visible_to(frame, is_mentor=is_mentor, user_id=user_id, board=board):
                 continue
             if frame.id and high_water and _sort_key(frame.id) <= _sort_key(high_water):
                 continue
@@ -252,6 +268,12 @@ async def board_stream(request):
         )
 
     is_mentor = await user.ahas_perm(MENTOR_PERM)
+    # None for an organiser, which is what makes board frames reach them.
+    viewer_board = (
+        await Team.objects.filter(pk=user.team_id).values_list("board", flat=True).afirst()
+        if user.team_id
+        else None
+    )
 
     await hub.ensure_started()
     queue = hub.subscribe()
@@ -265,7 +287,13 @@ async def board_stream(request):
         raise
 
     return StreamingHttpResponse(
-        _stream(queue, is_mentor=is_mentor, replayed=replayed, user_id=user.pk),
+        _stream(
+            queue,
+            is_mentor=is_mentor,
+            replayed=replayed,
+            user_id=user.pk,
+            board=viewer_board,
+        ),
         content_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",

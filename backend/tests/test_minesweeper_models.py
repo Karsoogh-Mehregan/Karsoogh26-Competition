@@ -5,6 +5,7 @@ from django.db import IntegrityError, transaction
 from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 
+from core.boards import Board
 from game.models import LevelConfig, Node
 from minesweeper.models import (
     DifficultyConfig,
@@ -21,17 +22,18 @@ pytestmark = pytest.mark.django_db
 
 @pytest.fixture
 def team():
-    return Team.objects.create(code="alpha", name="Alpha")
+    return Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha")
 
 
 @pytest.fixture
 def other_team():
-    return Team.objects.create(code="beta", name="Beta")
+    return Team.objects.create(board=Board.GIRLS, code="beta", name="Beta")
 
 
 @pytest.fixture
 def node():
     return Node.objects.create(
+        board=Board.GIRLS,
         code="ms1",
         name="MS 1",
         level=LevelConfig.objects.get(level="easy"),

@@ -95,6 +95,7 @@ def assign_question(occupancy: Occupancy) -> Question:
         publish_on_commit(
             QUESTION_ASSIGNED,
             {"occupancy": occupancy.pk, "team": occupancy.team.code},
+            board=occupancy.team.board,
         )
 
     return question
@@ -125,6 +126,8 @@ def release_expired_attempts(*, node: Node | None = None) -> int:
         release_reason=ReleaseReason.EXPIRED,
     )
     if released:
+        # Deliberately unaddressed: one sweep can expire attempts on both
+        # boards, so there is no single board to stamp it with.
         publish_on_commit(BOARD_RELEASED, {"reason": ReleaseReason.EXPIRED})
     return released
 

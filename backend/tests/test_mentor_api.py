@@ -15,6 +15,7 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from core.boards import Board
 from game.models import (
     AnswerType,
     Edge,
@@ -47,7 +48,7 @@ def running_game():
 @pytest.fixture
 def hard_node():
     return Node.objects.create(
-        code="h1", name="Hard 1", level=LevelConfig.objects.get(level="hard")
+        board=Board.GIRLS, code="h1", name="Hard 1", level=LevelConfig.objects.get(level="hard")
     )
 
 
@@ -70,7 +71,10 @@ def hard_questions(hard_node):
 
 @pytest.fixture
 def teams():
-    return {code: Team.objects.create(code=code, name=code.title()) for code in TEAM_CODES}
+    return {
+        code: Team.objects.create(board=Board.GIRLS, code=code, name=code.title())
+        for code in TEAM_CODES
+    }
 
 
 @pytest.fixture
@@ -139,7 +143,7 @@ class TestLookup:
     ):
         """grade/release address an existing holding; assign-question creates one instead."""
         other = Node.objects.create(
-            code="h2", name="Hard 2", level=LevelConfig.objects.get(level="hard")
+            board=Board.GIRLS, code="h2", name="Hard 2", level=LevelConfig.objects.get(level="hard")
         )
         Occupancy.objects.create(node=other, team=teams["alpha"], slot=1)
         response = client_mentor.post(action_url("grade", "alpha"), {"grade": 50}, format="json")
@@ -187,7 +191,7 @@ class TestAssignQuestion:
         self, client_alpha, running_game, hard_node, hard_questions, teams
     ):
         spawn = LevelConfig.objects.get(level="spawn")
-        start = Node.objects.create(code="s1", name="Start", level=spawn)
+        start = Node.objects.create(board=Board.GIRLS, code="s1", name="Start", level=spawn)
         Occupancy.objects.create(node=start, team=teams["alpha"], slot=1, is_spawn=True)
         a, b = (start, hard_node) if start.pk < hard_node.pk else (hard_node, start)
         Edge.objects.create(a=a, b=b, directed=False)
@@ -283,7 +287,10 @@ class TestGrade:
     ):
         """medium holds 2, but occ_slot_range allows 3 — only the service stops the third."""
         node = Node.objects.create(
-            code="m1", name="Medium 1", level=LevelConfig.objects.get(level="medium")
+            board=Board.GIRLS,
+            code="m1",
+            name="Medium 1",
+            level=LevelConfig.objects.get(level="medium"),
         )
         assigned = timezone.now()
         for slot, team in enumerate(teams.values(), start=1):
@@ -318,7 +325,7 @@ class TestRelease:
         assert balances()["alpha"] == 0
         # The slot is now reusable: the partial unique index only sees active rows.
         Occupancy.objects.create(
-            node=hard_node, team=Team.objects.create(code="d", name="D"), slot=1
+            node=hard_node, team=Team.objects.create(board=Board.GIRLS, code="d", name="D"), slot=1
         )
 
     @pytest.mark.parametrize("reason", ["duel_lost", "bought_out"])

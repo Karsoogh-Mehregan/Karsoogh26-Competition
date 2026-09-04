@@ -8,6 +8,7 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from core.boards import Board
 from game.models import (
     AnswerType,
     Edge,
@@ -59,7 +60,7 @@ def nodes():
         "far": "easy",
     }
     return {
-        code: Node.objects.create(code=code, name=code, level=levels[level])
+        code: Node.objects.create(board=Board.GIRLS, code=code, name=code, level=levels[level])
         for code, level in codes.items()
     }
 
@@ -98,7 +99,11 @@ def questions(nodes):
 @pytest.fixture
 def team():
     return Team.objects.create(
-        code="alpha", name="Alpha", balance=500, color=color_for_start(START_CODE)
+        board=Board.GIRLS,
+        code="alpha",
+        name="Alpha",
+        balance=500,
+        color=color_for_start(START_CODE),
     )
 
 
@@ -144,14 +149,17 @@ class TestFirstMove:
         self, client_team, running_game, graph, questions, team
     ):
         node = Node.objects.create(
-            code="L1_4", name="L1_4", level=LevelConfig.objects.get(level="spawn")
+            board=Board.GIRLS,
+            code="L1_4",
+            name="L1_4",
+            level=LevelConfig.objects.get(level="spawn"),
         )
         undirected(node, Node.objects.get(code="e1"))
 
         assert client_team.post(claim_url("alpha", "L1_4")).status_code == 409
 
     def test_colorless_team_cannot_move(self, django_user_model, running_game, graph, questions):
-        bravo = Team.objects.create(code="bravo", name="Bravo", balance=500)
+        bravo = Team.objects.create(board=Board.GIRLS, code="bravo", name="Bravo", balance=500)
         client = client_for(django_user_model, bravo)
 
         assert client.post(claim_url("bravo", START_CODE)).status_code == 409
@@ -244,7 +252,7 @@ class TestSlotsAndCost:
         assert team.balance == 1
 
     def test_the_next_free_slot_is_taken(self, client_team, running_game, graph, questions, team):
-        other = Team.objects.create(code="bravo", name="Bravo", balance=500)
+        other = Team.objects.create(board=Board.GIRLS, code="bravo", name="Bravo", balance=500)
         hold(other, graph["m1"], slot=1)
         hold(team, graph["e1"], grade=80)
 
@@ -256,7 +264,9 @@ class TestSlotsAndCost:
     def test_a_full_node_is_refused(self, client_team, running_game, graph, questions, team):
         capacity = LevelConfig.objects.get(level="easy").capacity
         for slot in range(1, capacity + 1):
-            filler = Team.objects.create(code=f"t{slot}", name=f"T{slot}", balance=0)
+            filler = Team.objects.create(
+                board=Board.GIRLS, code=f"t{slot}", name=f"T{slot}", balance=0
+            )
             hold(filler, graph["e3"], slot=slot)
         hold(team, graph["e1"], grade=80)
 
@@ -288,7 +298,7 @@ class TestGuards:
         assert client_team.post(claim_url("alpha", "nowhere")).status_code == 404
 
     def test_another_teams_code_is_403(self, client_team, running_game, graph, questions, team):
-        Team.objects.create(code="nobody", name="Nobody", balance=500)
+        Team.objects.create(board=Board.GIRLS, code="nobody", name="Nobody", balance=500)
         assert client_team.post(claim_url("nobody", START_CODE)).status_code == 403
 
     def test_requires_a_running_game(self, client_team, graph, questions, team):

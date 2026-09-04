@@ -8,6 +8,7 @@ from datetime import timedelta
 import pytest
 from django.utils import timezone
 
+from core.boards import Board
 from game.models import (
     AcquisitionSource,
     AnswerType,
@@ -57,10 +58,10 @@ def _assigned(**kwargs) -> dict:
 
 class TestItemFloorsStayPut:
     def test_grading_does_not_move_or_pay_an_item_floor(self, running_game, hard):
-        node = Node.objects.create(code="h1", name="Hard 1", level=hard)
-        item_team = Team.objects.create(code="item", name="Item", balance=0)
-        alpha = Team.objects.create(code="alpha", name="Alpha", balance=0)
-        bravo = Team.objects.create(code="bravo", name="Bravo", balance=0)
+        node = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
+        item_team = Team.objects.create(board=Board.GIRLS, code="item", name="Item", balance=0)
+        alpha = Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=0)
+        bravo = Team.objects.create(board=Board.GIRLS, code="bravo", name="Bravo", balance=0)
 
         item = Occupancy.objects.create(
             node=node,
@@ -103,12 +104,15 @@ class TestItemReach:
     @pytest.fixture
     def graph(self, easy):
         spawn = LevelConfig.objects.get(level="spawn")
-        start = Node.objects.create(code=START_CODE, name="Start", level=spawn)
-        e1 = Node.objects.create(code="e1", name="Easy 1", level=easy)
+        start = Node.objects.create(board=Board.GIRLS, code=START_CODE, name="Start", level=spawn)
+        e1 = Node.objects.create(board=Board.GIRLS, code="e1", name="Easy 1", level=easy)
         m1 = Node.objects.create(
-            code="m1", name="Medium 1", level=LevelConfig.objects.get(level="medium")
+            board=Board.GIRLS,
+            code="m1",
+            name="Medium 1",
+            level=LevelConfig.objects.get(level="medium"),
         )
-        far = Node.objects.create(code="far", name="Far", level=easy)
+        far = Node.objects.create(board=Board.GIRLS, code="far", name="Far", level=easy)
         for a, b in ((start, e1), (e1, m1)):
             lower, upper = sorted((a, b), key=lambda node: node.pk)
             Edge.objects.create(a=lower, b=upper, directed=False)
@@ -131,7 +135,11 @@ class TestItemReach:
 
     def test_item_ownership_expands_reach(self, running_game, graph, questions):
         team = Team.objects.create(
-            code="alpha", name="Alpha", balance=500, color=color_for_start(START_CODE)
+            board=Board.GIRLS,
+            code="alpha",
+            name="Alpha",
+            balance=500,
+            color=color_for_start(START_CODE),
         )
         Occupancy.objects.create(
             node=graph["e1"],
@@ -152,7 +160,11 @@ class TestItemReach:
 
     def test_ungraded_attempt_does_not_expand_reach(self, running_game, graph):
         team = Team.objects.create(
-            code="alpha", name="Alpha", balance=500, color=color_for_start(START_CODE)
+            board=Board.GIRLS,
+            code="alpha",
+            name="Alpha",
+            balance=500,
+            color=color_for_start(START_CODE),
         )
         Occupancy.objects.create(node=graph["e1"], team=team, slot=1)
 
@@ -162,7 +174,11 @@ class TestItemReach:
 
     def test_claim_node_rejects_an_item_holding(self, running_game, graph, questions):
         team = Team.objects.create(
-            code="alpha", name="Alpha", balance=500, color=color_for_start(START_CODE)
+            board=Board.GIRLS,
+            code="alpha",
+            name="Alpha",
+            balance=500,
+            color=color_for_start(START_CODE),
         )
         holding = Occupancy.objects.create(
             node=graph["e1"],

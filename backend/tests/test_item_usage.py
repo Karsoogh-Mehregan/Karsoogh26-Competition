@@ -2,6 +2,7 @@
 
 import pytest
 
+from core.boards import Board
 from game.models import (
     AcquisitionSource,
     Edge,
@@ -50,7 +51,7 @@ def easy():
 
 @pytest.fixture
 def team():
-    return Team.objects.create(code="alpha", name="Alpha", balance=400)
+    return Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=400)
 
 
 def give(team, item_type, quantity=1) -> TeamItem:
@@ -100,7 +101,7 @@ def test_consume_item_rejects_a_missing_stack(team):
 
 class TestFakeDocument:
     def test_grants_one_item_floor_on_an_empty_node(self, running_game, hard, team):
-        node = Node.objects.create(code="h1", name="Hard 1", level=hard)
+        node = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
         give(team, ItemType.FAKE_DOCUMENT)
 
         holding = use_fake_document(team, node)
@@ -114,8 +115,8 @@ class TestFakeDocument:
         assert not TeamItem.objects.filter(team=team, item_type=ItemType.FAKE_DOCUMENT).exists()
 
     def test_takes_the_next_free_floor_when_the_node_is_partly_full(self, running_game, hard, team):
-        node = Node.objects.create(code="h1", name="Hard 1", level=hard)
-        other = Team.objects.create(code="bravo", name="Bravo")
+        node = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
+        other = Team.objects.create(board=Board.GIRLS, code="bravo", name="Bravo")
         occupy(node, other, slot=1, floor=1, source=AcquisitionSource.ATTEMPT)
         give(team, ItemType.FAKE_DOCUMENT)
 
@@ -126,10 +127,10 @@ class TestFakeDocument:
         assert Occupancy.objects.active().filter(node=node).count() == 2
 
     def test_evicts_an_owner_when_the_node_is_full(self, running_game, hard, team):
-        node = Node.objects.create(code="h1", name="Hard 1", level=hard)
+        node = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
         occupants = []
         for slot, code in enumerate(("bravo", "charlie", "delta"), start=1):
-            other = Team.objects.create(code=code, name=code.title())
+            other = Team.objects.create(board=Board.GIRLS, code=code, name=code.title())
             occupants.append(
                 occupy(node, other, slot=slot, floor=slot, source=AcquisitionSource.ATTEMPT)
             )
@@ -148,10 +149,16 @@ class TestFakeDocument:
 
     def test_rejects_spawn_and_toll(self, running_game, team):
         spawn = Node.objects.create(
-            code="s1", name="Spawn", level=LevelConfig.objects.get(level=Level.SPAWN)
+            board=Board.GIRLS,
+            code="s1",
+            name="Spawn",
+            level=LevelConfig.objects.get(level=Level.SPAWN),
         )
         toll = Node.objects.create(
-            code="t1", name="Toll", level=LevelConfig.objects.get(level=Level.TOLL)
+            board=Board.GIRLS,
+            code="t1",
+            name="Toll",
+            level=LevelConfig.objects.get(level=Level.TOLL),
         )
         give(team, ItemType.FAKE_DOCUMENT, quantity=2)
 
@@ -162,9 +169,9 @@ class TestFakeDocument:
         assert TeamItem.objects.get(team=team).quantity == 2
 
     def test_item_floor_expands_reach(self, running_game, easy, team):
-        e1 = Node.objects.create(code="e1", name="Easy 1", level=easy)
-        neighbour = Node.objects.create(code="e2", name="Easy 2", level=easy)
-        far = Node.objects.create(code="e3", name="Easy 3", level=easy)
+        e1 = Node.objects.create(board=Board.GIRLS, code="e1", name="Easy 1", level=easy)
+        neighbour = Node.objects.create(board=Board.GIRLS, code="e2", name="Easy 2", level=easy)
+        far = Node.objects.create(board=Board.GIRLS, code="e3", name="Easy 3", level=easy)
         lower, upper = sorted((e1, neighbour), key=lambda node: node.pk)
         Edge.objects.create(a=lower, b=upper, directed=False)
         give(team, ItemType.FAKE_DOCUMENT)
@@ -181,7 +188,9 @@ class TestGel:
     @pytest.mark.parametrize("level_id", ["easy", "medium", "hard"])
     def test_owns_every_floor_reward_on_an_empty_node(self, running_game, team, level_id):
         level = LevelConfig.objects.get(level=level_id)
-        node = Node.objects.create(code=f"n-{level_id}", name=level_id, level=level)
+        node = Node.objects.create(
+            board=Board.GIRLS, code=f"n-{level_id}", name=level_id, level=level
+        )
         give(team, ItemType.GEL, quantity=2)
 
         holdings = use_gel(team, node)
@@ -192,7 +201,7 @@ class TestGel:
 
     def test_does_not_invent_a_floor_missing_from_rewards(self, running_game, hard, team):
         FloorReward.objects.filter(level_id=hard.level, floor=3).delete()
-        node = Node.objects.create(code="h1", name="Hard 1", level=hard)
+        node = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
         give(team, ItemType.GEL)
 
         holdings = use_gel(team, node)
@@ -204,7 +213,7 @@ class TestGel:
 
     def test_picks_up_an_extra_floor_reward(self, running_game, easy, team):
         FloorReward.objects.create(level_id=easy.level, floor=2, points=150)
-        node = Node.objects.create(code="e1", name="Easy 1", level=easy)
+        node = Node.objects.create(board=Board.GIRLS, code="e1", name="Easy 1", level=easy)
         give(team, ItemType.GEL)
 
         holdings = use_gel(team, node)
@@ -213,8 +222,8 @@ class TestGel:
         assert_gel_owns_every_reward(node, team, holdings)
 
     def test_clears_a_partly_occupied_node(self, running_game, hard, team):
-        node = Node.objects.create(code="h1", name="Hard 1", level=hard)
-        other = Team.objects.create(code="bravo", name="Bravo")
+        node = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
+        other = Team.objects.create(board=Board.GIRLS, code="bravo", name="Bravo")
         occupy(node, other, slot=1, floor=1, source=AcquisitionSource.ITEM)
         previous = occupy(node, team, slot=2, floor=2)
         give(team, ItemType.GEL)
@@ -228,11 +237,11 @@ class TestGel:
         assert previous.pk not in {holding.pk for holding in holdings}
 
     def test_clears_a_full_node(self, running_game, hard, team):
-        node = Node.objects.create(code="h1", name="Hard 1", level=hard)
+        node = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
         previous = [
             occupy(
                 node,
-                Team.objects.create(code=code, name=code.title()),
+                Team.objects.create(board=Board.GIRLS, code=code, name=code.title()),
                 slot=slot,
                 floor=slot,
                 source=AcquisitionSource.ATTEMPT,
@@ -251,7 +260,7 @@ class TestGel:
 
     def test_second_gel_replaces_previous_ownership(self, running_game, team):
         level = LevelConfig.objects.get(level="medium")
-        node = Node.objects.create(code="m1", name="Medium 1", level=level)
+        node = Node.objects.create(board=Board.GIRLS, code="m1", name="Medium 1", level=level)
         give(team, ItemType.GEL, quantity=2)
 
         first = use_gel(team, node)
@@ -266,11 +275,11 @@ class TestGel:
 
     def test_other_team_cannot_claim_a_gelled_node(self, running_game, easy, team):
         level = LevelConfig.objects.get(level="medium")
-        house = Node.objects.create(code="m1", name="Medium 1", level=level)
-        neighbour = Node.objects.create(code="e1", name="Easy 1", level=easy)
+        house = Node.objects.create(board=Board.GIRLS, code="m1", name="Medium 1", level=level)
+        neighbour = Node.objects.create(board=Board.GIRLS, code="e1", name="Easy 1", level=easy)
         lower, upper = sorted((house, neighbour), key=lambda node: node.pk)
         Edge.objects.create(a=lower, b=upper, directed=False)
-        other = Team.objects.create(code="bravo", name="Bravo", balance=400)
+        other = Team.objects.create(board=Board.GIRLS, code="bravo", name="Bravo", balance=400)
         occupy(neighbour, other, slot=1, floor=1, source=AcquisitionSource.ITEM)
         give(team, ItemType.GEL)
 
@@ -285,8 +294,8 @@ class TestGel:
 
 class TestGilari:
     def test_consumes_without_touching_the_board(self, running_game, hard, team, monkeypatch):
-        node = Node.objects.create(code="h1", name="Hard 1", level=hard)
-        other = Team.objects.create(code="bravo", name="Bravo")
+        node = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
+        other = Team.objects.create(board=Board.GIRLS, code="bravo", name="Bravo")
         existing = occupy(node, other, slot=1, floor=1)
         give(team, ItemType.GILARI_100)
         published = []
@@ -306,7 +315,7 @@ class TestGilari:
 
 
 def test_fake_document_and_gel_publish_board_hints(running_game, easy, team, monkeypatch):
-    node = Node.objects.create(code="e1", name="Easy 1", level=easy)
+    node = Node.objects.create(board=Board.GIRLS, code="e1", name="Easy 1", level=easy)
     give(team, ItemType.FAKE_DOCUMENT)
     give(team, ItemType.GEL)
     published = []

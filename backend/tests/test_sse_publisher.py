@@ -7,6 +7,7 @@ import redis
 from django.contrib.auth.models import Group
 from django.utils import timezone
 
+from core.boards import Board
 from game.models import (
     AnswerType,
     Edge,
@@ -43,7 +44,7 @@ def nodes():
     levels = {row.pk: row for row in LevelConfig.objects.all()}
     codes = {START_CODE: "spawn", "e1": "easy"}
     made = {
-        code: Node.objects.create(code=code, name=code, level=levels[level])
+        code: Node.objects.create(board=Board.GIRLS, code=code, name=code, level=levels[level])
         for code, level in codes.items()
     }
     Edge.objects.create(a=made[START_CODE], b=made["e1"])
@@ -68,7 +69,11 @@ def questions(nodes):
 @pytest.fixture
 def team(nodes):
     return Team.objects.create(
-        code="alpha", name="Alpha", balance=500, color=color_for_start(START_CODE)
+        board=Board.GIRLS,
+        code="alpha",
+        name="Alpha",
+        balance=500,
+        color=color_for_start(START_CODE),
     )
 
 
@@ -85,7 +90,7 @@ def recorded(monkeypatch):
     monkeypatch.setattr(
         events,
         "publish",
-        lambda kind, payload=None, *, recipients=None: calls.append((kind, payload)),
+        lambda kind, payload=None, *, recipients=None, board=None: calls.append((kind, payload)),
     )
     return calls
 

@@ -83,7 +83,7 @@ def ensure_toll_boards(*, difficulty: str | None = None) -> dict[str, int]:
         raise InvalidDifficulty("No Minesweeper difficulties are configured.")
 
     created = updated = unchanged = 0
-    for node in Node.objects.filter(level_id=Level.TOLL).order_by("code"):
+    for node in Node.objects.filter(level_id=Level.TOLL).order_by("board", "code"):
         wanted = difficulty or default_toll_difficulty(node.code)
         # An organiser may have deleted the difficulty a default names; any
         # configured board beats leaving the gate shut.
@@ -357,7 +357,7 @@ def _finish(attempt: MinesweeperAttempt, progress: dict, *, won: bool) -> None:
         # frame bumps the snapshot version as well as nudging the SPA. No
         # payload — the hint must not tell the whole hall who crossed where; the
         # client refetches and sees only what it is allowed to.
-        publish_on_commit(MINESWEEPER_CLEARED)
+        publish_on_commit(MINESWEEPER_CLEARED, board=attempt.team.board)
 
 
 @transaction.atomic
@@ -444,7 +444,7 @@ def start_play(node: Node, team: Team) -> MinesweeperAttempt:
         # ride on the row `/api/teams/` caches — so the snapshot needs a new
         # version or the map keeps quoting a toll that has already been paid.
         # Payload-free for the same reason the cleared frame is.
-        publish_on_commit(BOARD_TOLL_STARTED)
+        publish_on_commit(BOARD_TOLL_STARTED, board=team.board)
     return attempt
 
 
