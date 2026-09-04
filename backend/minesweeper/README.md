@@ -81,9 +81,11 @@ This app does **not** check node occupancy, capture the node, or change `Team.ba
 - the team must hold something that expands, adjacent to the gate (`NodeUnreachable` → 409);
 - a gate the team has already cleared is closed to it (`AlreadyCleared` → 409), because paying to replay a permanent crossing only burns money.
 
+None of those apply to a board the team already has **open**: it is paid for, so returning to it resumes rather than buys, and it stays resumable even if the holding the team reached the gate from has since been released. `crossings.open_board_node_codes` is that list, and it rides to the SPA on the team row as `open_boards`, so the map offers «ادامه بازی» instead of quoting the toll a second time.
+
 `services._charge_entry` takes the fee whenever a **new** board is generated. Resuming an unfinished board is free; a lost board may be replayed at full price; an unaffordable one raises `EntryFeeUnaffordable` (409) before any board exists. The debit is a `BalanceEvent` with `reason=toll` and the node code as its detail.
 
-A win publishes `board.toll.cleared`, which bumps the board snapshot version so `/api/teams/` stops serving a cached row that predates the crossing. The SPA reads crossings off the team row (`crossings`), never off `holdings`.
+Starting a board publishes `board.toll.started` and a win publishes `board.toll.cleared`; both bump the board snapshot version so `/api/teams/` stops serving a cached row that predates the payment or the crossing. The SPA reads both off the team row (`crossings`, `open_boards`), never off `holdings`.
 
 ### Provisioning
 

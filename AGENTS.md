@@ -99,8 +99,12 @@ is not owned, so the crossing record *is* the won `MinesweeperAttempt`, read thr
 team's holdings — a local import, because `minesweeper` depends on `game` — which is what
 opens the one-way roads out of the gate. Any number of teams may clear the same gate; a team
 that has cleared one may not pay to replay it (409), and a lost board may be replayed at full
-price. Crossings ride to the SPA on the team row (`crossings` on `/api/teams/`, resolved for
-the whole board in one query by `teams.board_cache`), not on `holdings`. Gates are
+price. A board left **unfinished** is already paid for, so returning to it resumes free of
+charge — no reachability check either, since the team may since have lost the holding it came
+from. Crossings and open boards both ride to the SPA on the team row (`crossings` and
+`open_boards` on `/api/teams/`, resolved for the whole board in one query by
+`teams.board_cache`), not on `holdings`; the map reads the second to offer «ادامه بازی»
+without a price. Gates are
 provisioned, never hand-configured: `ensure_toll_boards()` gives every toll node a board,
 called from `import_graph` and from `manage.py sync_toll_boards [--difficulty <key>]`, and
 backfilled onto existing databases by `minesweeper/migrations/0008`. Board size, mine count

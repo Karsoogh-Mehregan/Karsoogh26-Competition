@@ -84,6 +84,7 @@ const ACTION_LABEL: Record<string, string> = {
   solve: 'رفتن به سؤال',
   entry_gate: 'پاسخ به سؤال‌های ورودی',
   minesweeper: 'ورود به مین‌روب',
+  resume_minesweeper: 'ادامه بازی',
 }
 
 const reserveEntryCost = computed(() =>
@@ -96,6 +97,11 @@ const isGate = computed(() => spec.value?.level === 'toll')
 const hasCrossed = computed(
   () => !!spec.value && (actingTeam.value?.crossings ?? []).includes(spec.value.nodeCode),
 )
+// A board left unfinished here. The toll is charged per board, so this one is
+// already bought and the button resumes it instead of quoting the price again.
+const hasOpenBoard = computed(
+  () => !!spec.value && (actingTeam.value?.open_boards ?? []).includes(spec.value.nodeCode),
+)
 
 function withCost(label: string): string {
   const cost = reserveEntryCost.value
@@ -105,9 +111,12 @@ function withCost(label: string): string {
 const actionLabel = computed(() => {
   const intent = inspection.value?.intent
   if (!intent) return ''
-  if (intent === 'reserve' || intent === 'minesweeper') {
-    return withCost(ACTION_LABEL[intent])
+  if (intent === 'minesweeper') {
+    return hasOpenBoard.value
+      ? ACTION_LABEL.resume_minesweeper
+      : withCost(ACTION_LABEL.minesweeper)
   }
+  if (intent === 'reserve') return withCost(ACTION_LABEL.reserve)
   return ACTION_LABEL[intent] ?? ''
 })
 
@@ -340,6 +349,9 @@ async function saveDesign() {
       <footer class="house-panel-foot">
         <p class="text-muted-foreground text-xs">
           <template v-if="isGate && hasCrossed">از این عوارضی عبور کرده‌اید</template>
+          <template v-else-if="isGate && hasOpenBoard">
+            بازی این عوارضی در جریان است؛ هزینه‌اش پرداخت شده.
+          </template>
           <template v-else-if="isGate">
             عوارضی؛ با بردن مین‌روب از آن عبور می‌کنید. ظرفیت ندارد.
           </template>

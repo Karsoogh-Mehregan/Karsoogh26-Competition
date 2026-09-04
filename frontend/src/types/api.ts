@@ -21,6 +21,12 @@ export interface Team {
    * they are the only way onto the rings past a `C34` / `C45` connector.
    */
   crossings: string[]
+  /**
+   * Toll gates where this team has an unfinished board. The toll is charged per
+   * board, so one of these is already paid for: the map offers to resume it
+   * rather than quoting the price again.
+   */
+  open_boards: string[]
 }
 
 export interface Me {

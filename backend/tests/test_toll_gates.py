@@ -15,7 +15,7 @@ from rest_framework.test import APIClient
 from game.models import Edge, GameSettings, GameStatus, LevelConfig, Node, Occupancy
 from game.services.mentor import Conflict
 from game.services.movement import claim_node, expandable_node_ids, is_reachable
-from minesweeper.crossings import cleared_node_codes, has_cleared
+from minesweeper.crossings import cleared_node_codes, has_cleared, open_board_node_codes
 from minesweeper.exceptions import AlreadyCleared, EntryFeeUnaffordable, NodeUnreachable
 from minesweeper.models import (
     DifficultyConfig,
@@ -27,6 +27,7 @@ from minesweeper.models import (
 from minesweeper.services import (
     default_toll_difficulty,
     ensure_toll_boards,
+    issue_entry,
     reveal_cell,
     start_play,
 )
@@ -125,6 +126,31 @@ class TestEnteringAGate:
         assert second.pk == first.pk
         team.refresh_from_db()
         assert team.balance == 400 - TOLL_COST
+
+    def test_an_open_board_resumes_even_without_the_holding_it_came_from(
+        self, team, road, running_game
+    ):
+        """Bought and unfinished: leaving the road it was reached from is not
+        a reason to lose a board the team already paid for."""
+        holding = seat(team, road["near"])
+        first = start_play(road["gate"], team)
+        Occupancy.objects.filter(pk=holding.pk).update(released_at=timezone.now())
+
+        assert expandable_node_ids(team) == set()
+        assert open_board_node_codes(team) == ["C34_0"]
+        # Both halves of the flow: the map click and the board itself.
+        issue_entry({}, user_id=1, node=road["gate"], team=team)
+        assert start_play(road["gate"], team).pk == first.pk
+        team.refresh_from_db()
+        assert team.balance == 400 - TOLL_COST
+
+    def test_a_finished_board_is_no_longer_open(self, team, road, running_game):
+        seat(team, road["near"])
+        attempt = start_play(road["gate"], team)
+        assert open_board_node_codes(team) == ["C34_0"]
+
+        win(attempt)
+        assert open_board_node_codes(team) == []
 
     def test_a_new_board_after_a_loss_charges_again(self, team, road, running_game):
         seat(team, road["near"])
@@ -239,6 +265,19 @@ class TestBoardApi:
 
         rows = {row["code"]: row for row in client.get("/api/teams/").json()}
         assert rows["alpha"]["crossings"] == ["C34_0"]
+        assert rows["alpha"]["open_boards"] == []
+
+    def test_teams_list_reports_an_open_board(self, team, road, running_game):
+        seat(team, road["near"])
+        start_play(road["gate"], team)
+
+        user = get_user_model().objects.create_user("alpha-user", password="pw", team=team)
+        client = APIClient()
+        client.force_authenticate(user)
+
+        rows = {row["code"]: row for row in client.get("/api/teams/").json()}
+        assert rows["alpha"]["open_boards"] == ["C34_0"]
+        assert rows["alpha"]["crossings"] == []
 
 
 class TestProvisioning:

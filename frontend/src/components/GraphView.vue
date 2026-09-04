@@ -100,6 +100,10 @@ function holdingUnlocksNeighbors(holding) {
 // beyond it. The server counts them the same way in `expandable_node_ids`.
 const crossedGateIds = computed(() => new Set(actingTeam.value?.crossings ?? []))
 
+// Gates with a board left unfinished. Paid for already, so the map goes on
+// offering them however the team's holdings have moved since.
+const openBoardGateIds = computed(() => new Set(actingTeam.value?.open_boards ?? []))
+
 const expandableHeldIds = computed(() => {
   if (!actingTeam.value) return new Set()
   return new Set([
@@ -124,6 +128,9 @@ function isEntryGate(n) {
 
 function isNodeSelectable(id) {
   if (!canAct.value) return false
+  // An unfinished board is bought and waiting: it outranks every reach rule,
+  // including the one that sends a team with no holdings to its start node.
+  if (openBoardGateIds.value.has(id)) return true
   const held = actingHeldIds.value
   if (held.size === 0) {
     return canClaimStart.value && isFreeStart(id)
@@ -314,6 +321,7 @@ function isNodeInspected(n) {
 function nodeLabel(n) {
   const state = nodeState(n)
   if (isGatewayNode(n) && crossedGateIds.value.has(n.id)) return `${n.id} — عوارضی؛ عبور کرده‌اید`
+  if (isGatewayNode(n) && openBoardGateIds.value.has(n.id)) return `${n.id} — عوارضی؛ ادامه بازی`
   if (state === 'answerable') return `${n.id} — پاسخ به سؤال`
   if (isGatewayNode(n) && state === 'selectable') return `${n.id} — عوارضی؛ بازی مین‌روب`
   if (state === 'selectable') return `${n.id} — قابل انتخاب`

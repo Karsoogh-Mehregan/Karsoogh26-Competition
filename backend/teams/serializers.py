@@ -31,10 +31,19 @@ class TeamSerializer(serializers.ModelSerializer):
     holdings = HoldingSerializer(many=True, read_only=True)
     balance = serializers.SerializerMethodField()
     crossings = serializers.SerializerMethodField()
+    open_boards = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
-        fields = ("code", "name", "balance", "color", "holdings", "crossings")
+        fields = (
+            "code",
+            "name",
+            "balance",
+            "color",
+            "holdings",
+            "crossings",
+            "open_boards",
+        )
 
     def get_crossings(self, team: Team) -> list[str]:
         """Toll gates this team has beaten, which is what opens the road past them.
@@ -49,6 +58,20 @@ class TeamSerializer(serializers.ModelSerializer):
             from minesweeper.crossings import cleared_node_codes
 
             return cleared_node_codes(team)
+        return by_team.get(team.pk, [])
+
+    def get_open_boards(self, team: Team) -> list[str]:
+        """Gates where this team has an unfinished board waiting.
+
+        The toll is charged per board, so a gate the team is already playing is
+        paid for: the map offers to resume it rather than quoting the price
+        again. Resolved for the whole board the same way `crossings` is.
+        """
+        by_team = self.context.get("open_boards")
+        if by_team is None:
+            from minesweeper.crossings import open_board_node_codes
+
+            return open_board_node_codes(team)
         return by_team.get(team.pk, [])
 
     def get_balance(self, team: Team) -> int | None:

@@ -11,7 +11,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from game.models import Level, Node
-from game.services.events import BOARD_TOLL_CLEARED, publish_on_commit
+from game.services.events import BOARD_TOLL_CLEARED, BOARD_TOLL_STARTED, publish_on_commit
 from game.services.movement import expandable_node_ids, is_reachable
 from minesweeper.crossings import has_cleared, is_toll
 from minesweeper.exceptions import (
@@ -135,9 +135,15 @@ def require_playable(node: Node, team: Team) -> None:
 
     A board an organiser hangs on any other node stays what it has always been:
     side content, free, playable by anyone with a session.
+
+    None of it applies to a board the team already has open: that one is paid
+    for, so going back to it is resuming, not entering, and it stays resumable
+    even if the holding the team reached the gate from has since been released.
     """
     _require_enabled_settings(node)
     if not is_toll(node):
+        return
+    if _active_attempt_for(team, node) is not None:
         return
     if has_cleared(team, node):
         raise AlreadyCleared("This team has already cleared this gate.")
@@ -421,7 +427,16 @@ def start_play(node: Node, team: Team) -> MinesweeperAttempt:
     require_playable(locked_node, team)
     game = create_game_from_node(locked_node)
     _charge_entry(team, locked_node)
-    return create_attempt(game, team)
+    attempt = create_attempt(game, team)
+    if is_toll(locked_node):
+        # The team's balance and its open boards both just changed, and both
+        # ride on the row `/api/teams/` caches — so the snapshot needs a new
+        # version or the map keeps quoting a toll that has already been paid.
+        publish_on_commit(
+            BOARD_TOLL_STARTED,
+            {"team": team.code, "node": locked_node.code},
+        )
+    return attempt
 
 
 @transaction.atomic

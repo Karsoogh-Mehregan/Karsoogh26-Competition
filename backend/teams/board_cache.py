@@ -11,7 +11,7 @@ SNAPSHOT_TTL_SECONDS = 60
 def _render(request) -> list[dict]:
     # Resolved once for the whole board rather than per team: a crossing lives
     # in `minesweeper`, and asking it team by team is one query per row.
-    from minesweeper.crossings import cleared_codes_by_team
+    from minesweeper.crossings import cleared_codes_by_team, open_boards_by_team
 
     serializer = TeamSerializer(
         Team.objects.with_holdings(),
@@ -20,6 +20,7 @@ def _render(request) -> list[dict]:
             "request": request,
             "unmasked": True,
             "crossings": cleared_codes_by_team(),
+            "open_boards": open_boards_by_team(),
         },
     )
     return [dict(row) for row in serializer.data]
