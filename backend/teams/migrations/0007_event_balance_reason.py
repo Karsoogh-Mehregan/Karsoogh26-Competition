@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('teams', '0004_seed_balance_events'),
+        ('teams', '0006_alter_teamitem_item_type'),
     ]
 
     operations = [
