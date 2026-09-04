@@ -91,6 +91,11 @@ const showTeamPicker = computed(() => isMentor.value || isPlayer.value)
         برای دیدن تیم‌ها وارد شوید
       </p>
       <nav v-if="me" class="mt-3 flex flex-wrap gap-2">
+        <Button as-child size="sm" :variant="route.path === '/' ? 'default' : 'outline'">
+          <RouterLink to="/" :aria-current="route.path === '/' ? 'page' : undefined">
+            نقشه
+          </RouterLink>
+        </Button>
         <Button
           v-if="isMentor"
           as-child
