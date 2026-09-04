@@ -6,7 +6,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -133,22 +132,21 @@ async function submitGrade() {
         </DialogDescription>
       </DialogHeader>
 
-      <div v-if="loading" class="flex min-h-0 flex-1 flex-col gap-3">
-        <Skeleton class="h-8 w-2/3" />
+      <div v-if="loading" class="flex min-h-0 flex-1 flex-col gap-3 md:flex-row">
         <Skeleton class="min-h-0 w-full flex-1" />
+        <Skeleton class="h-40 w-full shrink-0 md:h-auto md:w-72" />
       </div>
 
       <p v-else-if="loadError" class="text-destructive text-sm">
         بارگذاری این پاسخ ناموفق بود.
       </p>
 
-      <div v-else-if="detail" class="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-        <p class="text-muted-foreground shrink-0 text-sm">
-          سؤال
-          <span class="text-foreground font-semibold" dir="ltr">{{ detail.question.code }}</span>
-        </p>
-
-        <section class="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+      <div
+        v-else-if="detail"
+        class="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden md:flex-row"
+      >
+        <!-- In RTL, first column sits on the right: answer preview -->
+        <section class="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-hidden">
           <div class="flex shrink-0 items-center justify-between gap-3">
             <h3 class="text-sm font-semibold">پاسخ تیم</h3>
             <a
@@ -179,17 +177,23 @@ async function submitGrade() {
               v-else-if="fileKind === 'pdf' && fileUrl"
               :src="fileUrl"
               title="پیش‌نمایش PDF"
-              class="h-full min-h-[50vh] w-full rounded-md border bg-muted"
+              class="h-full min-h-[40vh] w-full rounded-md border bg-muted md:min-h-0"
             />
           </div>
         </section>
-      </div>
 
-      <form class="shrink-0" @submit.prevent="submitGrade" @click.stop>
-        <DialogFooter class="flex-col items-stretch gap-3 sm:flex-col">
-          <div class="flex flex-col gap-1.5">
-            <Label for="grade-input">نمره (۰ تا ۱۰۰)</Label>
-            <div class="flex gap-2">
+        <!-- Left sidebar: question meta + grade -->
+        <aside
+          class="border-border flex w-full shrink-0 flex-col gap-4 border-t pt-4 md:w-72 md:border-t-0 md:border-s md:ps-4 md:pt-0"
+        >
+          <p class="text-muted-foreground text-sm">
+            سؤال
+            <span class="text-foreground font-semibold" dir="ltr">{{ detail.question.code }}</span>
+          </p>
+
+          <form class="flex flex-col gap-3" @submit.prevent="submitGrade" @click.stop>
+            <div class="flex flex-col gap-1.5">
+              <Label for="grade-input">نمره (۰ تا ۱۰۰)</Label>
               <Input
                 id="grade-input"
                 v-model="gradeInput"
@@ -197,22 +201,21 @@ async function submitGrade() {
                 min="0"
                 max="100"
                 step="1"
-                class="flex-1"
                 :disabled="alreadyGraded || saving"
               />
-              <Button type="submit" :disabled="alreadyGraded || saving">
-                {{ alreadyGraded ? 'ثبت‌شده' : saving ? 'در حال ثبت…' : 'ثبت نمره' }}
-              </Button>
             </div>
+            <Button type="submit" class="w-full" :disabled="alreadyGraded || saving">
+              {{ alreadyGraded ? 'ثبت‌شده' : saving ? 'در حال ثبت…' : 'ثبت نمره' }}
+            </Button>
             <p v-if="actionError" class="text-destructive text-sm" role="alert">
               {{ actionError }}
             </p>
             <p v-if="alreadyGraded" class="text-muted-foreground text-xs">
-              نمره {{ detail?.grade }} قبلاً ثبت شده و قابل تغییر نیست.
+              نمره {{ detail.grade }} قبلاً ثبت شده و قابل تغییر نیست.
             </p>
-          </div>
-        </DialogFooter>
-      </form>
+          </form>
+        </aside>
+      </div>
     </DialogContent>
   </Dialog>
 </template>
