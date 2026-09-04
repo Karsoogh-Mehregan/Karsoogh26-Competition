@@ -18,6 +18,7 @@ import {
   Maximize2Icon,
   Minimize2Icon,
   PaintbrushIcon,
+  SwordsIcon,
   XIcon,
 } from '@lucide/vue'
 import { useLocalStorage } from '@vueuse/core'
@@ -30,6 +31,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useActing } from '@/composables/useActing'
+import { useDuels } from '@/composables/useDuels'
 import { useEntry } from '@/composables/useEntry'
 import { useHouseSpec } from '@/composables/useHouseSpec'
 import { useMapDesign } from '@/composables/useMapDesign'
@@ -54,7 +56,7 @@ const HouseCanvas = defineAsyncComponent({
 
 const inspector = useInspectorStore()
 const { spec, inspection, holdings } = useHouseSpec()
-const { me, actingTeam, claimStart, assignQuestion } = useActing()
+const { me, actingTeam, isPlayer, claimStart, assignQuestion } = useActing()
 const { open: openEntrySheet } = useEntry()
 const { pinOf } = useMapDesign()
 const { data: levelConfigs } = useLevelsQuery(() => !!me.value)
@@ -76,6 +78,69 @@ const STATUS_LABEL: Record<FloorState['status'], string> = {
   empty: 'خالی',
   reserved: 'در حال حل',
   owned: 'در تصرف',
+}
+
+// ---- duels -------------------------------------------------------------------
+//
+// A duel is aimed at a *building*, and only at one whose every floor is already
+// taken — «اگر یکی از ساختمان‌های اطرافتان پر باشد». Which floor you take it
+// from is then your choice, so the picker lives here on the house rather than
+// as a row in a table somewhere else.
+//
+// Eligibility is not re-derived on the client. `GET /api/duels/targets/` has
+// already applied every rule the server would enforce on the challenge —
+// fullness, adjacency, opponents who are mid-duel or resting, the price of each
+// floor — so filtering that list to this node is both the question and the
+// answer, and the panel can never offer a duel the API would refuse.
+
+const {
+  targets: duelTargets,
+  canRequest: canDuel,
+  blockedReason: duelBlockedReason,
+  submitting: duelSubmitting,
+  challenge,
+} = useDuels()
+
+const duelTargetsHere = computed(() =>
+  duelTargets.value
+    .filter((target) => target.node_code === spec.value?.nodeCode)
+    .sort((a, b) => b.floor - a.floor),
+)
+
+const selectedDuelFloor = ref<number | null>(null)
+
+// Reset the pick when the panel moves to another house, and default to the
+// penthouse — the floor most worth taking.
+watch(
+  duelTargetsHere,
+  (rows) => {
+    if (!rows.some((row) => row.floor === selectedDuelFloor.value)) {
+      selectedDuelFloor.value = rows[0]?.floor ?? null
+    }
+  },
+  { immediate: true },
+)
+
+const selectedDuelTarget = computed(
+  () => duelTargetsHere.value.find((row) => row.floor === selectedDuelFloor.value) ?? null,
+)
+
+/**
+ * Show the section only where the server actually offers a duel on this node.
+ *
+ * Keying it off "is this house full" was wrong in three ways at once: it opened
+ * on a house the team is *standing in* (you cannot duel your own building), on
+ * one nowhere near the team (a duel is only ever against a neighbour), and on
+ * one whose owners are all mid-duel or resting. `/api/duels/targets/` has
+ * already applied every one of those rules, so a node with no rows is a node
+ * with no duel — and the panel stops advertising one.
+ */
+const showDuelSection = computed(() => isPlayer.value && duelTargetsHere.value.length > 0)
+
+async function requestDuel() {
+  const target = selectedDuelTarget.value
+  if (!target || duelSubmitting.value) return
+  await challenge(target)
 }
 
 const ACTION_LABEL: Record<string, string> = {
@@ -292,6 +357,44 @@ async function saveDesign() {
           </li>
         </ul>
 
+        <!-- Only rendered where the server offers a duel: a full house next
+             door that this team is not already sitting in. -->
+        <section v-if="showDuelSection" class="house-duel" aria-label="دوئل برای این ساختمان">
+          <h3 class="house-duel-title">
+            <SwordsIcon class="size-3.5" />
+            دوئل
+          </h3>
+
+          <div class="flex flex-col gap-1.5">
+            <Label for="duel-floor">طبقه‌ای که می‌خواهید تصاحب کنید</Label>
+            <select id="duel-floor" v-model="selectedDuelFloor" class="house-select">
+              <option v-for="row in duelTargetsHere" :key="row.occupancy_id" :value="row.floor">
+                طبقهٔ {{ row.floor }} — {{ row.team.name }} ({{ formatBalance(row.cost) }})
+              </option>
+            </select>
+          </div>
+
+          <p v-if="duelBlockedReason" class="text-muted-foreground text-xs">
+            {{ duelBlockedReason }}
+          </p>
+
+          <Button
+            class="w-full"
+            :disabled="!selectedDuelTarget || !canDuel || duelSubmitting"
+            :aria-busy="duelSubmitting"
+            @click="requestDuel"
+          >
+            <Loader2Icon v-if="duelSubmitting" class="size-4 animate-spin" />
+            <SwordsIcon v-else class="size-4" />
+            درخواست دوئل
+            <span v-if="selectedDuelTarget">({{ formatBalance(selectedDuelTarget.cost) }})</span>
+          </Button>
+
+          <p class="text-muted-foreground text-xs">
+            ورودی دوئل هنگام درخواست کسر می‌شود؛ در صورت برد بازمی‌گردد و طبقه به شما می‌رسد.
+          </p>
+        </section>
+
         <section v-if="isDesigner" class="house-design" aria-label="طراحی این خانه">
           <h3 class="house-design-title">
             <PaintbrushIcon class="size-3.5" />
@@ -478,6 +581,25 @@ async function saveDesign() {
 }
 .house-floor-swatch.is-empty {
   background: repeating-linear-gradient(45deg, var(--muted) 0 3px, transparent 3px 6px);
+}
+
+.house-duel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0.7rem 0.9rem 0;
+  padding: 0.75rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: color-mix(in oklab, var(--muted) 35%, transparent);
+}
+.house-duel-title {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
 }
 
 .house-design {

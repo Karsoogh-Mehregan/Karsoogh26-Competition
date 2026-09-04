@@ -3,7 +3,7 @@ from rest_framework import serializers
 from notifications.permissions import SEND_PERM as SEND_ANNOUNCEMENT_PERM
 
 from .models import User
-from .permissions import DESIGNER_PERM, MENTOR_PERM, has_game_god_rights
+from .permissions import DESIGNER_PERM, DUEL_MENTOR_PERM, MENTOR_PERM, has_game_god_rights
 
 
 class CsrfSerializer(serializers.Serializer):
@@ -20,6 +20,7 @@ class MeSerializer(serializers.ModelSerializer):
     is_game_god = serializers.SerializerMethodField()
     is_announcer = serializers.SerializerMethodField()
     is_designer = serializers.SerializerMethodField()
+    is_duel_mentor = serializers.SerializerMethodField()
     team = serializers.SerializerMethodField()
 
     class Meta:
@@ -32,6 +33,7 @@ class MeSerializer(serializers.ModelSerializer):
             "is_game_god",
             "is_announcer",
             "is_designer",
+            "is_duel_mentor",
             "team",
         )
 
@@ -49,6 +51,11 @@ class MeSerializer(serializers.ModelSerializer):
 
     def get_is_designer(self, user: User) -> bool:
         return user.has_perm(DESIGNER_PERM)
+
+    def get_is_duel_mentor(self, user: User) -> bool:
+        """Judging duels is its own grant, like announcing — the SPA shows the
+        winner picker on exactly what the API would accept."""
+        return user.has_perm(DUEL_MENTOR_PERM)
 
     def get_team(self, user: User) -> dict | None:
         if user.team_id is None:

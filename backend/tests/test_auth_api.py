@@ -60,6 +60,7 @@ def test_login_returns_me_shape(client, user):
         "is_game_god": False,
         "is_announcer": False,
         "is_designer": False,
+        "is_duel_mentor": False,
         "team": None,
     }
 
@@ -97,6 +98,7 @@ def test_me_returns_mentor_identity(auth_client, user):
         "is_game_god": False,
         "is_announcer": False,
         "is_designer": False,
+        "is_duel_mentor": False,
         "team": None,
     }
 

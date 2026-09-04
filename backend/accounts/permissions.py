@@ -5,6 +5,8 @@ from game.models import GameSettings
 MENTOR_PERM = "game.act_as_mentor"
 GAME_GOD_PERM = "game.control_game"
 DESIGNER_PERM = "game.design_map"
+# A plain string, not an import from `duels`: that app imports `accounts`.
+DUEL_MENTOR_PERM = "duels.judge_duel"
 
 
 class IsMentor(BasePermission):

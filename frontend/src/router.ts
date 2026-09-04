@@ -3,6 +3,7 @@ import { queryClient } from '@/lib/queryClient'
 import { meQueryOptions } from '@/queries/auth'
 import { eventCatalogQueryOptions } from '@/queries/events'
 import DesignPage from '@/pages/DesignPage.vue'
+import DuelsPage from '@/pages/DuelsPage.vue'
 import GradingPage from '@/pages/GradingPage.vue'
 import InboxPage from '@/pages/InboxPage.vue'
 import LeaderboardPage from '@/pages/LeaderboardPage.vue'
@@ -72,6 +73,9 @@ export const router = createRouter({
       component: MinesweeperPage,
       meta: { requiresPlayer: true },
     },
+    // Open to teams and to duel judges alike; the page shows each their half,
+    // and the API refuses whatever the viewer is not entitled to anyway.
+    { path: '/duels', name: 'duels', component: DuelsPage, meta: { requiresAuth: true } },
     { path: '/leaderboard', name: 'leaderboard', component: LeaderboardPage, meta: { requiresAuth: true } },
     { path: '/inbox', name: 'inbox', component: InboxPage, meta: { requiresAuth: true } },
     { path: '/inbox/:id', name: 'message', component: MessagePage, meta: { requiresAuth: true } },

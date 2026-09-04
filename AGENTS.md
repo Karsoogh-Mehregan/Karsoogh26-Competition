@@ -139,8 +139,63 @@ started) plus duel/questions, not auth or the team picker.
 `STATIC_URL` must start with `/` (`"/static/"`) or Django's StaticFilesHandler will
 not serve admin CSS.
 
-**Four roles, not two.** Besides mentors (`act_as_mentor`), game gods
-(`control_game`) and announcers (`send_announcement`, see **Notifications** below), a
+**A duel is bookkeeping around a meeting.** The `duels` app never plays the game: two teams
+meet in a Skyroom room run by a judge, and the judge comes back and says who won. `Room` is
+that meeting — a link plus the person who runs it, created by organisers in admin and never by
+players. `Duel` is one challenge: attacker, attacked, the contested `target` **Occupancy**, and
+snapshots of its `floor` and `stake`. It is `open` until the judge names a winner, then `closed`
+forever. There is deliberately **no draw path and no server-side clock**: the rules sheet's
+five-minute no-show is applied by the judge in the room, and a team that never turned up is
+simply not named the winner. `GameSettings.duel_deadline_minutes` therefore stays unused.
+
+A challenge is refused unless the house is **full** — every slot taken *and* every one of them
+owning a floor, so an ungraded reservation on a node makes it un-duellable — the attacker is
+**adjacent** by the same `movement.is_reachable` the board uses (one-way roads included), holds
+no seat in that house itself, and neither side is already duelling or resting. "One live duel,
+counting both roles" spans two columns, which no partial unique can express, so `request_duel`
+enforces it under a row lock and the two partial uniques on `attacker`/`attacked` are the net
+underneath. `Team.last_duel_at` is the rest window, stamped on *both* teams at resolution.
+
+Judges are picked from a **circular queue over rooms**: least-recently-assigned first,
+never-assigned ahead of all, skipping any judge who is mid-duel, inactive, or has since lost
+`judge_duel` (resolved through `notifications.services.users_with_perm`, by explicit grant —
+not `has_perm`, which is True for every superuser). With no free judge the duel is **refused,
+not queued**, and because charging and booking share one transaction a refusal never leaves a
+charge behind.
+
+Winning transfers the seat in place: the defender's row is soft-released as `duel_lost` and a
+new one takes the same slot and floor with `source=duel`. That is a third `AcquisitionSource`,
+so `game.models.GRANTED_SOURCES` now names the seats a team was *given* rather than earned —
+item takeovers and duel wins alike — and the three behavioural checks that used to test
+`== ITEM` (reach in `movement.expandable_node_ids`, the question refusal in `claim_node`, the
+reserved floors in `grade_attempt`) go through that set instead. Points already paid to the
+loser are **not** clawed back; the rules do not ask for it.
+
+**A restart clears state, never content — and every app owes it a line.**
+`game/services/reset.py` is the game god's wipe, and it is the one function a new
+app is most likely to break without noticing. The rule it applies: anything a *team*
+did is state and goes; anything an *organiser* configured is content and stays. So
+nodes, edges, questions, the economy tables, `MinesweeperSettings` and duel `Room`s
+survive; occupancies, submissions, entry attempts, `Duel`s and Minesweeper attempts
+do not. A row can be both — a `Room` is content, but its `last_assigned_at` is the
+judge rotation's cursor, so the room survives with that field cleared.
+
+Two traps live here, and the duels app hit the first one. `Duel.target` is a
+**PROTECT** FK onto `Occupancy`, so `Occupancy.objects.all().delete()` raises
+`ProtectedError` the moment a single duel has been played — the restart does not
+half-run, it aborts, and the game god sees a 500 on a button that used to work.
+Duels are therefore deleted *before* occupancies. The second trap is quieter:
+anything hanging off `Team` rather than `Occupancy` is invisible to that cascade.
+Entry sheets were already handled for exactly this reason, and Minesweeper
+attempts had the same hole — a crossing is what opens the one-way road past a
+`C34`/`C45`, so leaving them behind handed every team the outer rings for free on
+the next run. Adding a model? Decide which side of the line it is on, and if it is
+state, delete it here and report it in the summary — `GameRestartResultSerializer`
+names each count separately so a wipe is auditable rather than a bare "done".
+
+**Five roles, not two.** Besides mentors (`act_as_mentor`), game gods
+(`control_game`), announcers (`send_announcement`, see **Notifications** below) and duel
+judges (`duels.judge_duel`, see **Duels** below), a
 **Designer** holds `game.design_map` (`IsDesigner`, `Designers` group,
 `is_designer` on `/api/auth/me/`) and may change only how the board *looks*: neighbourhood
 names/themes/colours and road style via `PATCH /api/map/design/`, and a per-node building-type
@@ -166,7 +221,11 @@ writer's bell. **Nothing in `game/` writes to the inbox.** An earlier cut had th
 itself (grade posted, attempt expired, clock started); it was removed deliberately in
 `notifications/migrations/0006` — a notification per board event is noise, and noise is how a
 player learns to ignore the bell. What the board did is on the board. If an organiser wants the
-hall told the game has started, they send it.
+hall told the game has started, they send it. **`duels/notices.py` is the single exception**,
+and only because a duel is *not* on the board: it happens in a video call the player has to be
+told to join, at a link they have no other way of learning. Those notices are written with no
+sender, and `MessageViewBase.queryset` filters `sender__isnull=False` so several per duel never
+bury the announcements a human wrote.
 
 **The audience is a union of three selections, not one choice.** `Message.scopes` is a list
 of `AudienceScope` values (`all` / `teams` / `mentors` / `designers`), and `Message.teams`
@@ -276,9 +335,15 @@ rather than restating the rows. Never rely on being the first transactional test
 session — that green flips the moment a test file lands ahead of yours alphabetically.
 
 **Money is Decimal-from-string, rounded half-up** (`_round_half_up`, since Python defaults
-to banker's rounding). `FloorReward.networth`/`duel_cost`/`buyout_cost` are derived
-properties, not columns. `GradeMultiplier` is **no longer read by the grading path** — its
-step curve paid a 99 and a 50 the same 0.5. The payout is now proportional:
+to banker's rounding). `FloorReward.networth` and `buyout_cost` are derived properties, not
+columns; `duel_cost` is a property over a **nullable column** — the doc prices duels from a
+hand-written table no single factor reproduces (easy floor 1 is 4.00x its points, hard floor 3
+is 3.52x), so `duel_cost_override` carries the number when an organiser has set one and
+`level.duel_factor` only supplies the default for a floor nobody has priced. `game/0024` writes
+the doc's table into rows that have no override, so re-running never clobbers admin tuning;
+`center` arrived after it (`0026`) and is deliberately left unpriced, so it is the one tier
+still costing `duel_factor` x points. `GradeMultiplier` is **no longer read by the grading
+path** — its step curve paid a 99 and a 50 the same 0.5. The payout is now proportional:
 `Occupancy.grade_multiplier` is `grade / Question.max_grade` (`services.mentor.grade_ratio`),
 capped at 100 so a grade still fits `occ_grade_range`, falling back to a scale of 100 for a
 holding that carries no question row. The model and its seed stay put; nothing calls

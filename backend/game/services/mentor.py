@@ -6,7 +6,7 @@ from rest_framework import status
 from rest_framework.exceptions import APIException
 
 from game.models import (
-    AcquisitionSource,
+    GRANTED_SOURCES,
     FloorReward,
     GameSettings,
     Occupancy,
@@ -18,7 +18,9 @@ from teams.models import BalanceReason
 
 from .events import BOARD_GRADED, BOARD_RELEASED, publish_on_commit
 
-# TODO: duel / buyout flow should be implemented later.
+# What a mentor may release by hand. DUEL_LOST is deliberately absent: a duel
+# seat change is settled by `duels.services.resolve_duel`, which moves the
+# money in the same transaction. Buyout is still to come.
 MENTOR_RELEASE_REASONS = (ReleaseReason.ZERO_GRADE, ReleaseReason.EXPIRED)
 
 
@@ -51,10 +53,11 @@ def max_grade_for(holding: Occupancy) -> int:
 def _floors_for_ranked(
     level, ranked: list, reserved_floors: set[int], reward_floors: set[int]
 ) -> list[int]:
-    """Best-first floor numbers that do not collide with item-held floors.
+    """Best-first floor numbers that do not collide with granted floors.
 
-    With no item seats this is the existing  N, N-1, …, 1  packing. Otherwise
-    graded teams take the lowest free reward floors, still best-on-top.
+    With no granted seats — item takeovers, won duels — this is the existing
+    N, N-1, …, 1  packing. Otherwise graded teams take the lowest free reward
+    floors, still best-on-top.
     """
     if not reserved_floors:
         return [len(ranked) - index for index in range(len(ranked))]
@@ -114,7 +117,7 @@ def grade_attempt(holding: Occupancy, grade: int) -> Occupancy:
     ranked = [
         occupancy
         for occupancy in locked.values()
-        if occupancy.grade and occupancy.source != AcquisitionSource.ITEM
+        if occupancy.grade and occupancy.source not in GRANTED_SOURCES
     ]
     if not ranked:
         return _release_unless_perfect(holding, grade, max_grade)
@@ -128,7 +131,7 @@ def grade_attempt(holding: Occupancy, grade: int) -> Occupancy:
     reserved_floors = {
         occupancy.floor
         for occupancy in locked.values()
-        if occupancy.source == AcquisitionSource.ITEM and occupancy.floor is not None
+        if occupancy.source in GRANTED_SOURCES and occupancy.floor is not None
     }
     before = {
         occupancy.pk: floor_points(rewards, occupancy.floor, occupancy.grade_multiplier)
