@@ -5,6 +5,7 @@
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
+db.before-merge-*.sqlite3
 media/
 
 # collectstatic output — build artifact, never committed

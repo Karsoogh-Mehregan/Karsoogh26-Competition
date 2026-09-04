@@ -7,6 +7,7 @@ from game.models import (
     EntryAttempt,
     GameSettings,
     Level,
+    LevelConfig,
     MapDesign,
     Neighborhood,
     Node,
@@ -317,6 +318,7 @@ class HoldingSerializer(serializers.ModelSerializer):
             "entered_at",
             "released_at",
             "release_reason",
+            "source",
         )
         read_only_fields = fields
 
@@ -467,11 +469,21 @@ class NodeDesignSerializer(serializers.ModelSerializer):
     level = serializers.ChoiceField(choices=Level.choices, source="level_id")
     capacity = serializers.IntegerField(source="level.capacity", read_only=True)
     archetype = serializers.ChoiceField(choices=ARCHETYPES, allow_blank=True, required=False)
+    minesweeper = serializers.SerializerMethodField()
 
     class Meta:
         model = Node
-        fields = ("code", "level", "capacity", "archetype")
+        fields = ("code", "level", "capacity", "archetype", "minesweeper")
         read_only_fields = ("code",)
+
+    def get_minesweeper(self, node) -> bool:
+        """Whether this node has a playable minesweeper board.
+
+        Read through the reverse accessor rather than importing `minesweeper`:
+        that app depends on `game`, and the map may not know what a mine is.
+        """
+        settings = getattr(node, "minesweeper_settings", None)
+        return bool(settings and settings.enabled)
 
 
 class MapDesignSerializer(serializers.ModelSerializer):
@@ -493,3 +505,9 @@ class MapDesignPatchSerializer(serializers.ModelSerializer):
     class Meta:
         model = MapDesign
         fields = ("road_style", "tint_strength", "halo_strength", "neighborhoods")
+
+
+class LevelConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LevelConfig
+        fields = ("level", "entry_cost", "capacity")

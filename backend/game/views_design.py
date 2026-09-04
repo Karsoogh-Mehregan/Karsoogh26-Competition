@@ -27,7 +27,9 @@ _DESIGN_EXAMPLE = {
     "tint_strength": 8,
     "halo_strength": 45,
     "neighborhoods": [{"index": 0, "name": "محلهٔ آبی", "theme": "water", "color": "#3b82c4"}],
-    "nodes": [{"code": "L1_0", "level": "spawn", "capacity": 1, "archetype": ""}],
+    "nodes": [
+        {"code": "L1_0", "level": "spawn", "capacity": 1, "archetype": "", "minesweeper": False}
+    ],
 }
 
 
@@ -35,7 +37,7 @@ def _design_payload() -> dict:
     design = MapDesign.load()
     # Attach the two lists by hand: they are not relations on the singleton.
     design.neighborhoods = Neighborhood.objects.order_by("index")
-    design.nodes = Node.objects.select_related("level").order_by("code")
+    design.nodes = Node.objects.select_related("level", "minesweeper_settings").order_by("code")
     return MapDesignSerializer(design).data
 
 
@@ -44,7 +46,8 @@ def _design_payload() -> dict:
     summary="Read or change the map's look",
     description=(
         "GET is open to every logged-in user: sector colours and themes, road style, "
-        "and every node's level, capacity and pinned building type. PATCH is Designer-only "
+        "and every node's level, capacity, pinned building type and whether a minesweeper "
+        "board is playable on it. PATCH is Designer-only "
         "and takes any subset of the settings plus a `neighborhoods` list addressed by "
         "`index`. A write publishes a `map.design` event."
     ),
@@ -111,7 +114,13 @@ class MapDesignView(APIView):
         OpenApiExample("pin", value={"archetype": "observatory"}, request_only=True),
         OpenApiExample(
             "pinned",
-            value={"code": "L6_0", "level": "hard", "capacity": 3, "archetype": "observatory"},
+            value={
+                "code": "L6_0",
+                "level": "hard",
+                "capacity": 3,
+                "archetype": "observatory",
+                "minesweeper": False,
+            },
             response_only=True,
         ),
     ],
@@ -121,7 +130,11 @@ class NodeDesignView(APIView):
     serializer_class = NodeDesignSerializer
 
     def patch(self, request, node_code: str):
-        node = Node.objects.select_related("level").filter(code=node_code).first()
+        node = (
+            Node.objects.select_related("level", "minesweeper_settings")
+            .filter(code=node_code)
+            .first()
+        )
         if node is None:
             raise NotFound(f"خانهٔ «{node_code}» پیدا نشد.")
 

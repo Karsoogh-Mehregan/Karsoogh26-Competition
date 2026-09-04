@@ -5,6 +5,7 @@ import type {
   GameSettings,
   GameState,
   GradeResult,
+  LevelConfigRow,
   SubmissionDetail,
   SubmissionRow,
 } from '@/types/api'
@@ -45,4 +46,8 @@ export function updateGameSettings(changes: Partial<GameSettings>): Promise<Game
 
 export function restartGame(): Promise<GameRestartResult> {
   return post<GameRestartResult>('/game/restart/', { confirm: true })
+}
+
+export function listLevels(signal?: AbortSignal): Promise<LevelConfigRow[]> {
+  return get<LevelConfigRow[]>('/levels/', signal)
 }

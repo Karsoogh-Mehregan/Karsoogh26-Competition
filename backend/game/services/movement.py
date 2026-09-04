@@ -1,8 +1,9 @@
 from django.db import IntegrityError, transaction
-from django.db.models import F, Q
+from django.db.models import Q
 
-from game.models import Edge, GameSettings, Level, Node, Occupancy
-from teams.models import Team
+from game.models import AcquisitionSource, Edge, GameSettings, Level, Node, Occupancy
+from teams.ledger import InsufficientFunds, apply_balance_change
+from teams.models import BalanceReason, Team
 from teams.start_colors import color_for_start
 
 from .events import BOARD_NODE_CLAIMED, BOARD_SPAWN_CLAIMED, publish_on_commit
@@ -20,11 +21,14 @@ def is_reachable(node: Node, held_ids: set[int]) -> bool:
 
 
 def _expandable_node_ids(team: Team) -> set[int]:
-    """A reservation only opens its neighbours once it is graded; spawns start open."""
+    """A reservation only opens its neighbours once it is graded; spawns start open.
+
+    Item-granted seats expand reach the same way a grade does, without a grade.
+    """
     return set(
         Occupancy.objects.active()
         .filter(team=team)
-        .filter(Q(is_spawn=True) | Q(grade__isnull=False))
+        .filter(Q(is_spawn=True) | Q(grade__isnull=False) | Q(source=AcquisitionSource.ITEM))
         .values_list("node_id", flat=True)
     )
 
@@ -52,12 +56,15 @@ def _reserve(team: Team, node: Node) -> Occupancy:
         raise Conflict("ظرفیت این خانه پر شده است.")
 
     if level.entry_cost:
-        paid = Team.objects.filter(pk=team.pk, balance__gte=level.entry_cost).update(
-            balance=F("balance") - level.entry_cost
-        )
-        if not paid:
+        try:
+            apply_balance_change(
+                team,
+                -level.entry_cost,
+                reason=BalanceReason.ENTRY,
+                detail=node.code,
+            )
+        except InsufficientFunds:
             raise Conflict("موجودی تیم برای ورود به این خانه کافی نیست.")
-        team.refresh_from_db(fields=["balance"])
 
     try:
         holding = Occupancy.objects.create(
@@ -104,12 +111,15 @@ def claim_node(team: Team, node: Node) -> Occupancy:
 
     release_expired_attempts()
 
-    holding = (
+    holdings = list(
         Occupancy.objects.active()
         .select_related("node__level", "team")
         .filter(team=team, node=node)
-        .first()
+        .order_by("pk")
     )
+    if any(row.source == AcquisitionSource.ITEM for row in holdings):
+        raise Conflict("این خانه از طریق آیتم در اختیار تیم است و سؤال نمی‌گیرد.")
+    holding = holdings[0] if holdings else None
     if holding is None:
         holding = _reserve(team, node)
     elif holding.question_assigned_at is not None:

@@ -43,6 +43,12 @@ def team():
     return Team.objects.create(code="alpha", name="Alpha", balance=42)
 
 
+def test_occupancy_defaults_to_attempt_source(team, nodes):
+    occupancy = Occupancy.objects.create(node=nodes["e1"], team=team, slot=1)
+
+    assert occupancy.source == "attempt"
+
+
 def test_holdings_lists_node_and_floor(team, nodes):
     Occupancy.objects.create(node=nodes["e1"], team=team, slot=1, floor=1)
     Occupancy.objects.create(node=nodes["h1"], team=team, slot=2, floor=None)
@@ -97,5 +103,6 @@ def test_teams_list_holding_shape(auth_client, team, nodes):
             "floor": 3,
             "grade": None,
             "is_spawn": False,
+            "source": "attempt",
         }
     ]

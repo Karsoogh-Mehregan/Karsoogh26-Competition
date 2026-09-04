@@ -19,6 +19,8 @@ export type InspectIntent =
   | 'solve'
   /** A spawn the team cannot take until the entry sheet is cleared. */
   | 'entry_gate'
+  /** A gateway node: it is played as minesweeper instead of answered. */
+  | 'minesweeper'
   /** Look, but nothing to do. */
   | 'view'
 

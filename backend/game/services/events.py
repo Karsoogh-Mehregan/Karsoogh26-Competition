@@ -15,6 +15,7 @@ BOARD_RELEASED = "board.released"
 QUESTION_ASSIGNED = "question.assigned"
 SUBMISSION_CREATED = "mentor.submission.created"
 GAME_STATE = "game.state"
+NOTIFICATION_CREATED = "notification.created"
 MAP_DESIGN = "map.design"
 RESYNC = "resync"
 
@@ -47,16 +48,28 @@ def reset_client() -> None:
     _client = None
 
 
-def publish(event_type: str, payload: dict | None = None) -> str | None:
+def publish(
+    event_type: str,
+    payload: dict | None = None,
+    *,
+    recipients: list[int] | None = None,
+) -> str | None:
     """Append one hint frame to the board stream, returning its entry id.
 
     Never raises. A dead Redis costs realtime updates, not the move that
     triggered them.
+
+    `recipients` addresses the frame at particular users. It travels in its own
+    stream field, never in `payload`: the reader in `game.sse` uses it to decide
+    who the frame is delivered to, and a recipient list inside the payload would
+    tell every one of them who else was written to.
     """
     if not is_enabled():
         return None
 
     fields = {"t": event_type, "d": json.dumps(payload or {}, separators=(",", ":"))}
+    if recipients:
+        fields["u"] = ",".join(str(user_id) for user_id in sorted(set(recipients)))
     try:
         entry_id = _get_client().xadd(
             settings.SSE_STREAM_KEY,
@@ -76,13 +89,23 @@ def publish(event_type: str, payload: dict | None = None) -> str | None:
     return version
 
 
-def publish_on_commit(event_type: str, payload: dict | None = None, *, using=None) -> None:
+def publish_on_commit(
+    event_type: str,
+    payload: dict | None = None,
+    *,
+    using=None,
+    recipients: list[int] | None = None,
+) -> None:
     """Publish once the surrounding transaction commits.
 
     Deferring is not cosmetic: a rolled-back move must not announce itself, and
     a stalled Redis must never happen while a select_for_update lock is held.
     """
-    transaction.on_commit(lambda: publish(event_type, payload), using=using, robust=True)
+    transaction.on_commit(
+        lambda: publish(event_type, payload, recipients=recipients),
+        using=using,
+        robust=True,
+    )
 
 
 def current_version() -> str | None:

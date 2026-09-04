@@ -67,6 +67,8 @@ urlpatterns = [
         views.QuestionMediaView.as_view(),
         name="question-media",
     ),
+    # Level configuration: entry_cost and capacity per level.
+    path("levels/", views.LevelListView.as_view(), name="level-list"),
     # Plain async view, not DRF: APIView.dispatch is sync-only in DRF 3.18.
     path("realtime/stream/", sse.board_stream, name="board-stream"),
 ]

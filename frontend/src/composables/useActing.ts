@@ -4,6 +4,7 @@ import { ApiError } from '@/lib/http'
 import { useLoginMutation, useLogoutMutation, useMeQuery } from '@/queries/auth'
 import { useAssignQuestionMutation } from '@/queries/game'
 import { useClaimStartMutation, useTeamsQuery } from '@/queries/teams'
+import { router } from '@/router'
 import { useActingStore } from '@/stores/acting'
 import { useAttemptStore } from '@/stores/attempt'
 import type { AssignQuestionResult, Team } from '@/types/api'
@@ -38,6 +39,8 @@ export function useActing() {
   const isMentor = computed(() => me.value?.is_mentor ?? false)
   // Running the event is a narrower right than grading for it.
   const isGameGod = computed(() => me.value?.is_game_god ?? false)
+  // Backed by its own permission, so it is not the same set as isGameGod.
+  const isAnnouncer = computed(() => me.value?.is_announcer ?? false)
   const isPlayer = computed(() => me.value != null && me.value.team != null)
   const ownTeamCode = computed(() => me.value?.team?.code ?? null)
 
@@ -96,6 +99,7 @@ export function useActing() {
       store.setActingCode(null)
       useAttemptStore().select(null)
       useGraph().reset()
+      await router.replace({ name: 'map' })
     } catch (err) {
       actionError.value = messageOf(err)
     }
@@ -135,6 +139,7 @@ export function useActing() {
     actingTeam,
     isMentor,
     isGameGod,
+    isAnnouncer,
     isPlayer,
     loading,
     error,

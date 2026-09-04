@@ -13,6 +13,9 @@ export const BOARD_EVENTS = [
   'board.released',
   'question.assigned',
   'mentor.submission.created',
+  // Addressed server-side: this one only reaches the users it names.
+  'notification.created',
+  'game.state',
   'resync',
 ] as const
 

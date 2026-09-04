@@ -6,11 +6,9 @@ never overridden by the sqlite3 backend), so a green run here would be
 meaningless.
 """
 
-import importlib
 import threading
 
 import pytest
-from django.apps import apps as global_apps
 from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 
@@ -21,15 +19,6 @@ from teams.models import Team
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.postgres_only]
 
 THREADS = 8
-
-
-def reseed_economy():
-    """TransactionTestCase flushes the database, migration-seeded rows included.
-
-    Re-run the seed rather than restating its numbers here, so the economy stays
-    defined in exactly one place.
-    """
-    importlib.import_module("game.migrations.0002_seed_economy").seed(global_apps, None)
 
 
 def test_only_one_team_wins_the_last_slot():
@@ -73,7 +62,6 @@ def test_simultaneous_grades_build_one_consistent_tower():
     same pre-state and collide on occ_one_team_per_floor -- or, worse, overwrite each
     other and pay twice.
     """
-    reseed_economy()
     settings = GameSettings.load()
     settings.status = GameStatus.RUNNING
     settings.save(update_fields=["status"])
