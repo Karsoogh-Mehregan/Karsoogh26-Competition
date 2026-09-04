@@ -63,7 +63,7 @@ export const router = createRouter({
     },
     { path: '/events/prize-wheel', name: 'prize-wheel', component: SpecialGamesPage, meta: { requiresAuth: true, eventCode: 'prize_wheel' } },
     { path: '/events/pig', name: 'pig', component: SpecialGamesPage, meta: { requiresAuth: true, eventCode: 'pig' } },
-    { path: '/grading', name: 'grading', component: GradingPage, meta: { requiresMentor: true } },
+    { path: '/grading/:id?', name: 'grading', component: GradingPage, meta: { requiresMentor: true } },
     { path: '/solve', name: 'solve', component: SolvePage, meta: { requiresPlayer: true } },
     { path: '/backpack', name: 'backpack', component: BackpackPage, meta: { requiresPlayer: true } },
     {

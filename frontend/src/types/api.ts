@@ -107,6 +107,32 @@ export interface SubmissionRow {
   graded: boolean
 }
 
+export interface SubmissionQuestion {
+  code: string
+  title: string
+  body: string
+  answer_type: AnswerType
+  answer_key: string | null
+  attachment_url: string | null
+}
+
+export interface SubmissionDetail {
+  id: number
+  submitted_at: string
+  submitted_by: number
+  body: string
+  file_url: string | null
+  file_name: string | null
+  team_code: string
+  team_name: string
+  node_code: string
+  level: string
+  floor: number | null
+  grade: number | null
+  points: number
+  question: SubmissionQuestion
+}
+
 export interface GradeResult {
   occupancy_id: number
   grade: number | null

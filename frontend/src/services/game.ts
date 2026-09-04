@@ -6,6 +6,7 @@ import type {
   GameState,
   GradeResult,
   LevelConfigRow,
+  SubmissionDetail,
   SubmissionRow,
 } from '@/types/api'
 
@@ -21,6 +22,10 @@ export function assignQuestion(
 
 export function listSubmissions(signal?: AbortSignal): Promise<SubmissionRow[]> {
   return get<SubmissionRow[]>('/submissions/', signal)
+}
+
+export function getSubmission(id: number, signal?: AbortSignal): Promise<SubmissionDetail> {
+  return get<SubmissionDetail>(`/submissions/${id}/`, signal)
 }
 
 export function gradeSubmission(submissionId: number, grade: number): Promise<GradeResult> {
