@@ -347,7 +347,6 @@ class TestAttempts:
         assert attempt.game_id == game.pk
         assert attempt.team_id == team.pk
         assert attempt.status == MinesweeperStatus.IN_PROGRESS
-        assert attempt.score == 0
         assert attempt.finished_at is None
         assert len(attempt.board["cells"]) == game.height
         assert all(len(row) == game.width for row in attempt.board["cells"])
@@ -563,7 +562,6 @@ class TestRevealCell:
         assert cell["flagged"] == original_progress["cells"][row][col]["flagged"]
         assert "mine" not in cell
         assert updated.status == MinesweeperStatus.IN_PROGRESS
-        assert updated.score == 0
         assert updated.finished_at is None
 
         for r, board_row in enumerate(updated.board["cells"]):
@@ -590,7 +588,6 @@ class TestRevealCell:
         assert cell["revealed"] is True
         assert game.board["cells"][row][col]["mine"] is True
         assert updated.status == MinesweeperStatus.LOST
-        assert updated.score == 0
         assert updated.finished_at is not None
         game.refresh_from_db()
         assert game.board == original_layout
@@ -720,7 +717,6 @@ class TestFloodFill:
         assert _revealed(updated.board) == {(0, 4)}
         assert attempt.game.board["cells"][0][4]["mine"] is True
         assert updated.status == MinesweeperStatus.LOST
-        assert updated.score == 0
         assert updated.finished_at is not None
         for row, line in enumerate(updated.board["cells"]):
             for col, cell in enumerate(line):
@@ -784,7 +780,6 @@ class TestFloodFill:
         attempt = _split_attempt(team, node)
         updated = reveal_cell(attempt.pk, 0, 0)
         assert updated.status == MinesweeperStatus.IN_PROGRESS
-        assert updated.score == 0
         assert updated.finished_at is None
 
 
@@ -830,7 +825,6 @@ class TestToggleFlag:
         assert cell["flagged"] is True
         assert cell["revealed"] is False
         assert updated.status == MinesweeperStatus.IN_PROGRESS
-        assert updated.score == 0
         assert updated.finished_at is None
         for row, line in enumerate(updated.board["cells"]):
             for col, other in enumerate(line):
@@ -888,7 +882,6 @@ class TestToggleFlag:
         assert attempt.status == MinesweeperStatus.IN_PROGRESS
         updated = toggle_flag(attempt.pk, 0, 0)
         assert updated.status == MinesweeperStatus.IN_PROGRESS
-        assert updated.score == 0
         assert updated.finished_at is None
 
 
@@ -899,7 +892,6 @@ class TestLoss:
 
         updated = reveal_cell(attempt.pk, 0, 4)
         assert updated.status == MinesweeperStatus.LOST
-        assert updated.score == 0
         assert updated.finished_at is not None
         assert updated.board["cells"][0][4]["revealed"] is True
         assert _revealed(updated.board) == {(0, 4)}
@@ -911,7 +903,6 @@ class TestLoss:
 
         stored = MinesweeperAttempt.objects.get(pk=attempt.pk)
         assert stored.status == MinesweeperStatus.LOST
-        assert stored.score == 0
 
     def test_lost_attempt_rejects_reveal_and_flag(self, team, node):
         attempt = _split_attempt(team, node)
@@ -939,7 +930,6 @@ class TestWin:
         updated = reveal_cell(attempt.pk, 0, 3)
         assert updated.status == MinesweeperStatus.WON
         assert updated.finished_at == started + timedelta(seconds=35)
-        assert updated.score == 165
         assert updated.board["cells"][0][3]["revealed"] is True
         for row, col in SPLIT_MINES:
             assert updated.board["cells"][row][col]["revealed"] is False
@@ -1009,35 +999,19 @@ class TestWin:
         assert stored.status == MinesweeperStatus.WON
 
 
-class TestScoring:
-    @pytest.mark.parametrize(
-        ("difficulty", "elapsed", "expected"),
-        [
-            (MinesweeperDifficulty.EASY, 35, 165),
-            (MinesweeperDifficulty.EASY, 100, 100),
-            (MinesweeperDifficulty.MEDIUM, 60, 440),
-            (MinesweeperDifficulty.HARD, 10, 990),
-            (MinesweeperDifficulty.EASY, 10_000, 100),
-        ],
-    )
-    def test_win_score_uses_base_plus_time_bonus(
-        self, team, node, monkeypatch, difficulty, elapsed, expected
-    ):
+class TestFinishRecordsOutcome:
+    def test_a_win_sets_status_and_finished_at(self, team, node, monkeypatch):
         started = timezone.now()
-        attempt = _prepared_attempt(team, node, difficulty)
+        attempt = _prepared_attempt(team, node, MinesweeperDifficulty.EASY)
         MinesweeperAttempt.objects.filter(pk=attempt.pk).update(started_at=started)
         _reveal_all_safe_except(attempt, {(0, 0)})
-        monkeypatch.setattr(
-            "minesweeper.services._now", lambda: started + timedelta(seconds=elapsed)
-        )
+        monkeypatch.setattr("minesweeper.services._now", lambda: started + timedelta(seconds=35))
 
         updated = reveal_cell(attempt.pk, 0, 0)
         assert updated.status == MinesweeperStatus.WON
-        assert updated.score == expected
-        base = _layout(difficulty).base_score
-        assert updated.score == base + max(0, base - elapsed)
+        assert updated.finished_at == started + timedelta(seconds=35)
 
-    def test_loss_score_is_zero(self, team, node, monkeypatch):
+    def test_a_loss_sets_status_and_finished_at(self, team, node, monkeypatch):
         started = timezone.now()
         attempt = _prepared_attempt(team, node, MinesweeperDifficulty.HARD)
         MinesweeperAttempt.objects.filter(pk=attempt.pk).update(started_at=started)
@@ -1046,7 +1020,7 @@ class TestScoring:
 
         updated = reveal_cell(attempt.pk, *mine)
         assert updated.status == MinesweeperStatus.LOST
-        assert updated.score == 0
+        assert updated.finished_at is not None
 
 
 @pytest.mark.postgres_only

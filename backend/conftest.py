@@ -11,7 +11,7 @@ _SEED_MIGRATIONS = (
     "game.migrations.0007_seed_toll_level",
     "game.migrations.0024_seed_duel_costs",
     "game.migrations.0026_seed_center_level",
-    "minesweeper.migrations.0007_difficultyconfig",
+    "minesweeper.migrations.0009_remove_score_fields",
 )
 
 

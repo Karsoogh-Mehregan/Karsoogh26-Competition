@@ -1,7 +1,6 @@
 """Minesweeper domain services. Mutations belong here, not in views."""
 
 import copy
-import math
 import random
 import secrets
 from collections import deque
@@ -331,27 +330,12 @@ def _all_safe_cells_revealed(layout: dict, progress: dict) -> bool:
     )
 
 
-def _win_score(base: int, started_at: datetime, finished_at: datetime) -> int:
-    """Pay the base twice, less a second for every second taken.
-
-    ``base`` is the board's own snapshot, not today's config: retuning a
-    difficulty mid-round must not rescore a board already in play.
-    """
-    elapsed_seconds = max(0, math.floor((finished_at - started_at).total_seconds()))
-    return base + max(0, base - elapsed_seconds)
-
-
 def _finish(attempt: MinesweeperAttempt, progress: dict, *, won: bool) -> None:
     now = _now()
     attempt.board = progress
     attempt.finished_at = now
-    if won:
-        attempt.status = MinesweeperStatus.WON
-        attempt.score = _win_score(attempt.game.base_score, attempt.started_at, now)
-    else:
-        attempt.status = MinesweeperStatus.LOST
-        attempt.score = 0
-    attempt.save(update_fields=["board", "status", "score", "finished_at"])
+    attempt.status = MinesweeperStatus.WON if won else MinesweeperStatus.LOST
+    attempt.save(update_fields=["board", "status", "finished_at"])
     if won:
         # A cleared gate opens a road, so the board everyone reads is stale: the
         # frame bumps the snapshot version as well as nudging the SPA. No
@@ -364,9 +348,9 @@ def _finish(attempt: MinesweeperAttempt, progress: dict, *, won: bool) -> None:
 def create_game(node: Node, difficulty: DifficultyConfig | str) -> MinesweeperGame:
     """Create one runtime game with a newly generated mine layout.
 
-    ``difficulty`` is a `DifficultyConfig` or its key. Width, height, mine count
-    and base score are copied off it here, so the board keeps playing and
-    scoring by the numbers it was built with even if the config is retuned.
+    ``difficulty`` is a `DifficultyConfig` or its key. Width, height and mine
+    count are copied off it here, so the board keeps the layout it was built
+    with even if the config is retuned.
 
     ``node`` is stored as association only. This service does not check who
     holds the node and does not change map occupancy.
@@ -383,7 +367,6 @@ def create_game(node: Node, difficulty: DifficultyConfig | str) -> MinesweeperGa
         width=difficulty.width,
         height=difficulty.height,
         mine_count=difficulty.mine_count,
-        base_score=difficulty.base_score,
         board=_generate_layout(difficulty.width, difficulty.height, difficulty.mine_count),
     )
 
@@ -424,8 +407,8 @@ def start_play(node: Node, team: Team) -> MinesweeperAttempt:
     Locks the node row so two concurrent starts cannot both insert. An
     unfinished board resumes and a won one is handed back as-is: the toll is
     cleared once, and a fresh board would both charge again and let a team
-    re-clear the same gate for another score row. A lost attempt is history; the
-    next visit pays again for a new board.
+    re-clear a gate that is already open. A lost attempt is history; the next
+    visit pays again for a new board.
     """
     # `of=("self",)` so the join for the level config does not lock LevelConfig
     # too; the fee reads that row on every start.
@@ -483,7 +466,7 @@ def reveal_cell(attempt_id: int, row: int, col: int) -> MinesweeperAttempt:
 
 @transaction.atomic
 def toggle_flag(attempt_id: int, row: int, col: int) -> MinesweeperAttempt:
-    """Toggle the flag on one unrevealed cell. Never reveals, never scores."""
+    """Toggle the flag on one unrevealed cell. Never reveals."""
     attempt = _locked_in_progress_attempt(attempt_id)
     game = attempt.game
     _require_in_bounds(game, row, col)

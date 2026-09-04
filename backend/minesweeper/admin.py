@@ -5,15 +5,15 @@ from .models import DifficultyConfig, MinesweeperAttempt, MinesweeperGame, Mines
 
 @admin.register(DifficultyConfig)
 class DifficultyConfigAdmin(admin.ModelAdmin):
-    """Board size, mines and payout, editable between rounds.
+    """Board size and mines, editable between rounds.
 
     Retuning a row reshapes the *next* board generated at that difficulty.
     Boards already in play keep the numbers they were built with, so nobody
     loses a grid mid-game.
     """
 
-    list_display = ("key", "label", "width", "height", "mine_count", "base_score", "sort_order")
-    list_editable = ("width", "height", "mine_count", "base_score", "sort_order")
+    list_display = ("key", "label", "width", "height", "mine_count", "sort_order")
+    list_editable = ("width", "height", "mine_count", "sort_order")
     search_fields = ("key", "label")
     ordering = ("sort_order", "key")
 
@@ -52,7 +52,6 @@ class MinesweeperAttemptInline(admin.TabularInline):
     readonly_fields = (
         "team",
         "status",
-        "score",
         "board",
         "started_at",
         "finished_at",
@@ -87,7 +86,6 @@ class MinesweeperGameAdmin(admin.ModelAdmin):
         "width",
         "height",
         "mine_count",
-        "base_score",
         "board",
         "created_at",
     )
@@ -103,7 +101,6 @@ class MinesweeperAttemptAdmin(admin.ModelAdmin):
         "game",
         "team",
         "status",
-        "score",
         "started_at",
         "finished_at",
     )

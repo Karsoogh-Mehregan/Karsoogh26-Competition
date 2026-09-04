@@ -61,7 +61,6 @@ def start_game(node, difficulty=MinesweeperDifficulty.EASY, **kwargs):
         "width": layout.width,
         "height": layout.height,
         "mine_count": layout.mine_count,
-        "base_score": layout.base_score,
     }
     payload.update(kwargs)
     return MinesweeperGame.objects.create(**payload)
@@ -101,7 +100,13 @@ class TestMinesweeperSettings:
         assert "team" not in field_names
         assert "status" not in field_names
         assert "score" not in field_names
+        assert "base_score" not in field_names
         assert settings.node_id == node.pk
+
+    def test_difficulty_has_no_score_fields(self):
+        field_names = {field.name for field in DifficultyConfig._meta.get_fields()}
+        assert "score" not in field_names
+        assert "base_score" not in field_names
 
     def test_deleting_node_cascades_settings(self, node):
         start_settings(node)
@@ -122,6 +127,7 @@ class TestMinesweeperGameDefaults:
         assert "team" not in field_names
         assert "status" not in field_names
         assert "score" not in field_names
+        assert "base_score" not in field_names
         assert "finished_at" not in field_names
         assert game.node_id == node.pk
 
@@ -138,12 +144,11 @@ class TestMinesweeperGameDefaults:
     def test_board_keeps_its_own_layout_when_the_difficulty_is_retuned(self, node):
         game = start_game(node, MinesweeperDifficulty.EASY)
         config = layout_for(MinesweeperDifficulty.EASY)
-        config.width, config.height, config.mine_count, config.base_score = 12, 12, 20, 999
+        config.width, config.height, config.mine_count = 12, 12, 20
         config.save()
 
         game.refresh_from_db()
         assert (game.width, game.height, game.mine_count) == (9, 9, 10)
-        assert game.base_score == 100
 
 
 class TestMinesweeperGameConstraints:
@@ -175,7 +180,6 @@ class TestMinesweeperAttemptDefaults:
         assert attempt.game_id == game.pk
         assert attempt.team_id == team.pk
         assert attempt.status == MinesweeperStatus.IN_PROGRESS
-        assert attempt.score == 0
         assert attempt.finished_at is None
         assert attempt.started_at is not None
         assert attempt.board == {"cells": []}
@@ -240,10 +244,11 @@ class TestMinesweeperAttemptConstraints:
         )
         assert attempt.finished_at is not None
 
-    def test_negative_score_rejected(self, team, node):
+    def test_attempt_has_no_score_field(self, team, node):
         game = start_game(node)
-        with pytest.raises(IntegrityError), transaction.atomic():
-            start_attempt(game, team, score=-1)
+        start_attempt(game, team)
+        field_names = {field.name for field in MinesweeperAttempt._meta.get_fields()}
+        assert "score" not in field_names
 
     def test_team_delete_is_protected(self, team, node):
         game = start_game(node)

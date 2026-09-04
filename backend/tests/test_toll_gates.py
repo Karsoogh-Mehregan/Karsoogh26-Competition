@@ -177,7 +177,7 @@ class TestEnteringAGate:
 
         Not an error: the map still offers the gate so the finished grid can be
         looked at, and the crossing is permanent, so a second board would charge
-        for a road that is already open — and hand out a second score row.
+        for a road that is already open.
         """
         seat(team, road["near"])
         won = win(start_play(road["gate"], team))
@@ -203,9 +203,7 @@ class TestCrossing:
 
     def test_playing_the_board_out_opens_the_road(self, team, road, running_game):
         """The same thing, through `reveal_cell` rather than a hand-set status."""
-        DifficultyConfig.objects.create(
-            key="tiny", label="ریز", width=2, height=2, mine_count=1, base_score=10
-        )
+        DifficultyConfig.objects.create(key="tiny", label="ریز", width=2, height=2, mine_count=1)
         MinesweeperSettings.objects.filter(node=road["gate"]).update(difficulty_id="tiny")
         seat(team, road["near"])
 
@@ -336,14 +334,13 @@ class TestDifficultyIsData:
     def test_a_retuned_difficulty_reshapes_the_next_board(self, team, road, running_game):
         seat(team, road["near"])
         DifficultyConfig.objects.filter(pk=MinesweeperDifficulty.EASY).update(
-            width=12, height=7, mine_count=11, base_score=42
+            width=12, height=7, mine_count=11
         )
 
         attempt = start_play(road["gate"], team)
 
         assert (attempt.game.width, attempt.game.height) == (12, 7)
         assert attempt.game.mine_count == 11
-        assert attempt.game.base_score == 42
         assert len(attempt.game.board["cells"]) == 7
         assert sum(cell["mine"] for row in attempt.game.board["cells"] for cell in row) == 11
 

@@ -86,8 +86,7 @@ def _attempt(team: Team, node: Node, *, status: str) -> MinesweeperAttempt:
         return attempt
     attempt.status = status
     attempt.finished_at = timezone.now()
-    attempt.score = 1 if status == MinesweeperStatus.WON else 0
-    attempt.save(update_fields=["status", "finished_at", "score"])
+    attempt.save(update_fields=["status", "finished_at"])
     return attempt
 
 

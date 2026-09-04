@@ -110,7 +110,7 @@ async function onFlag(row: number, col: number): Promise<void> {
       <header>
         <h1 class="text-lg font-bold">مین‌روب</h1>
         <p class="text-muted-foreground mt-1 text-sm">
-          خانه‌ها را باز کنید و مین‌ها را پرچم بزنید. نتیجه و امتیاز را سرور مشخص می‌کند.
+          خانه‌ها را باز کنید و مین‌ها را پرچم بزنید. نتیجه را سرور مشخص می‌کند.
         </p>
       </header>
 
@@ -135,10 +135,6 @@ async function onFlag(row: number, col: number): Promise<void> {
             <PartyPopperIcon class="size-4 shrink-0" />
             بازی را بردید
           </p>
-          <p class="text-sm">
-            امتیاز نهایی:
-            <span class="font-bold tabular-nums">{{ formatBalance(game.score) }}</span>
-          </p>
           <Button class="mt-1 self-start" @click="returnToMap">بازگشت به نقشه</Button>
         </div>
 
@@ -151,18 +147,14 @@ async function onFlag(row: number, col: number): Promise<void> {
             <BombIcon class="size-4 shrink-0" />
             روی مین رفتید؛ بازی تمام شد
           </p>
-          <p class="text-sm">
-            امتیاز:
-            <span class="font-bold tabular-nums">{{ formatBalance(game.score) }}</span>
-          </p>
           <Button class="mt-1 self-start" @click="returnToMap">بازگشت به نقشه</Button>
         </div>
 
         <Card class="min-w-0 gap-4 py-4">
           <CardHeader class="px-4">
             <CardTitle class="text-base">وضعیت بازی</CardTitle>
-            <CardDescription class="sr-only">اطلاعات سطح، مین، امتیاز و وضعیت</CardDescription>
-            <dl class="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+            <CardDescription class="sr-only">اطلاعات سطح، مین و وضعیت</CardDescription>
+            <dl class="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
               <div class="flex flex-col gap-0.5">
                 <dt class="text-muted-foreground">سطح</dt>
                 <dd class="font-semibold">{{ game.difficulty_label || DIFFICULTY_LABEL[game.difficulty] || game.difficulty }}</dd>
@@ -170,10 +162,6 @@ async function onFlag(row: number, col: number): Promise<void> {
               <div class="flex flex-col gap-0.5">
                 <dt class="text-muted-foreground">مین‌ها</dt>
                 <dd class="font-semibold tabular-nums">{{ formatBalance(game.mine_count) }}</dd>
-              </div>
-              <div class="flex flex-col gap-0.5">
-                <dt class="text-muted-foreground">امتیاز</dt>
-                <dd class="font-semibold tabular-nums">{{ formatBalance(game.score) }}</dd>
               </div>
               <div class="flex flex-col gap-0.5">
                 <dt class="text-muted-foreground">وضعیت</dt>

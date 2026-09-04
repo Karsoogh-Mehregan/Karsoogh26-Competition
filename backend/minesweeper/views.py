@@ -56,7 +56,6 @@ _PUBLIC_IN_PROGRESS = {
     "height": 16,
     "mine_count": 99,
     "status": "in_progress",
-    "score": 0,
     "started_at": "2026-09-02T10:00:00Z",
     "finished_at": None,
     "board": {
