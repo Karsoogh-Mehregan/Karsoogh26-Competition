@@ -28,7 +28,7 @@ TYPE_TO_LEVEL = {
     "l4": "medium",
     "l5": "hard",
     "l6": "hard",
-    "center": "hard",
+    "center": "center",
     "c34": "toll",
     "c45": "toll",
 }

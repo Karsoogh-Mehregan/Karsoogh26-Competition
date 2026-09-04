@@ -29,11 +29,13 @@ class Level(models.TextChoices):
     EASY = "easy", "آسان"
     MEDIUM = "medium", "متوسط"
     HARD = "hard", "سخت"
+    CENTER = "center", "مرکز شهر"
     TOLL = "toll", "عوارضی"
 
 
 class ReleaseReason(models.TextChoices):
     ZERO_GRADE = "zero_grade", "نمره صفر"
+    PARTIAL_GRADE = "partial_grade", "نمره ناقص"
     EXPIRED = "expired", "منقضی شد"
     DUEL_LOST = "duel_lost", "باخت دوئل"
     BOUGHT_OUT = "bought_out", "خریداری شد"
@@ -486,11 +488,22 @@ class Question(models.Model):
         blank=True,
         help_text="Mentor reference only — never exposed to teams.",
     )
+    max_grade = models.PositiveSmallIntegerField(
+        default=100,
+        help_text="The scale the mentor grades on. Payout is grade/max_grade of the floor reward.",
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["level", "code"]
+        constraints = [
+            # Capped at 100 so Occupancy.grade stays inside occ_grade_range.
+            CheckConstraint(
+                condition=Q(max_grade__gte=1, max_grade__lte=100),
+                name="question_max_grade_range",
+            ),
+        ]
         indexes = [
             models.Index(fields=["level", "is_active"], name="question_level_active_idx"),
         ]

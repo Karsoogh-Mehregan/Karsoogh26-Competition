@@ -30,7 +30,7 @@ from game.services.events import (
     SUBMISSION_CREATED,
     publish_on_commit,
 )
-from game.services.mentor import grade_attempt, release_attempt
+from game.services.mentor import grade_attempt, max_grade_for
 
 
 def assign_question(occupancy: Occupancy) -> Question:
@@ -213,27 +213,22 @@ def _validate_answer_payload(question: Question, *, body: str, file) -> None:
 def grade_submission(submission: Submission, grade: int) -> Occupancy:
     """Apply a mentor grade to the occupancy tied to a submission.
 
-    Floors and balances are owned by `mentor.grade_attempt`, so this only
-    resolves the submission to its holding and layers the zero-grade release
-    on top: a team that scores 0 never earned the floor, so the slot is freed.
+    Scoring, floors, balances and the release of anything short of full marks
+    are all owned by `mentor.grade_attempt`; this only resolves the submission
+    to its holding and bounds the grade against that question's scale.
     """
-    if grade < 0 or grade > 100:
-        raise ValueError("Grade must be between 0 and 100.")
-
     submission = Submission.objects.select_related(
         "occupancy__node__level",
+        "occupancy__question",
         "occupancy__team",
     ).get(pk=submission.pk)
     occupancy = submission.occupancy
 
+    max_grade = max_grade_for(occupancy)
+    if grade < 0 or grade > max_grade:
+        raise ValueError(f"Grade must be between 0 and {max_grade}.")
+
     if occupancy.grade is not None:
         raise AlreadyGraded("Occupancy has already been graded.")
 
-    occupancy = grade_attempt(occupancy, grade)
-
-    if grade == 0:
-        occupancy.floor = None
-        occupancy.save(update_fields=["floor"])
-        occupancy = release_attempt(occupancy, ReleaseReason.ZERO_GRADE)
-
-    return occupancy
+    return grade_attempt(occupancy, grade)

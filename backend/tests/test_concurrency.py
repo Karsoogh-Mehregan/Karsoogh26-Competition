@@ -111,5 +111,5 @@ def test_simultaneous_grades_build_one_consistent_tower():
     ]
     assert dict(Team.objects.values_list("code", "balance")) == {
         "top": 250,  # 250 * 1.000
-        "bottom": 100,  # 200 * 0.500
+        "bottom": 120,  # 200 * 0.600
     }
