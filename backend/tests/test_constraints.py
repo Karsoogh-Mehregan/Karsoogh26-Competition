@@ -169,11 +169,16 @@ class TestEconomy:
     @pytest.mark.parametrize(
         ("level", "floor", "points", "networth", "duel", "buyout"),
         [
-            ("easy", 1, 100, 40, 200, 400),
-            ("medium", 1, 200, 115, 360, 800),
-            ("medium", 2, 250, 125, 450, 1000),
-            ("hard", 1, 400, 270, 600, 1600),
-            ("hard", 3, 500, 300, 750, 2000),
+            # `duel` is the doc's price table, written into duel_cost_override
+            # by game/0024; it is deliberately not level.duel_factor * points.
+            ("easy", 1, 100, 40, 400, 400),
+            ("medium", 1, 200, 115, 720, 800),
+            ("medium", 2, 250, 125, 900, 1000),
+            ("hard", 1, 400, 270, 1440, 1600),
+            ("hard", 3, 500, 300, 1760, 2000),
+            # `center` arrived after that table (game/0026) and is deliberately
+            # left unpriced, so it is the one tier still falling back to
+            # level.duel_factor * points — 1.50 x 400 and 1.50 x 500.
             ("center", 1, 400, 270, 600, 1600),
             ("center", 3, 500, 300, 750, 2000),
         ],

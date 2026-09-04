@@ -265,6 +265,51 @@ class TestMentorGradingAPI:
         assert occ.release_reason == "partial_grade"
         assert Team.objects.get(pk=teams[0].pk).balance == 50
 
+    def test_partial_marks_leave_the_tower_alone(self, hard, teams, running_game):
+        """A grade short of full marks pays but must not shuffle the floors above it.
+
+        Ranking it would push the floor-1 holder up to floor 2 and then leave
+        floor 1 empty when the partial holding is released.
+        """
+        hard_node = Node.objects.create(code="h3", name="Hard 3", level=hard)
+        hard_question = Question.objects.create(
+            level=hard,
+            code="hq3",
+            title="Hard Q",
+            body="Hard body",
+            answer_type=AnswerType.TEXT,
+            answer_key="key",
+            is_active=True,
+        )
+        assigned = timezone.now()
+        winner = occupy(
+            hard_node,
+            teams[0],
+            slot=1,
+            floor=1,
+            grade=100,
+            grade_multiplier=Decimal("1.000"),
+            question_assigned_at=assigned,
+        )
+        partial = occupy(
+            hard_node,
+            teams[1],
+            slot=2,
+            question=hard_question,
+            question_assigned_at=assigned + timedelta(seconds=1),
+        )
+
+        partial = grade_attempt(partial, 90)
+
+        winner.refresh_from_db()
+        assert winner.floor == 1
+        assert Team.objects.get(pk=teams[0].pk).balance == 0
+        assert partial.floor is None
+        assert partial.release_reason == "partial_grade"
+        # The floor it would have taken is 2, worth 450 at 0.9 of the ratio.
+        assert partial.awarded == 405
+        assert Team.objects.get(pk=teams[1].pk).balance == 405
+
     def test_grade_above_the_question_scale_is_refused(self, node, teams, questions, running_game):
         Question.objects.filter(pk__in=[q.pk for q in questions]).update(max_grade=10)
         user = make_user(teams[0], "player")

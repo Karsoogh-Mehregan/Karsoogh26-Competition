@@ -38,6 +38,10 @@ export const queryKeys = {
   audiencePreview: (key: string) => ['audience-preview', key] as const,
   messageRecipients: (id: number) => ['message-recipients', id] as const,
   items: () => ['items'] as const,
+  // Prefix key: invalidating it matches the board and the target table at once.
+  duelsRoot: () => ['duels'] as const,
+  duelBoard: () => ['duels', 'board'] as const,
+  duelTargets: () => ['duels', 'targets'] as const,
   minesweeperRoot: () => ['minesweeper'] as const,
   minesweeperAttempt: (attemptId: number) => ['minesweeper', 'attempt', attemptId] as const,
 }

@@ -114,7 +114,8 @@ async function doRestart() {
     const result = await restart()
     confirmingRestart.value = false
     toast.success(
-      `بازی بازنشانی شد — ${result.occupancies} خانه و ${result.submissions} پاسخ حذف شد.`,
+      `بازی بازنشانی شد — ${result.occupancies} خانه، ${result.submissions} پاسخ` +
+        `${result.duels ? ` و ${result.duels} دوئل` : ''} حذف شد.`,
     )
   } catch (error) {
     toast.error(error instanceof ApiError ? error.detail : 'بازنشانی بازی ناموفق بود.')

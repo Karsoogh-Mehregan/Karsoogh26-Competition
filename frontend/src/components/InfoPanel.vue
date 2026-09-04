@@ -6,6 +6,7 @@ import {
 
   SearchIcon,
   Gamepad2Icon,
+  SwordsIcon,
 } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
@@ -149,6 +150,18 @@ const showTeamPicker = computed(() => isMentor.value || isPlayer.value)
           <RouterLink to="/events" :aria-current="route.path === '/events' ? 'page' : undefined">
             <Gamepad2Icon class="size-3.5" />
             همه رویدادها
+          </RouterLink>
+        </Button>
+        <!-- Players and judges both land here: the page shows each their half. -->
+        <Button
+          v-if="isPlayer || me.is_duel_mentor"
+          as-child
+          size="sm"
+          :variant="route.path === '/duels' ? 'default' : 'outline'"
+        >
+          <RouterLink to="/duels" :aria-current="route.path === '/duels' ? 'page' : undefined">
+            <SwordsIcon class="size-3.5" />
+            دوئل‌ها
           </RouterLink>
         </Button>
         <Button as-child size="sm" :variant="route.path === '/inbox' ? 'default' : 'outline'">

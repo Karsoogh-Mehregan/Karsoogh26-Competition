@@ -1,7 +1,7 @@
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 
-from game.models import AcquisitionSource, Edge, GameSettings, Level, Node, Occupancy
+from game.models import GRANTED_SOURCES, Edge, GameSettings, Level, Node, Occupancy
 from teams.ledger import InsufficientFunds, apply_balance_change
 from teams.models import BalanceReason, Team
 from teams.start_colors import color_for_start
@@ -24,9 +24,10 @@ def expandable_node_ids(team: Team) -> set[int]:
     """Everything the team can move *from* right now.
 
     A reservation only opens its neighbours once it is graded; spawns start
-    open. Item-granted seats expand reach the same way a grade does, without a
-    grade. A toll gate the team has beaten expands too, and it is the only way
-    onto the ring beyond it — the roads through a gate are one-way.
+    open. A granted seat — an item takeover or a won duel — expands reach the
+    same way a grade does, without a grade. A toll gate the team has beaten
+    expands too, and it is the only way onto the ring beyond it — the roads
+    through a gate are one-way.
 
     The minesweeper import is local on purpose: `minesweeper` depends on `game`,
     so a module-level import here would close the loop.
@@ -36,7 +37,7 @@ def expandable_node_ids(team: Team) -> set[int]:
     held = set(
         Occupancy.objects.active()
         .filter(team=team)
-        .filter(Q(is_spawn=True) | Q(grade__isnull=False) | Q(source=AcquisitionSource.ITEM))
+        .filter(Q(is_spawn=True) | Q(grade__isnull=False) | Q(source__in=GRANTED_SOURCES))
         .values_list("node_id", flat=True)
     )
     return held | cleared_node_ids(team)
@@ -138,8 +139,8 @@ def claim_node(team: Team, node: Node) -> Occupancy:
         .filter(team=team, node=node)
         .order_by("pk")
     )
-    if any(row.source == AcquisitionSource.ITEM for row in holdings):
-        raise Conflict("این خانه از طریق آیتم در اختیار تیم است و سؤال نمی‌گیرد.")
+    if any(row.source in GRANTED_SOURCES for row in holdings):
+        raise Conflict("این خانه بدون سؤال در اختیار تیم است و سؤال نمی‌گیرد.")
     holding = holdings[0] if holdings else None
     if holding is None:
         holding = _reserve(team, node)
