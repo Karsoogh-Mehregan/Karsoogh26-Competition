@@ -10,7 +10,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.test import Client
 
-from game.models import LevelConfig, MapDesign, Neighborhood, Node, Occupancy
+from game.models import GameSettings, LevelConfig, MapDesign, Neighborhood, Node, Occupancy
 from minesweeper.models import MinesweeperDifficulty, MinesweeperSettings
 from teams.models import Team
 
@@ -220,3 +220,35 @@ def test_pinning_is_allowed_while_occupied(designer, nodes, team):
 
 def test_an_unknown_node_is_404(designer):
     assert _patch(designer, node_url("nope"), {"archetype": "mint"}).status_code == 404
+
+
+# --- the design lock ------------------------------------------------------------------
+
+
+@pytest.fixture
+def design_locked():
+    settings_row = GameSettings.load()
+    settings_row.design_locked = True
+    settings_row.save(update_fields=["design_locked"])
+    return settings_row
+
+
+def test_a_locked_design_refuses_every_write(designer, nodes, design_locked):
+    assert _patch(designer, DESIGN_URL, {"road_style": "curved"}).status_code == 403
+    assert _patch(designer, node_url("L6_0"), {"archetype": "mint"}).status_code == 403
+    assert MapDesign.load().road_style == "straight"
+    assert Node.objects.get(code="L6_0").archetype == ""
+
+
+def test_a_locked_design_is_still_readable(player, nodes, design_locked):
+    assert player.get(DESIGN_URL).status_code == 200
+
+
+def test_the_lock_rides_on_the_game_state(player, design_locked):
+    assert player.get("/api/game/state/").json()["design_locked"] is True
+
+
+def test_unlocking_hands_the_designer_the_board_back(designer, nodes, design_locked):
+    design_locked.design_locked = False
+    design_locked.save(update_fields=["design_locked"])
+    assert _patch(designer, DESIGN_URL, {"road_style": "curved"}).status_code == 200

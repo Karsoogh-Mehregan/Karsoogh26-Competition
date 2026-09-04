@@ -17,6 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { formatBalance, formatSignedBalance } from '@/lib/format'
 import { useActing } from '../composables/useActing'
 import { useBalanceEvents } from '../composables/useBalanceEvents'
+import { useMapDesign } from '../composables/useMapDesign'
 
 const {
   me,
@@ -33,6 +34,7 @@ const {
   logout,
 } = useActing()
 const { balanceEvents, ledgerLoading, ledgerError } = useBalanceEvents()
+const { canDesign } = useMapDesign()
 const route = useRoute()
 
 const username = ref('')
@@ -168,7 +170,7 @@ const showTeamPicker = computed(() => isMentor.value || isPlayer.value)
           </RouterLink>
         </Button>
         <Button
-          v-if="me.is_designer"
+          v-if="canDesign"
           as-child
           size="sm"
           :variant="route.path === '/design' ? 'default' : 'outline'"

@@ -149,6 +149,7 @@ class GameSettingsAdmin(admin.ModelAdmin):
         "entry_grace_minutes",
         "entry_max_retries",
         "leaderboard_public",
+        "design_locked",
     )
     readonly_fields = ("started_at", "accumulated_seconds", "running_since")
 

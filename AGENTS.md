@@ -145,7 +145,13 @@ not serve admin CSS.
 `is_designer` on `/api/auth/me/`) and may change only how the board *looks*: neighbourhood
 names/themes/colours and road style via `PATCH /api/map/design/`, and a per-node building-type
 pin or tier move via `PATCH /api/map/nodes/<code>/`. A tier move is refused (409) while any team
-holds a seat on the node, because capacity and entry cost hang off `Node.level`. Every logged-in
+holds a seat on the node, because capacity and entry cost hang off `Node.level`. A game god
+may freeze the whole role with `GameSettings.design_locked` (admin, or `PATCH
+/api/game/settings/`, alongside `leaderboard_public`): `IsDesigner` then refuses every write,
+and the SPA hides the design page, its nav link and the house panel's design section — the
+flag rides on `GET /api/game/state/`, and `useMapDesign().canDesign` is the single client-side
+answer. `is_designer` on `/api/auth/me/` stays truthful about the *role*; the lock is an
+event-wide switch, not a revocation. Every logged-in
 client reads `GET /api/map/design/` — **this is now the level-of-record for the SPA map**;
 `frontend/src/lib/mapLevels.ts` mirrors `TYPE_TO_LEVEL` only as the fallback before that query
 answers. Building-type keys are duplicated on purpose in `backend/game/design.py` and

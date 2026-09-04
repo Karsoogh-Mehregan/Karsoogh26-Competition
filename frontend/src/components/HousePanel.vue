@@ -56,7 +56,7 @@ const inspector = useInspectorStore()
 const { spec, inspection, holdings } = useHouseSpec()
 const { me, actingTeam, claimStart, assignQuestion } = useActing()
 const { open: openEntrySheet } = useEntry()
-const { pinOf } = useMapDesign()
+const { pinOf, canDesign } = useMapDesign()
 const { data: levelConfigs } = useLevelsQuery(() => !!me.value)
 const attemptStore = useAttemptStore()
 const enterMinesweeper = useEnterMinesweeperMutation()
@@ -67,7 +67,6 @@ const collapsed = useLocalStorage('karsoogh.house-panel-collapsed', false)
 const expanded = useLocalStorage('karsoogh.house-panel-expanded', false)
 const busy = ref(false)
 
-const isDesigner = computed(() => me.value?.is_designer ?? false)
 
 /** Penthouse first: floor N is the best unit, so it reads top-down. */
 const floorsTopFirst = computed<FloorState[]>(() => [...(spec.value?.floors ?? [])].reverse())
@@ -292,7 +291,7 @@ async function saveDesign() {
           </li>
         </ul>
 
-        <section v-if="isDesigner" class="house-design" aria-label="طراحی این خانه">
+        <section v-if="canDesign" class="house-design" aria-label="طراحی این خانه">
           <h3 class="house-design-title">
             <PaintbrushIcon class="size-3.5" />
             طراحی

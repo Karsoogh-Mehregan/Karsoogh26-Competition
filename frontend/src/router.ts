@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { queryClient } from '@/lib/queryClient'
 import { meQueryOptions } from '@/queries/auth'
 import { eventCatalogQueryOptions } from '@/queries/events'
+import { gameStateQueryOptions } from '@/queries/gameState'
 import DesignPage from '@/pages/DesignPage.vue'
 import GradingPage from '@/pages/GradingPage.vue'
 import InboxPage from '@/pages/InboxPage.vue'
@@ -105,8 +106,15 @@ router.beforeEach(async (to) => {
   if (to.meta.requiresAnnouncer && !me?.is_announcer) {
     return { name: 'map' }
   }
-  if (to.meta.requiresDesigner && !me?.is_designer) {
-    return { name: 'map' }
+  if (to.meta.requiresDesigner) {
+    if (!me?.is_designer) return { name: 'map' }
+    // A locked design is refused by the API, so the page has nothing to offer.
+    try {
+      const state = await queryClient.ensureQueryData(gameStateQueryOptions)
+      if (state.design_locked) return { name: 'map' }
+    } catch {
+      return { name: 'map' }
+    }
   }
   if (to.meta.requiresAuth && !me) {
     return { name: 'map' }

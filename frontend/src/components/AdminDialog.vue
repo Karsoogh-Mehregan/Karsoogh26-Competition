@@ -91,6 +91,11 @@ function toggleLeaderboard() {
   )
 }
 
+function toggleDesignLock() {
+  const next = !settings.value?.design_locked
+  apply({ design_locked: next }, next ? 'طراحی نقشه قفل شد' : 'طراحی نقشه باز شد')
+}
+
 function saveNumbers() {
   const balanceValue = parseCount(balance.value)
   if (balanceValue === null) {
@@ -177,6 +182,24 @@ function saveDuration() {
             </Badge>
             <Button size="sm" variant="outline" :disabled="saving" @click="toggleLeaderboard">
               {{ settings.leaderboard_public ? 'پنهان کن' : 'باز کن' }}
+            </Button>
+          </div>
+        </section>
+
+        <section class="flex items-center justify-between gap-3 rounded-md border p-3">
+          <div class="flex flex-col gap-0.5">
+            <span class="text-sm font-medium">طراحی نقشه</span>
+            <span class="text-muted-foreground text-xs">
+              وقتی قفل باشد، طراح‌ها هیچ تغییری در ظاهر نقشه نمی‌دهند و صفحهٔ طراحی برایشان
+              بسته است.
+            </span>
+          </div>
+          <div class="flex shrink-0 items-center gap-2">
+            <Badge :variant="settings.design_locked ? 'secondary' : 'default'">
+              {{ settings.design_locked ? 'قفل' : 'باز' }}
+            </Badge>
+            <Button size="sm" variant="outline" :disabled="saving" @click="toggleDesignLock">
+              {{ settings.design_locked ? 'باز کن' : 'قفل کن' }}
             </Button>
           </div>
         </section>

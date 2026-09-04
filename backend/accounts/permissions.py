@@ -90,10 +90,20 @@ class IsDesigner(BasePermission):
     `game/migrations/0017_seed_map_design.py`. Deliberately cannot touch
     holdings, balances or the clock — a stray click in the design page must not
     be able to affect the standings.
+
+    A game god may freeze the whole role with `GameSettings.design_locked`: the
+    look of the board is part of the contest once it is running, so the lock is
+    an event-wide switch rather than a per-user revocation.
     """
 
     message = "این عملیات فقط برای طراحان مجاز است."
+    locked_message = "طراحی نقشه قفل است."
 
     def has_permission(self, request, view):
         user = request.user
-        return bool(user and user.is_authenticated and user.has_perm(DESIGNER_PERM))
+        if not (user and user.is_authenticated and user.has_perm(DESIGNER_PERM)):
+            return False
+        if GameSettings.load().design_locked:
+            self.message = self.locked_message
+            return False
+        return True
