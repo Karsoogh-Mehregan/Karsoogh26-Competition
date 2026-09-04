@@ -9,6 +9,7 @@ from django.db import connection
 from django.utils import timezone
 
 from game.models import Edge, LevelConfig, Node, Occupancy
+from game.services.events import MINESWEEPER_CLEARED
 from minesweeper.exceptions import (
     CannotFlagRevealed,
     CellAlreadyRevealed,
@@ -268,19 +269,28 @@ class TestStartPlay:
         assert MinesweeperGame.objects.filter(node=node).count() == 1
         assert MinesweeperAttempt.objects.filter(team=team).count() == 1
 
-    @pytest.mark.parametrize("status", [MinesweeperStatus.WON, MinesweeperStatus.LOST])
-    def test_finished_attempt_starts_a_new_game(self, team, node, status):
+    def test_lost_attempt_starts_a_new_game(self, team, node):
         _configure(node, MinesweeperDifficulty.EASY)
         first = start_play(node, team)
-        _finish(first, status)
+        _finish(first, MinesweeperStatus.LOST)
         second = start_play(node, team)
         assert second.pk != first.pk
         assert second.game_id != first.game_id
         assert second.status == MinesweeperStatus.IN_PROGRESS
         first.refresh_from_db()
-        assert first.status == status
+        assert first.status == MinesweeperStatus.LOST
         assert MinesweeperGame.objects.filter(node=node).count() == 2
         assert MinesweeperAttempt.objects.filter(team=team).count() == 2
+
+    def test_won_attempt_is_returned_instead_of_a_fresh_board(self, team, node):
+        _configure(node, MinesweeperDifficulty.EASY)
+        first = start_play(node, team)
+        _finish(first, MinesweeperStatus.WON)
+        second = start_play(node, team)
+        assert second.pk == first.pk
+        assert second.status == MinesweeperStatus.WON
+        assert MinesweeperGame.objects.filter(node=node).count() == 1
+        assert MinesweeperAttempt.objects.filter(team=team).count() == 1
 
     def test_different_teams_get_different_games(self, team, other_team, node):
         _configure(node, MinesweeperDifficulty.MEDIUM)
@@ -960,6 +970,19 @@ class TestWin:
         assert updated.status == MinesweeperStatus.WON
         assert (0, 1) in _revealed(updated.board)
         assert updated.finished_at is not None
+
+    def test_win_publishes_a_hint_with_no_team_or_node(self, team, node, monkeypatch):
+        published = []
+        monkeypatch.setattr(
+            "minesweeper.services.publish_on_commit",
+            lambda *args, **kwargs: published.append((args, kwargs)),
+        )
+        attempt = _split_attempt(team, node)
+        _reveal_all_safe_except(attempt, {(0, 3)})
+
+        reveal_cell(attempt.pk, 0, 3)
+
+        assert published == [((MINESWEEPER_CLEARED,), {})]
 
     def test_won_attempt_rejects_reveal_and_flag(self, team, node):
         attempt = _split_attempt(team, node)

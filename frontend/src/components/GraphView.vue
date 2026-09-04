@@ -323,8 +323,11 @@ function inspectIntent(n) {
   // offers a board where the server actually has one configured.
   if (isGatewayNode(n)) {
     const cleared = actingTeam.value?.cleared_tolls?.includes(n.id) === true
+    const inProgress = actingTeam.value?.active_tolls?.includes(n.id) === true
     const playable =
-      canAct.value && design.hasMinesweeper(n.id) && (isNodeSelectable(n.id) || cleared)
+      canAct.value &&
+      design.hasMinesweeper(n.id) &&
+      (isNodeSelectable(n.id) || cleared || inProgress)
     return { intent: playable ? 'minesweeper' : 'view', occupancyId: null }
   }
   if (isNodeSelectable(n.id)) {

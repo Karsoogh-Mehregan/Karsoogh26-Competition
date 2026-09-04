@@ -251,10 +251,7 @@ def _finish(attempt: MinesweeperAttempt, progress: dict, *, won: bool) -> None:
     if won:
         attempt.status = MinesweeperStatus.WON
         attempt.score = _win_score(attempt.game.difficulty, attempt.started_at, now)
-        publish_on_commit(
-            MINESWEEPER_CLEARED,
-            {"team": attempt.team.code, "node": attempt.game.node.code},
-        )
+        publish_on_commit(MINESWEEPER_CLEARED)
     else:
         attempt.status = MinesweeperStatus.LOST
         attempt.score = 0
@@ -309,14 +306,10 @@ def create_attempt(game: MinesweeperGame, team: Team) -> MinesweeperAttempt:
     )
 
 
-def _active_attempt_for(team: Team, node: Node) -> MinesweeperAttempt | None:
+def _latest_attempt_for(team: Team, node: Node, status: str) -> MinesweeperAttempt | None:
     return (
         MinesweeperAttempt.objects.select_related("game__node")
-        .filter(
-            team=team,
-            game__node_id=node.pk,
-            status=MinesweeperStatus.IN_PROGRESS,
-        )
+        .filter(team=team, game__node_id=node.pk, status=status)
         .order_by("-started_at")
         .first()
     )
@@ -324,15 +317,18 @@ def _active_attempt_for(team: Team, node: Node) -> MinesweeperAttempt | None:
 
 @transaction.atomic
 def start_play(node: Node, team: Team) -> MinesweeperAttempt:
-    """Resume this team's in-progress attempt on ``node``, or start a new game.
+    """Resume this team's attempt on ``node``, or start a new game.
 
-    Locks the node row so two concurrent starts cannot both insert. A finished
-    attempt is left as history; the next visit generates a new board.
+    Locks the node row so two concurrent starts cannot both insert. A won
+    attempt is returned as-is: the toll is cleared once, and generating a fresh
+    board would let a team re-clear the same gate for another score row. A lost
+    attempt is history; the next visit generates a new board.
     """
     locked_node = Node.objects.select_for_update().get(pk=node.pk)
-    active = _active_attempt_for(team, locked_node)
-    if active is not None:
-        return active
+    for status in (MinesweeperStatus.IN_PROGRESS, MinesweeperStatus.WON):
+        existing = _latest_attempt_for(team, locked_node, status)
+        if existing is not None:
+            return existing
     require_graph_access(team, locked_node)
     game = create_game_from_node(locked_node)
     return create_attempt(game, team)

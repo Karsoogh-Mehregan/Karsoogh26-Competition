@@ -413,15 +413,12 @@ class TestStartPlay:
         assert MinesweeperGame.objects.filter(node=node).count() == 1
         assert MinesweeperAttempt.objects.filter(team=alpha).count() == 1
 
-    @pytest.mark.parametrize("status", [MinesweeperStatus.WON, MinesweeperStatus.LOST])
-    def test_finished_attempt_starts_a_new_game(
-        self, alpha_client, alpha, node, running_contest, status
-    ):
+    def test_lost_attempt_starts_a_new_game(self, alpha_client, alpha, node, running_contest):
         _configure(node, MinesweeperDifficulty.EASY)
         first = _begin(alpha_client, node)
         assert first.status_code == 201
         attempt = MinesweeperAttempt.objects.get(pk=first.json()["attempt_id"])
-        attempt.status = status
+        attempt.status = MinesweeperStatus.LOST
         attempt.finished_at = timezone.now()
         attempt.save(update_fields=["status", "finished_at"])
 
@@ -432,6 +429,24 @@ class TestStartPlay:
         assert second.json()["status"] == MinesweeperStatus.IN_PROGRESS
         assert MinesweeperGame.objects.filter(node=node).count() == 2
         assert MinesweeperAttempt.objects.filter(team=alpha).count() == 2
+
+    def test_won_attempt_is_returned_instead_of_a_fresh_board(
+        self, alpha_client, alpha, node, running_contest
+    ):
+        _configure(node, MinesweeperDifficulty.EASY)
+        first = _begin(alpha_client, node)
+        assert first.status_code == 201
+        attempt = MinesweeperAttempt.objects.get(pk=first.json()["attempt_id"])
+        attempt.status = MinesweeperStatus.WON
+        attempt.finished_at = timezone.now()
+        attempt.save(update_fields=["status", "finished_at"])
+
+        second = _begin(alpha_client, node)
+        assert second.status_code == 201
+        assert second.json()["attempt_id"] == first.json()["attempt_id"]
+        assert second.json()["status"] == MinesweeperStatus.WON
+        assert MinesweeperGame.objects.filter(node=node).count() == 1
+        assert MinesweeperAttempt.objects.filter(team=alpha).count() == 1
 
     def test_two_teams_get_independent_games(
         self, alpha_client, beta_client, alpha, beta, node, running_contest

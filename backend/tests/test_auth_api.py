@@ -137,6 +137,7 @@ def test_teams_list_returns_code_name_balance(auth_client, team, other_team):
             "holdings": [],
             "color": None,
             "cleared_tolls": [],
+            "active_tolls": [],
         },
         {
             "code": "beta",
@@ -145,6 +146,7 @@ def test_teams_list_returns_code_name_balance(auth_client, team, other_team):
             "holdings": [],
             "color": None,
             "cleared_tolls": [],
+            "active_tolls": [],
         },
     ]
 

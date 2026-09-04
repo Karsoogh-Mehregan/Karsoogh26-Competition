@@ -25,9 +25,9 @@ class TeamQuerySet(models.QuerySet):
             Prefetch(
                 "minesweeper_attempts",
                 queryset=MinesweeperAttempt.objects.filter(
-                    status=MinesweeperStatus.WON
+                    status__in=(MinesweeperStatus.WON, MinesweeperStatus.IN_PROGRESS)
                 ).select_related("game__node"),
-                to_attr="_won_minesweeper_attempts",
+                to_attr="_toll_attempts",
             ),
         )
 

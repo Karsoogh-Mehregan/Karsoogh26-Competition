@@ -50,6 +50,7 @@ def rows():
             "color": None,
             "holdings": [{"id": 1}],
             "cleared_tolls": ["C34_0"],
+            "active_tolls": ["C45_0"],
         },
         {
             "code": "bravo",
@@ -58,6 +59,7 @@ def rows():
             "color": None,
             "holdings": [],
             "cleared_tolls": ["C45_0"],
+            "active_tolls": ["C34_0"],
         },
     ]
 
@@ -71,6 +73,7 @@ def test_a_team_sees_only_its_own_balance(rows):
 
     assert [(row["code"], row["balance"]) for row in masked] == [("alpha", 42), ("bravo", None)]
     assert [row["cleared_tolls"] for row in masked] == [["C34_0"], []]
+    assert [row["active_tolls"] for row in masked] == [["C45_0"], []]
 
 
 def test_masking_leaves_the_snapshot_intact(rows):

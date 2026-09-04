@@ -18,6 +18,7 @@ export interface Team {
   holdings: Holding[]
   /** Toll node codes this team has won Minesweeper on. Not holdings. */
   cleared_tolls: string[]
+  active_tolls: string[]
 }
 
 export interface Me {
