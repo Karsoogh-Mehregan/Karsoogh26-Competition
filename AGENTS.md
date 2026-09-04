@@ -186,7 +186,10 @@ shadcn-vue is in use in the team picker.
 **A move is one call.** `POST teams/<code>/nodes/<code>/assign-question/` reserves the node
 *and* starts the attempt clock (`services.claim_node`): there is no separate "enter" endpoint,
 because reserving without a question is not a game state. Reserving is not owning — the floor
-is captured at grading. The target must be reachable from a holding that *expands* — a spawn,
+is captured at grading, and **kept only on full marks**: `grade_attempt` pays the proportional
+score and then releases anything under the question's `max_grade` (`zero_grade` at 0,
+`partial_grade` otherwise), so the team keeps the money and gives the seat back. Money is never
+clawed back. The target must be reachable from a holding that *expands* — a spawn,
 or a node the team has already been graded on. An ungraded reservation is a dead end until it
 is graded, and released rows never extend reach; reach follows `Edge.directed` one-way where
 set. A team with no active holdings may only take the start node matching its `Team.color`.
@@ -245,9 +248,13 @@ session — that green flips the moment a test file lands ahead of yours alphabe
 
 **Money is Decimal-from-string, rounded half-up** (`_round_half_up`, since Python defaults
 to banker's rounding). `FloorReward.networth`/`duel_cost`/`buyout_cost` are derived
-properties, not columns. `GradeMultiplier.factor_for()` raises unless a `grade=0` row is
-seeded; `game/migrations/0002_seed_economy.py` does that. The two ruff ignores in
-`pyproject.toml` are deliberate and documented — do not "fix" them.
+properties, not columns. `GradeMultiplier` is **no longer read by the grading path** — its
+step curve paid a 99 and a 50 the same 0.5. The payout is now proportional:
+`Occupancy.grade_multiplier` is `grade / Question.max_grade` (`services.mentor.grade_ratio`),
+capped at 100 so a grade still fits `occ_grade_range`, falling back to a scale of 100 for a
+holding that carries no question row. The model and its seed stay put; nothing calls
+`factor_for()`. The two ruff ignores in `pyproject.toml` are deliberate and documented — do
+not "fix" them.
 
 **Frontend.** `useGraph()` is a module-level singleton, so all callers share one reactive
 `path` ref. Adjacency is built direction-agnostically, so the 102 `directed` edges draw

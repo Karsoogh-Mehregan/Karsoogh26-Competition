@@ -52,6 +52,7 @@ export interface QuestionForTeam {
   title: string
   body: string
   answer_type: AnswerType
+  max_grade: number
   attachment_url: string | null
   expires_at: string | null
   remaining_seconds: number
@@ -104,6 +105,7 @@ export interface SubmissionRow {
   question_id: number
   question_code: string
   question_title: string
+  max_grade: number
   graded: boolean
 }
 
@@ -112,6 +114,7 @@ export interface GradeResult {
   grade: number | null
   grade_multiplier: string | null
   points: number
+  awarded: number
   released_at: string | null
   release_reason: string
 }

@@ -40,8 +40,8 @@ function setGradeValue(id: number, value: string) {
 async function submitGrade(row: SubmissionRow) {
   const raw = gradeValue(row).trim()
   const parsed = Number(raw)
-  if (raw === '' || !Number.isInteger(parsed) || parsed < 0 || parsed > 100) {
-    toast.error('نمره باید عدد صحیح بین ۰ و ۱۰۰ باشد.')
+  if (raw === '' || !Number.isInteger(parsed) || parsed < 0 || parsed > row.max_grade) {
+    toast.error(`نمره باید عدد صحیح بین ۰ و ${row.max_grade} باشد.`)
     return
   }
   const ok = await grade(row.id, parsed)
@@ -112,12 +112,12 @@ async function submitGrade(row: SubmissionRow) {
                 آیدی نود: <span class="font-semibold">  {{ row.node_code }}  </span>
               </p>
               <div class="flex flex-col gap-1.5">
-                <Label :for="`grade-${row.id}`">نمره</Label>
+                <Label :for="`grade-${row.id}`">نمره (از {{ row.max_grade }})</Label>
                 <Input
                   :id="`grade-${row.id}`"
                   type="number"
                   min="0"
-                  max="100"
+                  :max="row.max_grade"
                   :model-value="gradeValue(row)"
                   :disabled="submitting"
                   @update:model-value="setGradeValue(row.id, String($event))"

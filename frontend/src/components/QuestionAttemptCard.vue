@@ -178,7 +178,8 @@ async function onSubmit() {
         v-else-if="attempt.status === 'graded'"
         class="text-muted-foreground text-sm"
       >
-        نمره {{ attempt.grade }} ثبت شد.
+        نمره {{ attempt.grade }}<template v-if="question"> از {{ question.max_grade }}</template> ثبت
+        شد.
       </p>
 
       <p

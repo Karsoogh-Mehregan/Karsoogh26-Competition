@@ -11,6 +11,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from game.models import (
+    AnswerType,
     Edge,
     FloorReward,
     GameSettings,
@@ -18,6 +19,7 @@ from game.models import (
     LevelConfig,
     Node,
     Occupancy,
+    Question,
     _round_half_up,
 )
 from teams.models import Team
@@ -102,6 +104,22 @@ class TestOccupancyIntegrity:
     def test_graded_row_requires_multiplier(self, node, teams):
         with pytest.raises(IntegrityError), transaction.atomic():
             occupy(node, teams[0], grade=50, question_assigned_at=timezone.now())
+
+
+class TestQuestionScale:
+    """max_grade is capped at 100 so a grade on it still fits occ_grade_range."""
+
+    @pytest.mark.parametrize("max_grade", [0, 101])
+    def test_out_of_range_max_grade_rejected(self, easy, max_grade):
+        with pytest.raises(IntegrityError), transaction.atomic():
+            Question.objects.create(
+                level=easy,
+                code=f"q{max_grade}",
+                title="Q",
+                body="B",
+                answer_type=AnswerType.TEXT,
+                max_grade=max_grade,
+            )
 
 
 class TestTeam:

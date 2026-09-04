@@ -30,6 +30,7 @@ class QuestionForTeamSerializer(serializers.ModelSerializer):
             "title",
             "body",
             "answer_type",
+            "max_grade",
             "attachment_url",
             "expires_at",
             "remaining_seconds",
@@ -74,6 +75,7 @@ class QuestionForMentorSerializer(serializers.Serializer):
     body = serializers.CharField()
     answer_type = serializers.CharField()
     answer_key = serializers.CharField(allow_blank=True, allow_null=True)
+    max_grade = serializers.IntegerField()
     attachment_url = serializers.CharField(allow_null=True)
 
 
@@ -86,6 +88,7 @@ class SubmissionListSerializer(serializers.ModelSerializer):
     question_id = serializers.IntegerField(source="occupancy.question_id", read_only=True)
     question_code = serializers.CharField(source="occupancy.question.code", read_only=True)
     question_title = serializers.CharField(source="occupancy.question.title", read_only=True)
+    max_grade = serializers.IntegerField(source="occupancy.question.max_grade", read_only=True)
     graded = serializers.SerializerMethodField()
 
     class Meta:
@@ -101,6 +104,7 @@ class SubmissionListSerializer(serializers.ModelSerializer):
             "question_id",
             "question_code",
             "question_title",
+            "max_grade",
             "graded",
         )
 
@@ -150,6 +154,7 @@ class SubmissionDetailSerializer(serializers.ModelSerializer):
             "body": question.body,
             "answer_type": question.answer_type,
             "answer_key": question.answer_key,
+            "max_grade": question.max_grade,
             "attachment_url": attachment_url,
         }
 
@@ -177,6 +182,7 @@ class GradeResultSerializer(serializers.Serializer):
     grade = serializers.IntegerField(allow_null=True)
     grade_multiplier = serializers.DecimalField(max_digits=4, decimal_places=3, allow_null=True)
     points = serializers.IntegerField()
+    awarded = serializers.IntegerField()
     released_at = serializers.DateTimeField(allow_null=True)
     release_reason = serializers.CharField(allow_blank=True)
 
