@@ -19,8 +19,17 @@ def active_holdings():
 class TeamQuerySet(models.QuerySet):
     def with_holdings(self):
         """Prefetch each team's active occupancies so `.holdings` costs one query."""
+        from minesweeper.models import MinesweeperAttempt, MinesweeperStatus
+
         return self.prefetch_related(
-            Prefetch("occupancies", queryset=active_holdings(), to_attr="_holdings")
+            Prefetch("occupancies", queryset=active_holdings(), to_attr="_holdings"),
+            Prefetch(
+                "minesweeper_attempts",
+                queryset=MinesweeperAttempt.objects.filter(
+                    status__in=(MinesweeperStatus.WON, MinesweeperStatus.IN_PROGRESS)
+                ).select_related("game__node"),
+                to_attr="_toll_attempts",
+            ),
         )
 
 

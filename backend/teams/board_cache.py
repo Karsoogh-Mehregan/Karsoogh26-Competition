@@ -33,4 +33,9 @@ def snapshot(request) -> list[dict]:
 def mask(rows: list[dict], *, is_mentor: bool, viewer_team_code: str | None) -> list[dict]:
     if is_mentor:
         return rows
-    return [row if row["code"] == viewer_team_code else {**row, "balance": None} for row in rows]
+    return [
+        row
+        if row["code"] == viewer_team_code
+        else {**row, "balance": None, "cleared_tolls": [], "active_tolls": []}
+        for row in rows
+    ]

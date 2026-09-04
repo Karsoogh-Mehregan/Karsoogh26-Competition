@@ -18,6 +18,10 @@ class EntryUnauthorized(MinesweeperServiceError):
     """No valid, unused, unexpired map-entry authorization for this node."""
 
 
+class NodeUnreachable(MinesweeperServiceError):
+    """The team cannot reach this Minesweeper node on the map."""
+
+
 class GameFinished(MinesweeperServiceError):
     """The attempt is won or lost and no longer accepts moves."""
 

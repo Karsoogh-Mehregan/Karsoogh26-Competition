@@ -9,7 +9,7 @@ from django.contrib.auth.models import Group
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from game.models import GameSettings, GameStatus, LevelConfig, Node
+from game.models import Edge, GameSettings, GameStatus, LevelConfig, Node, Occupancy
 from minesweeper.models import (
     DIFFICULTY_LAYOUTS,
     MinesweeperAttempt,
@@ -130,6 +130,31 @@ def _begin(client, node):
     assert entered.status_code == 200, entered.content
     token = entered.json()["entry"]
     return client.post(_start(node.code), {"entry": token}, format="json")
+
+
+def _undirected(a: Node, b: Node) -> Edge:
+    lower, upper = sorted((a, b), key=lambda node: node.pk)
+    return Edge.objects.create(a=lower, b=upper, directed=False)
+
+
+def grant_access(team: Team, node: Node) -> Occupancy:
+    spawn = LevelConfig.objects.get(level="spawn")
+    home = Node.objects.create(
+        code=f"ms-home-{team.pk}-{node.pk}",
+        name="home",
+        level=spawn,
+    )
+    holding = Occupancy.objects.create(team=team, node=home, slot=1, is_spawn=True)
+    _undirected(home, node)
+    return holding
+
+
+@pytest.fixture(autouse=True)
+def _reachable_play_nodes(alpha, beta, node, other_node):
+    home_a = grant_access(alpha, node)
+    home_b = grant_access(beta, node)
+    _undirected(home_a.node, other_node)
+    _undirected(home_b.node, other_node)
 
 
 def _configure(node, difficulty=MinesweeperDifficulty.HARD, *, enabled=True):
@@ -331,12 +356,13 @@ class TestEntryAuthorization:
         assert response.json() == {"detail": "اجازهٔ ورود به این بازی صادر نشده است."}
         assert MinesweeperGame.objects.count() == 0
 
-    def test_graph_node_code_is_accepted(self, alpha_client, running_contest):
+    def test_graph_node_code_is_accepted(self, alpha_client, alpha, running_contest):
         node = Node.objects.create(
             code="C34_0",
             name="Connector",
             level=LevelConfig.objects.get(level="toll"),
         )
+        grant_access(alpha, node)
         _configure(node)
         response = alpha_client.post(_enter("C34_0"), {}, format="json")
         assert response.status_code == 200
@@ -387,15 +413,12 @@ class TestStartPlay:
         assert MinesweeperGame.objects.filter(node=node).count() == 1
         assert MinesweeperAttempt.objects.filter(team=alpha).count() == 1
 
-    @pytest.mark.parametrize("status", [MinesweeperStatus.WON, MinesweeperStatus.LOST])
-    def test_finished_attempt_starts_a_new_game(
-        self, alpha_client, alpha, node, running_contest, status
-    ):
+    def test_lost_attempt_starts_a_new_game(self, alpha_client, alpha, node, running_contest):
         _configure(node, MinesweeperDifficulty.EASY)
         first = _begin(alpha_client, node)
         assert first.status_code == 201
         attempt = MinesweeperAttempt.objects.get(pk=first.json()["attempt_id"])
-        attempt.status = status
+        attempt.status = MinesweeperStatus.LOST
         attempt.finished_at = timezone.now()
         attempt.save(update_fields=["status", "finished_at"])
 
@@ -406,6 +429,24 @@ class TestStartPlay:
         assert second.json()["status"] == MinesweeperStatus.IN_PROGRESS
         assert MinesweeperGame.objects.filter(node=node).count() == 2
         assert MinesweeperAttempt.objects.filter(team=alpha).count() == 2
+
+    def test_won_attempt_is_returned_instead_of_a_fresh_board(
+        self, alpha_client, alpha, node, running_contest
+    ):
+        _configure(node, MinesweeperDifficulty.EASY)
+        first = _begin(alpha_client, node)
+        assert first.status_code == 201
+        attempt = MinesweeperAttempt.objects.get(pk=first.json()["attempt_id"])
+        attempt.status = MinesweeperStatus.WON
+        attempt.finished_at = timezone.now()
+        attempt.save(update_fields=["status", "finished_at"])
+
+        second = _begin(alpha_client, node)
+        assert second.status_code == 201
+        assert second.json()["attempt_id"] == first.json()["attempt_id"]
+        assert second.json()["status"] == MinesweeperStatus.WON
+        assert MinesweeperGame.objects.filter(node=node).count() == 1
+        assert MinesweeperAttempt.objects.filter(team=alpha).count() == 1
 
     def test_two_teams_get_independent_games(
         self, alpha_client, beta_client, alpha, beta, node, running_contest

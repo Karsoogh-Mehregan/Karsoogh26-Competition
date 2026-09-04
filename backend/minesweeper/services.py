@@ -11,6 +11,8 @@ from django.db import transaction
 from django.utils import timezone
 
 from game.models import Node
+from game.services.events import MINESWEEPER_CLEARED, publish_on_commit
+from game.services.movement import team_can_access_node
 from minesweeper.exceptions import (
     CannotFlagRevealed,
     CellAlreadyRevealed,
@@ -19,6 +21,7 @@ from minesweeper.exceptions import (
     GameFinished,
     InvalidCell,
     InvalidDifficulty,
+    NodeUnreachable,
     SettingsDisabled,
     SettingsNotConfigured,
 )
@@ -68,14 +71,34 @@ def _require_enabled_settings(node: Node) -> MinesweeperSettings:
     return settings
 
 
-def issue_entry(session, *, user_id: int, node: Node) -> str:
+def _has_in_progress_attempt(team: Team, node: Node) -> bool:
+    return MinesweeperAttempt.objects.filter(
+        team=team,
+        game__node_id=node.pk,
+        status=MinesweeperStatus.IN_PROGRESS,
+    ).exists()
+
+
+def require_graph_access(team: Team, node: Node) -> None:
+    """The team must already be able to stand next to this node, or be on it.
+
+    Reachability is computed from expandable occupancies plus won tolls — the
+    same set `_reserve` uses. An in-progress attempt may resume even if the
+    previous house was released after play started.
+    """
+    if team_can_access_node(team, node) or _has_in_progress_attempt(team, node):
+        return
+    raise NodeUnreachable("این خانه از مسیر فعلی تیم در دسترس نیست.")
+
+
+def issue_entry(session, *, user_id: int, team: Team, node: Node) -> str:
     """Issue a short-lived, one-time map-entry authorization for this session and node.
 
-    Replaces any unused prior intent on the same session. Does not prove the
-    player clicked the SVG; it only proves this authenticated session requested
-    entry for an enabled Minesweeper node. Reachability is not checked here.
+    Replaces any unused prior intent on the same session. Graph reachability is
+    checked here so a guessed URL cannot issue a ticket for a distant toll.
     """
     _require_enabled_settings(node)
+    require_graph_access(team, node)
     token = secrets.token_urlsafe(32)
     session[ENTRY_SESSION_KEY] = {
         "token": token,
@@ -192,7 +215,9 @@ def _reveal_from(
 
 def _locked_in_progress_attempt(attempt_id: int) -> MinesweeperAttempt:
     attempt = (
-        MinesweeperAttempt.objects.select_for_update().select_related("game").get(pk=attempt_id)
+        MinesweeperAttempt.objects.select_for_update()
+        .select_related("game__node", "team")
+        .get(pk=attempt_id)
     )
     if attempt.status != MinesweeperStatus.IN_PROGRESS:
         raise GameFinished("This attempt is already finished.")
@@ -226,6 +251,7 @@ def _finish(attempt: MinesweeperAttempt, progress: dict, *, won: bool) -> None:
     if won:
         attempt.status = MinesweeperStatus.WON
         attempt.score = _win_score(attempt.game.difficulty, attempt.started_at, now)
+        publish_on_commit(MINESWEEPER_CLEARED)
     else:
         attempt.status = MinesweeperStatus.LOST
         attempt.score = 0
@@ -280,14 +306,10 @@ def create_attempt(game: MinesweeperGame, team: Team) -> MinesweeperAttempt:
     )
 
 
-def _active_attempt_for(team: Team, node: Node) -> MinesweeperAttempt | None:
+def _latest_attempt_for(team: Team, node: Node, status: str) -> MinesweeperAttempt | None:
     return (
         MinesweeperAttempt.objects.select_related("game__node")
-        .filter(
-            team=team,
-            game__node_id=node.pk,
-            status=MinesweeperStatus.IN_PROGRESS,
-        )
+        .filter(team=team, game__node_id=node.pk, status=status)
         .order_by("-started_at")
         .first()
     )
@@ -295,15 +317,19 @@ def _active_attempt_for(team: Team, node: Node) -> MinesweeperAttempt | None:
 
 @transaction.atomic
 def start_play(node: Node, team: Team) -> MinesweeperAttempt:
-    """Resume this team's in-progress attempt on ``node``, or start a new game.
+    """Resume this team's attempt on ``node``, or start a new game.
 
-    Locks the node row so two concurrent starts cannot both insert. A finished
-    attempt is left as history; the next visit generates a new board.
+    Locks the node row so two concurrent starts cannot both insert. A won
+    attempt is returned as-is: the toll is cleared once, and generating a fresh
+    board would let a team re-clear the same gate for another score row. A lost
+    attempt is history; the next visit generates a new board.
     """
     locked_node = Node.objects.select_for_update().get(pk=node.pk)
-    active = _active_attempt_for(team, locked_node)
-    if active is not None:
-        return active
+    for status in (MinesweeperStatus.IN_PROGRESS, MinesweeperStatus.WON):
+        existing = _latest_attempt_for(team, locked_node, status)
+        if existing is not None:
+            return existing
+    require_graph_access(team, locked_node)
     game = create_game_from_node(locked_node)
     return create_attempt(game, team)
 

@@ -8,7 +8,8 @@ import pytest
 from django.db import connection
 from django.utils import timezone
 
-from game.models import LevelConfig, Node
+from game.models import Edge, LevelConfig, Node, Occupancy
+from game.services.events import MINESWEEPER_CLEARED
 from minesweeper.exceptions import (
     CannotFlagRevealed,
     CellAlreadyRevealed,
@@ -18,6 +19,7 @@ from minesweeper.exceptions import (
     InvalidCell,
     InvalidDifficulty,
     MinesweeperServiceError,
+    NodeUnreachable,
     SettingsDisabled,
     SettingsNotConfigured,
 )
@@ -81,6 +83,24 @@ def _configure(node, difficulty=MinesweeperDifficulty.HARD, *, enabled=True):
         difficulty=difficulty,
         enabled=enabled,
     )
+
+
+def _undirected(a: Node, b: Node) -> Edge:
+    lower, upper = sorted((a, b), key=lambda node: node.pk)
+    return Edge.objects.create(a=lower, b=upper, directed=False)
+
+
+def grant_access(team: Team, node: Node) -> Occupancy:
+    """Seat `team` on a spawn home undirected-adjacent to `node`."""
+    spawn = LevelConfig.objects.get(level="spawn")
+    home = Node.objects.create(
+        code=f"ms-home-{team.pk}-{node.pk}",
+        name="home",
+        level=spawn,
+    )
+    holding = Occupancy.objects.create(team=team, node=home, slot=1, is_spawn=True)
+    _undirected(home, node)
+    return holding
 
 
 def _playing(team, node, difficulty=MinesweeperDifficulty.EASY):
@@ -151,68 +171,86 @@ class TestCreateGameFromNode:
 
 
 class TestMapEntry:
-    def test_issue_and_consume(self, node):
+    def test_issue_and_consume(self, team, node):
         _configure(node)
+        grant_access(team, node)
         session = {}
-        token = issue_entry(session, user_id=7, node=node)
+        token = issue_entry(session, user_id=7, team=team, node=node)
         consume_entry(session, user_id=7, node=node, token=token)
 
-    def test_wrong_node_is_rejected(self, node):
+    def test_wrong_node_is_rejected(self, team, node):
         _configure(node)
+        grant_access(team, node)
         other = Node.objects.create(
             code="ms-other",
             name="Other",
             level=LevelConfig.objects.get(level="easy"),
         )
         _configure(other)
+        grant_access(team, other)
         session = {}
-        token = issue_entry(session, user_id=7, node=node)
+        token = issue_entry(session, user_id=7, team=team, node=node)
         with pytest.raises(EntryUnauthorized):
             consume_entry(session, user_id=7, node=other, token=token)
         with pytest.raises(EntryUnauthorized):
             consume_entry(session, user_id=7, node=node, token=token)
 
-    def test_token_cannot_be_reused(self, node):
+    def test_token_cannot_be_reused(self, team, node):
         _configure(node)
+        grant_access(team, node)
         session = {}
-        token = issue_entry(session, user_id=7, node=node)
+        token = issue_entry(session, user_id=7, team=team, node=node)
         consume_entry(session, user_id=7, node=node, token=token)
         with pytest.raises(EntryUnauthorized):
             consume_entry(session, user_id=7, node=node, token=token)
 
-    def test_expired_token_is_rejected(self, node, monkeypatch):
+    def test_expired_token_is_rejected(self, team, node, monkeypatch):
         _configure(node)
+        grant_access(team, node)
         started = timezone.now()
         monkeypatch.setattr("minesweeper.services._now", lambda: started)
         session = {}
-        token = issue_entry(session, user_id=7, node=node)
+        token = issue_entry(session, user_id=7, team=team, node=node)
         monkeypatch.setattr("minesweeper.services._now", lambda: started + timedelta(seconds=61))
         with pytest.raises(EntryUnauthorized):
             consume_entry(session, user_id=7, node=node, token=token)
 
-    def test_forged_token_is_rejected(self, node):
+    def test_forged_token_is_rejected(self, team, node):
         _configure(node)
+        grant_access(team, node)
         session = {}
-        issue_entry(session, user_id=7, node=node)
+        issue_entry(session, user_id=7, team=team, node=node)
         with pytest.raises(EntryUnauthorized):
             consume_entry(session, user_id=7, node=node, token="forged")
 
-    def test_wrong_user_is_rejected_and_token_is_consumed(self, node):
+    def test_wrong_user_is_rejected_and_token_is_consumed(self, team, node):
         _configure(node)
+        grant_access(team, node)
         session = {}
-        token = issue_entry(session, user_id=7, node=node)
+        token = issue_entry(session, user_id=7, team=team, node=node)
         with pytest.raises(EntryUnauthorized):
             consume_entry(session, user_id=8, node=node, token=token)
         with pytest.raises(EntryUnauthorized):
             consume_entry(session, user_id=7, node=node, token=token)
 
-    def test_issue_requires_enabled_settings(self, node):
+    def test_issue_requires_enabled_settings(self, team, node):
         session = {}
         with pytest.raises(SettingsNotConfigured):
-            issue_entry(session, user_id=7, node=node)
+            issue_entry(session, user_id=7, team=team, node=node)
+
+    def test_unreachable_node_cannot_issue_a_ticket(self, team, node):
+        _configure(node)
+        session = {}
+        with pytest.raises(NodeUnreachable):
+            issue_entry(session, user_id=7, team=team, node=node)
 
 
 class TestStartPlay:
+    @pytest.fixture(autouse=True)
+    def _reachable(self, team, other_team, node):
+        grant_access(team, node)
+        grant_access(other_team, node)
+
     def test_creates_a_new_game_and_attempt(self, team, node):
         _configure(node, MinesweeperDifficulty.HARD)
         attempt = start_play(node, team)
@@ -231,19 +269,28 @@ class TestStartPlay:
         assert MinesweeperGame.objects.filter(node=node).count() == 1
         assert MinesweeperAttempt.objects.filter(team=team).count() == 1
 
-    @pytest.mark.parametrize("status", [MinesweeperStatus.WON, MinesweeperStatus.LOST])
-    def test_finished_attempt_starts_a_new_game(self, team, node, status):
+    def test_lost_attempt_starts_a_new_game(self, team, node):
         _configure(node, MinesweeperDifficulty.EASY)
         first = start_play(node, team)
-        _finish(first, status)
+        _finish(first, MinesweeperStatus.LOST)
         second = start_play(node, team)
         assert second.pk != first.pk
         assert second.game_id != first.game_id
         assert second.status == MinesweeperStatus.IN_PROGRESS
         first.refresh_from_db()
-        assert first.status == status
+        assert first.status == MinesweeperStatus.LOST
         assert MinesweeperGame.objects.filter(node=node).count() == 2
         assert MinesweeperAttempt.objects.filter(team=team).count() == 2
+
+    def test_won_attempt_is_returned_instead_of_a_fresh_board(self, team, node):
+        _configure(node, MinesweeperDifficulty.EASY)
+        first = start_play(node, team)
+        _finish(first, MinesweeperStatus.WON)
+        second = start_play(node, team)
+        assert second.pk == first.pk
+        assert second.status == MinesweeperStatus.WON
+        assert MinesweeperGame.objects.filter(node=node).count() == 1
+        assert MinesweeperAttempt.objects.filter(team=team).count() == 1
 
     def test_different_teams_get_different_games(self, team, other_team, node):
         _configure(node, MinesweeperDifficulty.MEDIUM)
@@ -267,6 +314,21 @@ class TestStartPlay:
         assert alpha.board["cells"][row][col]["revealed"] is True
         assert beta.board["cells"][row][col] == {"revealed": False, "flagged": False}
         assert alpha.game_id != beta.game_id
+
+
+class TestStartPlayGraphGate:
+    def test_new_game_requires_reachability(self, team, node):
+        _configure(node, MinesweeperDifficulty.EASY)
+        with pytest.raises(NodeUnreachable):
+            start_play(node, team)
+        assert MinesweeperGame.objects.count() == 0
+
+    def test_in_progress_resume_does_not_require_current_reachability(self, team, node):
+        _configure(node, MinesweeperDifficulty.EASY)
+        attempt = create_attempt(create_game_from_node(node), team)
+        resumed = start_play(node, team)
+        assert resumed.pk == attempt.pk
+        assert MinesweeperGame.objects.filter(node=node).count() == 1
 
 
 class TestAttempts:
@@ -909,6 +971,19 @@ class TestWin:
         assert (0, 1) in _revealed(updated.board)
         assert updated.finished_at is not None
 
+    def test_win_publishes_a_hint_with_no_team_or_node(self, team, node, monkeypatch):
+        published = []
+        monkeypatch.setattr(
+            "minesweeper.services.publish_on_commit",
+            lambda *args, **kwargs: published.append((args, kwargs)),
+        )
+        attempt = _split_attempt(team, node)
+        _reveal_all_safe_except(attempt, {(0, 3)})
+
+        reveal_cell(attempt.pk, 0, 3)
+
+        assert published == [((MINESWEEPER_CLEARED,), {})]
+
     def test_won_attempt_rejects_reveal_and_flag(self, team, node):
         attempt = _split_attempt(team, node)
         _reveal_all_safe_except(attempt, {(0, 3)})
@@ -999,6 +1074,11 @@ class TestToggleFlagConcurrency:
 @pytest.mark.postgres_only
 @pytest.mark.django_db(transaction=True)
 class TestStartPlayConcurrency:
+    @pytest.fixture(autouse=True)
+    def _reachable(self, team, other_team, node):
+        grant_access(team, node)
+        grant_access(other_team, node)
+
     def test_concurrent_starts_create_independent_games(self, team, other_team, node):
         _configure(node, MinesweeperDifficulty.EASY)
         barrier = threading.Barrier(2)

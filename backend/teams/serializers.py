@@ -30,10 +30,48 @@ class HoldingSerializer(serializers.ModelSerializer):
 class TeamSerializer(serializers.ModelSerializer):
     holdings = HoldingSerializer(many=True, read_only=True)
     balance = serializers.SerializerMethodField()
+    cleared_tolls = serializers.SerializerMethodField()
+    active_tolls = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
-        fields = ("code", "name", "balance", "color", "holdings")
+        fields = (
+            "code",
+            "name",
+            "balance",
+            "color",
+            "holdings",
+            "cleared_tolls",
+            "active_tolls",
+        )
+
+    def _toll_codes(self, team: Team, status: str) -> list[str]:
+        if hasattr(team, "_toll_attempts"):
+            return sorted(
+                {row.game.node.code for row in team._toll_attempts if row.status == status}
+            )
+        from minesweeper.models import MinesweeperAttempt
+
+        return sorted(
+            set(
+                MinesweeperAttempt.objects.filter(team=team, status=status).values_list(
+                    "game__node__code", flat=True
+                )
+            )
+        )
+
+    def get_cleared_tolls(self, team: Team) -> list[str]:
+        """Node codes this team has won Minesweeper on. Not holdings."""
+        from minesweeper.models import MinesweeperStatus
+
+        return self._toll_codes(team, MinesweeperStatus.WON)
+
+    def get_active_tolls(self, team: Team) -> list[str]:
+        """Nodes with a board still in progress, which the team may resume even
+        if the holding it reached them from has since been released."""
+        from minesweeper.models import MinesweeperStatus
+
+        return self._toll_codes(team, MinesweeperStatus.IN_PROGRESS)
 
     def get_balance(self, team: Team) -> int | None:
         """Only mentors and the team itself see the number; other teams see null.

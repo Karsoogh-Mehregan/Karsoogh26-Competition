@@ -43,8 +43,24 @@ def board():
 @pytest.fixture
 def rows():
     return [
-        {"code": "alpha", "name": "Alpha", "balance": 42, "color": None, "holdings": [{"id": 1}]},
-        {"code": "bravo", "name": "Bravo", "balance": 99, "color": None, "holdings": []},
+        {
+            "code": "alpha",
+            "name": "Alpha",
+            "balance": 42,
+            "color": None,
+            "holdings": [{"id": 1}],
+            "cleared_tolls": ["C34_0"],
+            "active_tolls": ["C45_0"],
+        },
+        {
+            "code": "bravo",
+            "name": "Bravo",
+            "balance": 99,
+            "color": None,
+            "holdings": [],
+            "cleared_tolls": ["C45_0"],
+            "active_tolls": ["C34_0"],
+        },
     ]
 
 
@@ -56,6 +72,8 @@ def test_a_team_sees_only_its_own_balance(rows):
     masked = board_cache.mask(rows, is_mentor=False, viewer_team_code="alpha")
 
     assert [(row["code"], row["balance"]) for row in masked] == [("alpha", 42), ("bravo", None)]
+    assert [row["cleared_tolls"] for row in masked] == [["C34_0"], []]
+    assert [row["active_tolls"] for row in masked] == [["C45_0"], []]
 
 
 def test_masking_leaves_the_snapshot_intact(rows):
@@ -65,6 +83,8 @@ def test_masking_leaves_the_snapshot_intact(rows):
 
     assert rows[0]["balance"] == 42
     assert rows[1]["balance"] == 99
+    assert rows[0]["cleared_tolls"] == ["C34_0"]
+    assert rows[1]["cleared_tolls"] == ["C45_0"]
     # Shared by reference, never copied: proves masking stays shallow.
     assert rows[0]["holdings"] is holdings
 
@@ -74,7 +94,9 @@ def test_two_viewers_do_not_contaminate_each_other(rows):
     second = board_cache.mask(rows, is_mentor=False, viewer_team_code="bravo")
 
     assert [row["balance"] for row in first] == [42, None]
+    assert [row["cleared_tolls"] for row in first] == [["C34_0"], []]
     assert [row["balance"] for row in second] == [None, 99]
+    assert [row["cleared_tolls"] for row in second] == [[], ["C45_0"]]
 
 
 def test_snapshot_renders_once_per_version(rf, versioned, board, monkeypatch):
