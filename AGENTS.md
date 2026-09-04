@@ -81,7 +81,9 @@ frontend-only; the backend takes just the topology, via
 `uv run manage.py import_graph` (`game/management/commands/import_graph.py`), so `game.Node.code`
 holds the same ids the SPA uses (`L1_0`, `CENTER`, …). Re-running upserts and never deletes,
 so `Occupancy`'s `PROTECT` FK is safe mid-game. `TYPE_TO_LEVEL` in that command maps the 11
-frontend `type` values onto the four playable levels plus `toll`; the `c34`/`c45` connectors are
+frontend `type` values onto the five playable levels plus `toll` — `center` is its own tier,
+one node (`CENTER`), priced like `hard` until an organiser tunes it, and its question pool
+starts empty; the `c34`/`c45` connectors are
 imported as `toll` nodes with no `FloorReward` rows, which is what keeps them out of floors,
 networth, duels and buyouts. They are **gates**, not buildings — see **Toll gates** below. The Vite dev server proxies `/api` to `:8000` so
 session cookies stay same-origin. The side panel lists teams from the API; the map

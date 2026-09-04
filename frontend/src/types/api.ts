@@ -628,7 +628,7 @@ export type NeighborhoodTheme =
 
 export type RoadStyle = 'straight' | 'curved' | 'dashed'
 
-export type NodeLevel = 'spawn' | 'easy' | 'medium' | 'hard' | 'toll'
+export type NodeLevel = 'spawn' | 'easy' | 'medium' | 'hard' | 'center' | 'toll'
 
 export type ItemType = 'fake_document' | 'gel' | 'gilari_100'
 

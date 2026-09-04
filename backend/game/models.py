@@ -29,6 +29,7 @@ class Level(models.TextChoices):
     EASY = "easy", "آسان"
     MEDIUM = "medium", "متوسط"
     HARD = "hard", "سخت"
+    CENTER = "center", "مرکز شهر"
     TOLL = "toll", "عوارضی"
 
 

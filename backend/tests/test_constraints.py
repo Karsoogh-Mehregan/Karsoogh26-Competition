@@ -174,6 +174,8 @@ class TestEconomy:
             ("medium", 2, 250, 125, 450, 1000),
             ("hard", 1, 400, 270, 600, 1600),
             ("hard", 3, 500, 300, 750, 2000),
+            ("center", 1, 400, 270, 600, 1600),
+            ("center", 3, 500, 300, 750, 2000),
         ],
     )
     def test_seeded_costs(self, level, floor, points, networth, duel, buyout):
@@ -184,6 +186,13 @@ class TestEconomy:
             duel,
             buyout,
         )
+
+    def test_center_is_its_own_tier_priced_like_hard(self):
+        """Split off so the centre can be tuned alone; it starts on hard's numbers."""
+        center = LevelConfig.objects.get(level="center")
+        hard = LevelConfig.objects.get(level="hard")
+        assert (center.capacity, center.entry_cost) == (hard.capacity, hard.entry_cost)
+        assert center.floor_rewards.count() == hard.floor_rewards.count()
 
     def test_rounding_is_half_up_not_bankers(self):
         """round() would send 262.5 down and 187.5 up — inconsistent in a currency."""
