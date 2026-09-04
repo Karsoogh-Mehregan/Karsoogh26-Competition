@@ -20,26 +20,45 @@ def is_reachable(node: Node, held_ids: set[int]) -> bool:
     ).exists()
 
 
+def _cleared_toll_ids(team: Team) -> set[int]:
+    """Nodes this team has won Minesweeper on. Not occupancy — pass-through only."""
+    from minesweeper.models import MinesweeperAttempt, MinesweeperStatus
+
+    return set(
+        MinesweeperAttempt.objects.filter(team=team, status=MinesweeperStatus.WON).values_list(
+            "game__node_id", flat=True
+        )
+    )
+
+
 def _expandable_node_ids(team: Team) -> set[int]:
     """A reservation only opens its neighbours once it is graded; spawns start open.
 
     Item-granted seats expand reach the same way a grade does, without a grade.
+    A won Minesweeper toll also expands, without seating the team on that node.
     """
-    return set(
+    held = set(
         Occupancy.objects.active()
         .filter(team=team)
         .filter(Q(is_spawn=True) | Q(grade__isnull=False) | Q(source=AcquisitionSource.ITEM))
         .values_list("node_id", flat=True)
     )
+    return held | _cleared_toll_ids(team)
+
+
+def team_can_access_node(team: Team, node: Node) -> bool:
+    """True if `node` is an expandable source or a neighbour of one."""
+    expandable = _expandable_node_ids(team)
+    return node.pk in expandable or is_reachable(node, expandable)
 
 
 def _reserve(team: Team, node: Node) -> Occupancy:
-    if Occupancy.objects.active().filter(team=team).exists():
-        held_ids = _expandable_node_ids(team)
-        if not held_ids:
-            raise Conflict("تا وقتی این خانه نمره نداشته باشد نمی‌توان همسایه را رزرو کرد.")
+    held_ids = _expandable_node_ids(team)
+    if held_ids:
         if not is_reachable(node, held_ids):
             raise Conflict("این خانه به هیچ‌کدام از خانه‌های فعلی تیم متصل نیست.")
+    elif Occupancy.objects.active().filter(team=team).exists():
+        raise Conflict("تا وقتی این خانه نمره نداشته باشد نمی‌توان همسایه را رزرو کرد.")
     elif team.color is None or color_for_start(node.code) != team.color:
         raise Conflict("اولین حرکت تیم باید روی خانهٔ شروع خودش باشد.")
 

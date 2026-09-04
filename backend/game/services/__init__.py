@@ -15,6 +15,7 @@ from .events import (
     BOARD_SPAWN_CLAIMED,
     GAME_STATE,
     MAP_DESIGN,
+    MINESWEEPER_CLEARED,
     QUESTION_ASSIGNED,
     SUBMISSION_CREATED,
     current_version,
@@ -29,7 +30,7 @@ from .mentor import (
     grade_attempt,
     release_attempt,
 )
-from .movement import claim_node, claim_spawn, is_reachable
+from .movement import claim_node, claim_spawn, is_reachable, team_can_access_node
 from .questions import (
     assign_question,
     grade_submission,
@@ -46,6 +47,7 @@ __all__ = [
     "GAME_STATE",
     "MAP_DESIGN",
     "MENTOR_RELEASE_REASONS",
+    "MINESWEEPER_CLEARED",
     "QUESTION_ASSIGNED",
     "SUBMISSION_CREATED",
     "Conflict",
@@ -72,6 +74,7 @@ __all__ = [
     "retries_used",
     "retry_entry_question",
     "submit_answer",
+    "team_can_access_node",
     "use_fake_document",
     "use_gel",
     "use_gilari",

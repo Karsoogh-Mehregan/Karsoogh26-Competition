@@ -30,10 +30,25 @@ class HoldingSerializer(serializers.ModelSerializer):
 class TeamSerializer(serializers.ModelSerializer):
     holdings = HoldingSerializer(many=True, read_only=True)
     balance = serializers.SerializerMethodField()
+    cleared_tolls = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
-        fields = ("code", "name", "balance", "color", "holdings")
+        fields = ("code", "name", "balance", "color", "holdings", "cleared_tolls")
+
+    def get_cleared_tolls(self, team: Team) -> list[str]:
+        """Node codes this team has won Minesweeper on. Not holdings."""
+        if hasattr(team, "_won_minesweeper_attempts"):
+            return sorted({row.game.node.code for row in team._won_minesweeper_attempts})
+        from minesweeper.models import MinesweeperAttempt, MinesweeperStatus
+
+        return sorted(
+            set(
+                MinesweeperAttempt.objects.filter(
+                    team=team, status=MinesweeperStatus.WON
+                ).values_list("game__node__code", flat=True)
+            )
+        )
 
     def get_balance(self, team: Team) -> int | None:
         """Only mentors and the team itself see the number; other teams see null.

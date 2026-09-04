@@ -14,7 +14,7 @@ const HOUSE_FILL = '#E2CFA6'
 const { me, teams, actingTeam, isPlayer } = useActing()
 const { canClaimStart } = useEntry()
 const inspector = useInspectorStore()
-const { nodes, edges, nodeById, adjacency, startEligibleIds } = useGraph()
+const { nodes, edges, nodeById, outAdjacency, startEligibleIds } = useGraph()
 const design = useMapDesign()
 const { neighborhoods, roadStyle, tintStrength, haloStrength } = design
 
@@ -92,16 +92,18 @@ const actingHeldIds = computed(() => {
 })
 
 function holdingUnlocksNeighbors(holding) {
-  return holding.is_spawn === true || holding.grade != null
+  return holding.is_spawn === true || holding.grade != null || holding.source === 'item'
 }
 
 const expandableHeldIds = computed(() => {
   if (!actingTeam.value) return new Set()
-  return new Set(
-    actingTeam.value.holdings
-      .filter(holdingUnlocksNeighbors)
-      .map((holding) => holding.node_code),
-  )
+  const ids = actingTeam.value.holdings
+    .filter(holdingUnlocksNeighbors)
+    .map((holding) => holding.node_code)
+  for (const code of actingTeam.value.cleared_tolls ?? []) {
+    ids.push(code)
+  }
+  return new Set(ids)
 })
 
 function isHeldByAnyone(id) {
@@ -121,14 +123,14 @@ function isEntryGate(n) {
 function isNodeSelectable(id) {
   if (!canAct.value) return false
   const held = actingHeldIds.value
-  if (held.size === 0) {
+  const expandable = expandableHeldIds.value
+  if (held.size === 0 && expandable.size === 0) {
     return canClaimStart.value && isFreeStart(id)
   }
   if (held.has(id)) return false
-  const expandable = expandableHeldIds.value
   if (expandable.size === 0) return false
   for (const heldId of expandable) {
-    if (adjacency.get(heldId)?.has(id)) return true
+    if (outAdjacency.get(heldId)?.has(id)) return true
   }
   return false
 }
@@ -320,7 +322,9 @@ function inspectIntent(n) {
   // A gateway is played, not answered: it never offers a question, and only
   // offers a board where the server actually has one configured.
   if (isGatewayNode(n)) {
-    const playable = canAct.value && design.hasMinesweeper(n.id)
+    const cleared = actingTeam.value?.cleared_tolls?.includes(n.id) === true
+    const playable =
+      canAct.value && design.hasMinesweeper(n.id) && (isNodeSelectable(n.id) || cleared)
     return { intent: playable ? 'minesweeper' : 'view', occupancyId: null }
   }
   if (isNodeSelectable(n.id)) {

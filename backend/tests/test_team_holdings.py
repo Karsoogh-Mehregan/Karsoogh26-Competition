@@ -82,7 +82,7 @@ def test_with_holdings_does_not_scale_with_team_count(nodes, django_assert_num_q
         other = Team.objects.create(code=code, name=code.title())
         Occupancy.objects.create(node=nodes["e1"], team=other, slot=slot)
 
-    with django_assert_num_queries(2):  # teams, then one prefetch for all holdings
+    with django_assert_num_queries(3):  # teams, holdings prefetch, won-toll prefetch
         rows = [[h.node.code for h in team.holdings] for team in Team.objects.with_holdings()]
 
     assert rows == [["e1"], ["e1"], ["e1"]]

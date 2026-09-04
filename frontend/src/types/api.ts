@@ -7,6 +7,7 @@ export interface Holding {
   floor: number | null
   grade: number | null
   is_spawn: boolean
+  source: 'attempt' | 'item'
 }
 
 export interface Team {
@@ -15,6 +16,8 @@ export interface Team {
   balance: number | null
   color: string | null
   holdings: Holding[]
+  /** Toll node codes this team has won Minesweeper on. Not holdings. */
+  cleared_tolls: string[]
 }
 
 export interface Me {

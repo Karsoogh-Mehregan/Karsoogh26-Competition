@@ -53,6 +53,9 @@ export function useRevealMinesweeperCellMutation() {
       revealCell(attemptId, row, col),
     onSuccess: (game: MinesweeperGame) => {
       cacheAttempt(queryClient, game)
+      if (game.status === 'won') {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.teams() })
+      }
     },
   })
 }

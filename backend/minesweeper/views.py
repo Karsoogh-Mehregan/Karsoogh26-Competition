@@ -18,6 +18,7 @@ from minesweeper.exceptions import (
     InvalidCell,
     InvalidDifficulty,
     MinesweeperServiceError,
+    NodeUnreachable,
     SettingsDisabled,
     SettingsNotConfigured,
 )
@@ -28,7 +29,14 @@ from minesweeper.serializers import (
     PublicGameSerializer,
     StartPlaySerializer,
 )
-from minesweeper.services import consume_entry, issue_entry, reveal_cell, start_play, toggle_flag
+from minesweeper.services import (
+    consume_entry,
+    issue_entry,
+    require_graph_access,
+    reveal_cell,
+    start_play,
+    toggle_flag,
+)
 
 _NODE_CODE = OpenApiParameter(
     "node_code", str, OpenApiParameter.PATH, description="Map node code (e.g. C34_0)"
@@ -67,6 +75,8 @@ def _map_service_error(exc: Exception):
         raise NotFound("بازی پیدا نشد.") from exc
     if isinstance(exc, EntryUnauthorized):
         raise PermissionDenied("اجازهٔ ورود به این بازی صادر نشده است.") from exc
+    if isinstance(exc, NodeUnreachable):
+        raise Conflict(str(exc)) from exc
     if isinstance(exc, SettingsDisabled):
         raise Conflict("این بازی مین‌روب فعال نیست.") from exc
     if isinstance(exc, GameFinished):
@@ -113,8 +123,8 @@ class EnterPlayView(APIView):
         summary="Request Minesweeper map-entry authorization",
         description=(
             "Issues a short-lived, one-time, session-bound authorization for this node. "
-            "The SPA must then POST start with that token. This does not check map "
-            "reachability or occupancy."
+            "The SPA must then POST start with that token. The node must be reachable "
+            "from the caller's expandable holdings or a won Minesweeper toll."
         ),
         parameters=[_NODE_CODE],
         request=None,
@@ -130,7 +140,12 @@ class EnterPlayView(APIView):
     def post(self, request, node_code: str):
         node = _node_by_code(node_code)
         try:
-            token = issue_entry(request.session, user_id=request.user.pk, node=node)
+            token = issue_entry(
+                request.session,
+                user_id=request.user.pk,
+                team=request.user.team,
+                node=node,
+            )
         except MinesweeperServiceError as exc:
             _map_service_error(exc)
         return Response({"entry": token, "node": node.code})
@@ -157,6 +172,7 @@ class StartPlayView(APIView):
         payload.is_valid(raise_exception=True)
         node = _node_by_code(node_code)
         try:
+            require_graph_access(request.user.team, node)
             consume_entry(
                 request.session,
                 user_id=request.user.pk,
