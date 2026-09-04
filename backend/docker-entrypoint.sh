@@ -15,8 +15,10 @@ GRAPH_DATA_FILE="${GRAPH_DATA_FILE:-/app/graph_data.json}"
 
 if [ "${IMPORT_GRAPH:-1}" = "1" ]; then
     if [ -f "${GRAPH_DATA_FILE}" ]; then
-        echo "entrypoint: importing graph from ${GRAPH_DATA_FILE}"
-        python manage.py import_graph --file "${GRAPH_DATA_FILE}"
+        for board in ${GRAPH_BOARDS:-girls boys}; do
+            echo "entrypoint: importing graph from ${GRAPH_DATA_FILE} into ${board}"
+            python manage.py import_graph --board "${board}" --file "${GRAPH_DATA_FILE}"
+        done
     else
         echo "entrypoint: no ${GRAPH_DATA_FILE}, skipping import_graph"
     fi

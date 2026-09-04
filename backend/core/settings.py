@@ -141,6 +141,18 @@ DATABASES = {
     "default": env.db("DATABASE_URL", default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}"),
 }
 
+DB_POOL_MAX_SIZE = env.int("DB_POOL_MAX_SIZE", default=10)
+
+if DB_POOL_MAX_SIZE and "postgresql" in DATABASES["default"].get("ENGINE", ""):
+    DATABASES["default"]["CONN_MAX_AGE"] = 0
+    DATABASES["default"]["OPTIONS"] = {
+        **DATABASES["default"].get("OPTIONS", {}),
+        "pool": {
+            "min_size": env.int("DB_POOL_MIN_SIZE", default=2),
+            "max_size": DB_POOL_MAX_SIZE,
+        },
+    }
+
 
 # Redis. Two separate URLs on purpose: cache.clear() issues FLUSHDB, which
 # wipes the whole logical database, so the cache must not share a database
@@ -179,6 +191,17 @@ if REDIS_CACHE_URL:
             "LOCATION": REDIS_CACHE_URL,
         },
     }
+
+# Every authenticated request reads the session. Off a shared cache that is a
+# Redis GET; against the database it is a query per request per client.
+SESSION_ENGINE = env(
+    "SESSION_ENGINE",
+    default=(
+        "django.contrib.sessions.backends.cached_db"
+        if REDIS_CACHE_URL
+        else "django.contrib.sessions.backends.db"
+    ),
+)
 
 
 # Django REST Framework
