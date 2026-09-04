@@ -5,7 +5,8 @@ from .models import BalanceEvent, Team, TeamItem
 
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
-    list_display = ("code", "name", "color", "balance", "draft_order", "last_duel_at")
+    list_display = ("code", "name", "board", "color", "balance", "draft_order", "last_duel_at")
+    list_filter = ("board",)
     search_fields = ("code", "name")
     ordering = ("draft_order",)
 

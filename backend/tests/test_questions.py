@@ -11,6 +11,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from core.boards import Board
 from game.exceptions import NoQuestionAvailable
 from game.models import AnswerType, GameSettings, GameStatus, LevelConfig, Node, Occupancy, Question
 from game.services import assign_question, grade_attempt, grade_submission, submit_answer
@@ -32,12 +33,14 @@ def hard():
 
 @pytest.fixture
 def node(easy):
-    return Node.objects.create(code="e1", name="Easy 1", level=easy)
+    return Node.objects.create(board=Board.GIRLS, code="e1", name="Easy 1", level=easy)
 
 
 @pytest.fixture
 def teams():
-    return [Team.objects.create(code=f"t{i}", name=f"Team {i}") for i in range(3)]
+    return [
+        Team.objects.create(board=Board.GIRLS, code=f"t{i}", name=f"Team {i}") for i in range(3)
+    ]
 
 
 @pytest.fixture
@@ -88,7 +91,10 @@ def occupy(node, team, **kwargs):
 
 class TestAssignQuestion:
     def test_no_repeat_per_team(self, easy, teams, questions, running_game):
-        nodes = [Node.objects.create(code=f"n{i}", name=f"N{i}", level=easy) for i in range(4)]
+        nodes = [
+            Node.objects.create(board=Board.GIRLS, code=f"n{i}", name=f"N{i}", level=easy)
+            for i in range(4)
+        ]
         assigned = []
         for i in range(3):
             occ = occupy(nodes[i], teams[0])
@@ -271,7 +277,7 @@ class TestMentorGradingAPI:
         Ranking it would push the floor-1 holder up to floor 2 and then leave
         floor 1 empty when the partial holding is released.
         """
-        hard_node = Node.objects.create(code="h3", name="Hard 3", level=hard)
+        hard_node = Node.objects.create(board=Board.GIRLS, code="h3", name="Hard 3", level=hard)
         hard_question = Question.objects.create(
             level=hard,
             code="hq3",
@@ -334,7 +340,7 @@ class TestMentorGradingAPI:
         already-graded rows and a third grade triggers the re-rank, because the
         release rule would otherwise retire both before they ever share a tower.
         """
-        hard_node = Node.objects.create(code="h2", name="Hard 2", level=hard)
+        hard_node = Node.objects.create(board=Board.GIRLS, code="h2", name="Hard 2", level=hard)
         assigned = timezone.now()
         for slot, (team, grade, ratio) in enumerate(
             ((teams[0], 8, "0.800"), (teams[1], 50, "0.500")), start=1
@@ -360,7 +366,7 @@ class TestMentorGradingAPI:
         assert floors == {teams[0].code: 2, teams[1].code: 1, teams[2].code: None}
 
     def test_grade_zero_releases_occupancy(self, hard, teams, questions, running_game):
-        hard_node = Node.objects.create(code="h1", name="Hard 1", level=hard)
+        hard_node = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
         hard_q = Question.objects.create(
             level=hard,
             code="hq1",

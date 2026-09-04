@@ -1,6 +1,8 @@
 from django.db import models
 from django.db.models import CheckConstraint, F, Q, UniqueConstraint
 
+from core.boards import Board
+
 BOARD_SIZE = 5
 TOTAL_TURNS = 20
 
@@ -231,6 +233,7 @@ class CharityBagAction(models.TextChoices):
 
 
 class CharityBagEvent(models.Model):
+    board = models.CharField(max_length=8, choices=Board.choices)
     status = models.CharField(
         max_length=10,
         choices=CharityBagStatus.choices,
@@ -253,7 +256,8 @@ class CharityBagEvent(models.Model):
                 condition=Q(ends_at__gt=F("starts_at")),
                 name="charity_bag_positive_window",
             ),
-            UniqueConstraint(fields=["starts_at"], name="charity_bag_unique_start"),
+            CheckConstraint(condition=Q(board__in=Board.values), name="charity_bag_board_valid"),
+            UniqueConstraint(fields=["board", "starts_at"], name="charity_bag_unique_start"),
             CheckConstraint(
                 condition=(
                     Q(
@@ -684,6 +688,7 @@ class AuctionStatus(models.TextChoices):
 
 
 class AuctionEvent(models.Model):
+    board = models.CharField(max_length=8, choices=Board.choices)
     status = models.CharField(
         max_length=10, choices=AuctionStatus.choices, default=AuctionStatus.SCHEDULED
     )
@@ -700,6 +705,7 @@ class AuctionEvent(models.Model):
     class Meta:
         ordering = ["-created_at"]
         constraints = [
+            CheckConstraint(condition=Q(board__in=Board.values), name="auction_board_valid"),
             CheckConstraint(condition=Q(reward__gt=0), name="auction_reward_positive"),
             CheckConstraint(condition=Q(opening_bid__gt=0), name="auction_opening_positive"),
             CheckConstraint(condition=Q(duration_seconds__gt=0), name="auction_duration_positive"),
@@ -795,6 +801,7 @@ class WheelDeliveryStatus(models.TextChoices):
 
 
 class WheelEvent(models.Model):
+    board = models.CharField(max_length=8, choices=Board.choices)
     status = models.CharField(
         max_length=19, choices=WheelStatus.choices, default=WheelStatus.SCHEDULED
     )
@@ -814,7 +821,10 @@ class WheelEvent(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
-        constraints = [CheckConstraint(condition=Q(spin_cost__gt=0), name="wheel_cost_positive")]
+        constraints = [
+            CheckConstraint(condition=Q(board__in=Board.values), name="wheel_board_valid"),
+            CheckConstraint(condition=Q(spin_cost__gt=0), name="wheel_cost_positive"),
+        ]
 
 
 class WheelPrize(models.Model):
@@ -871,6 +881,7 @@ class PigGameStatus(models.TextChoices):
 
 
 class PigEvent(models.Model):
+    board = models.CharField(max_length=8, choices=Board.choices)
     status = models.CharField(
         max_length=8, choices=PigEventStatus.choices, default=PigEventStatus.ACTIVE
     )
@@ -882,6 +893,7 @@ class PigEvent(models.Model):
     class Meta:
         ordering = ["-created_at"]
         constraints = [
+            CheckConstraint(condition=Q(board__in=Board.values), name="pig_board_valid"),
             CheckConstraint(condition=Q(entry_fee__gt=0), name="pig_entry_fee_positive"),
             CheckConstraint(condition=Q(max_pot__gt=0), name="pig_max_pot_positive"),
         ]

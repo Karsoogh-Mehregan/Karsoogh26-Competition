@@ -116,7 +116,7 @@ def claim_spawn(team: Team, node: Node) -> Occupancy:
         holding = Occupancy.objects.create(team=team, node=node, slot=1, is_spawn=True)
     except IntegrityError as exc:
         raise Conflict("این خانهٔ شروع قبلاً گرفته شده است.") from exc
-    publish_on_commit(BOARD_SPAWN_CLAIMED, {"team": team.code, "node": node.code})
+    publish_on_commit(BOARD_SPAWN_CLAIMED, {"team": team.code, "node": node.code}, board=team.board)
     return holding
 
 
@@ -149,5 +149,5 @@ def claim_node(team: Team, node: Node) -> Occupancy:
 
     assign_question(holding)
     holding.refresh_from_db()
-    publish_on_commit(BOARD_NODE_CLAIMED, {"team": team.code, "node": node.code})
+    publish_on_commit(BOARD_NODE_CLAIMED, {"team": team.code, "node": node.code}, board=team.board)
     return holding

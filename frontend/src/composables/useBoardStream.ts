@@ -9,13 +9,13 @@ const JITTER_MS = 600
 
 type QueryKey = readonly unknown[]
 
-const BOARD = [queryKeys.teams()]
+const BOARD = [queryKeys.teamsRoot()]
 const ROUTES: Record<string, () => QueryKey[]> = {
   'board.spawn.claimed': () => BOARD,
-  'board.node.claimed': () => [queryKeys.teams(), queryKeys.balanceEventsRoot()],
-  'board.released': () => [queryKeys.teams(), queryKeys.attemptsRoot()],
+  'board.node.claimed': () => [queryKeys.teamsRoot(), queryKeys.balanceEventsRoot()],
+  'board.released': () => [queryKeys.teamsRoot(), queryKeys.attemptsRoot()],
   // A grade moves balances, so the leaderboard is stale too.
-  'board.graded': () => [queryKeys.teams(), queryKeys.leaderboard(), queryKeys.balanceEventsRoot()],
+  'board.graded': () => [queryKeys.teamsRoot(), queryKeys.leaderboardRoot(), queryKeys.balanceEventsRoot()],
   'question.assigned': () => [queryKeys.attemptsRoot()],
   'mentor.submission.created': () => [queryKeys.submissions()],
   // An admin flipped the game state; everyone's clock and stage bar are stale.
@@ -24,7 +24,7 @@ const ROUTES: Record<string, () => QueryKey[]> = {
   // useNotifications decides whether that counts as news worth a toast.
   'notification.created': () => [queryKeys.inbox()],
   // A Designer repainted something; every open map is stale.
-  'map.design': () => [queryKeys.mapDesign()],
+  'map.design': () => [queryKeys.mapDesignRoot()],
   // A won Minesweeper toll expands reach; holdings themselves did not change.
   'minesweeper.cleared': () => BOARD,
   // Addressed to the two teams and the judge only — see `game.sse._visible_to`.
@@ -34,13 +34,13 @@ const ROUTES: Record<string, () => QueryKey[]> = {
 }
 
 const RESYNC_KEYS: QueryKey[] = [
-  queryKeys.teams(),
-  queryKeys.leaderboard(),
+  queryKeys.teamsRoot(),
+  queryKeys.leaderboardRoot(),
   queryKeys.submissions(),
   queryKeys.gameState(),
   queryKeys.attemptsRoot(),
   queryKeys.inbox(),
-  queryKeys.mapDesign(),
+  queryKeys.mapDesignRoot(),
   queryKeys.duelsRoot(),
 ]
 

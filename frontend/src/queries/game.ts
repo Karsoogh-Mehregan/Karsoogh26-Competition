@@ -22,7 +22,7 @@ export function useAssignQuestionMutation() {
       assignQuestion(teamCode, nodeCode),
     onSuccess: (_result: AssignQuestionResult) => {
       return Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.teams() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.teamsRoot() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.attemptsRoot() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.submissions() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.balanceEventsRoot() }),
@@ -60,7 +60,7 @@ export function useGradeSubmissionMutation() {
     onSuccess: (_result: GradeResult) => {
       return Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.submissions() }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.teams() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.teamsRoot() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.attemptsRoot() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.balanceEventsRoot() }),
       ])

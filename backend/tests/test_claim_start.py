@@ -7,6 +7,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.utils import timezone
 
+from core.boards import Board
 from game.models import GameSettings, GameStatus, LevelConfig, Node, Occupancy
 from teams.models import Team
 from teams.start_colors import color_for_start
@@ -18,12 +19,12 @@ User = get_user_model()
 
 @pytest.fixture
 def team():
-    return Team.objects.create(code="alpha", name="Alpha", balance=42)
+    return Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=42)
 
 
 @pytest.fixture
 def other_team():
-    return Team.objects.create(code="beta", name="Beta", balance=7)
+    return Team.objects.create(board=Board.GIRLS, code="beta", name="Beta", balance=7)
 
 
 @pytest.fixture
@@ -59,7 +60,9 @@ def entry_gate_open(running_game):
 def spawn_starts():
     spawn = LevelConfig.objects.get(level="spawn")
     for code in ("L1_0", "L1_4", "L1_8"):
-        Node.objects.get_or_create(code=code, defaults={"name": code, "level": spawn})
+        Node.objects.get_or_create(
+            board=Board.GIRLS, code=code, defaults={"name": code, "level": spawn}
+        )
 
 
 def _claim(client, code, node):

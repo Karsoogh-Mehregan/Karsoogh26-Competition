@@ -41,7 +41,7 @@ export function useUpdateGameSettingsMutation() {
       return Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.gameState() }),
         // Publishing the leaderboard changes who may read it.
-        queryClient.invalidateQueries({ queryKey: queryKeys.leaderboard() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.leaderboardRoot() }),
       ])
     },
   })

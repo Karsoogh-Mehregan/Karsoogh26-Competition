@@ -8,6 +8,7 @@ import pytest
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
+from core.boards import Board
 from game.models import Edge, Node
 
 pytestmark = pytest.mark.django_db
@@ -40,7 +41,7 @@ def graph_file(tmp_path):
 
 
 def test_imports_nodes_at_their_mapped_level(graph_file):
-    call_command("import_graph", file=graph_file())
+    call_command("import_graph", board=Board.GIRLS, file=graph_file())
 
     levels = dict(Node.objects.values_list("code", "level_id"))
     assert levels == {
@@ -53,7 +54,7 @@ def test_imports_nodes_at_their_mapped_level(graph_file):
 
 
 def test_undirected_edges_are_normalised_directed_ones_are_not(graph_file):
-    call_command("import_graph", file=graph_file())
+    call_command("import_graph", board=Board.GIRLS, file=graph_file())
 
     assert Edge.objects.count() == 3
     for edge in Edge.objects.filter(directed=False):
@@ -65,27 +66,27 @@ def test_undirected_edges_are_normalised_directed_ones_are_not(graph_file):
 
 def test_rerun_changes_nothing(graph_file):
     path = graph_file()
-    call_command("import_graph", file=path)
+    call_command("import_graph", board=Board.GIRLS, file=path)
     before = set(Edge.objects.values_list("a_id", "b_id", "directed"))
 
-    call_command("import_graph", file=path)
+    call_command("import_graph", board=Board.GIRLS, file=path)
 
     assert Node.objects.count() == 5
     assert set(Edge.objects.values_list("a_id", "b_id", "directed")) == before
 
 
 def test_rerun_moves_a_node_that_changed_type(graph_file):
-    call_command("import_graph", file=graph_file())
+    call_command("import_graph", board=Board.GIRLS, file=graph_file())
 
     regraded = json.loads(json.dumps(GRAPH))
     regraded["nodes"][2]["type"] = "l5"
-    call_command("import_graph", file=graph_file(regraded))
+    call_command("import_graph", board=Board.GIRLS, file=graph_file(regraded))
 
     assert Node.objects.get(code="L3_0").level_id == "hard"
 
 
 def test_dry_run_writes_nothing(graph_file):
-    call_command("import_graph", file=graph_file(), dry_run=True)
+    call_command("import_graph", board=Board.GIRLS, file=graph_file(), dry_run=True)
 
     assert Node.objects.count() == 0
     assert Edge.objects.count() == 0
@@ -96,7 +97,7 @@ def test_unmapped_node_type_is_refused(graph_file):
     graph["nodes"].append({"id": "X_0", "type": "wormhole"})
 
     with pytest.raises(CommandError, match="wormhole"):
-        call_command("import_graph", file=graph_file(graph))
+        call_command("import_graph", board=Board.GIRLS, file=graph_file(graph))
 
     assert Node.objects.count() == 0
 
@@ -106,6 +107,6 @@ def test_edge_endpoint_without_a_node_is_refused(graph_file):
     graph["edges"].append({"source": "L1_0", "target": "NOWHERE", "directed": False})
 
     with pytest.raises(CommandError, match="NOWHERE"):
-        call_command("import_graph", file=graph_file(graph))
+        call_command("import_graph", board=Board.GIRLS, file=graph_file(graph))
 
     assert Node.objects.count() == 0

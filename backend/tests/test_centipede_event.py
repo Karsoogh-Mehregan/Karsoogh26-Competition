@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.db import connection
 
+from core.boards import Board
 from events.exceptions import CentipedeInvalidAction, CentipedeNotActive, CentipedeNotParticipant
 from events.models import CentipedeGame
 from events.services import create_centipede_game, play_centipede_action
@@ -18,8 +19,8 @@ User = get_user_model()
 @pytest.fixture
 def players():
     return (
-        Team.objects.create(code="alpha", name="Alpha", balance=100),
-        Team.objects.create(code="beta", name="Beta", balance=100),
+        Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=100),
+        Team.objects.create(board=Board.GIRLS, code="beta", name="Beta", balance=100),
     )
 
 
@@ -123,7 +124,7 @@ def test_repeated_changed_and_stale_choices_are_rejected(game, players):
 
 
 def test_invalid_actions_and_outsider(game, players):
-    outsider = Team.objects.create(code="outsider", name="Outsider")
+    outsider = Team.objects.create(board=Board.GIRLS, code="outsider", name="Outsider")
     with pytest.raises(CentipedeNotParticipant):
         play_centipede_action(game.pk, outsider, "steal", 1)
     for action in ["take", "continue", "invalid"]:
@@ -173,7 +174,7 @@ def test_api_rejects_missing_round_and_client_economy(client, game, players, pay
 
 
 def test_permissions_and_mentor_creation(client, players):
-    outsider = Team.objects.create(code="outside", name="Outside")
+    outsider = Team.objects.create(board=Board.GIRLS, code="outside", name="Outside")
     client.force_login(User.objects.create_user("outside", password="secret", team=outsider))
     assert (
         client.post(

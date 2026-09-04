@@ -60,6 +60,7 @@ def publish(
     payload: dict | None = None,
     *,
     recipients: list[int] | None = None,
+    board: str | None = None,
 ) -> str | None:
     """Append one hint frame to the board stream, returning its entry id.
 
@@ -70,6 +71,11 @@ def publish(
     stream field, never in `payload`: the reader in `game.sse` uses it to decide
     who the frame is delivered to, and a recipient list inside the payload would
     tell every one of them who else was written to.
+
+    `board` addresses it at one contest, the same way and for the same reason: a
+    girls team must not be told, even by a bare refetch hint, that something
+    moved on the boys' map. Leave it None for anything genuinely shared — the
+    clock, the map's look — which then reaches everyone.
     """
     if not is_enabled():
         return None
@@ -77,6 +83,8 @@ def publish(
     fields = {"t": event_type, "d": json.dumps(payload or {}, separators=(",", ":"))}
     if recipients:
         fields["u"] = ",".join(str(user_id) for user_id in sorted(set(recipients)))
+    if board:
+        fields["b"] = board
     try:
         entry_id = _get_client().xadd(
             settings.SSE_STREAM_KEY,
@@ -102,6 +110,7 @@ def publish_on_commit(
     *,
     using=None,
     recipients: list[int] | None = None,
+    board: str | None = None,
 ) -> None:
     """Publish once the surrounding transaction commits.
 
@@ -109,7 +118,7 @@ def publish_on_commit(
     a stalled Redis must never happen while a select_for_update lock is held.
     """
     transaction.on_commit(
-        lambda: publish(event_type, payload, recipients=recipients),
+        lambda: publish(event_type, payload, recipients=recipients, board=board),
         using=using,
         robust=True,
     )

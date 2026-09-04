@@ -6,6 +6,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from core.boards import require_same_board
 from teams.ledger import apply_balance_change
 from teams.models import BalanceReason, Team
 
@@ -171,7 +172,11 @@ def join_matchmaking(event_code: str, team: Team) -> MatchmakingTicket:
         return current
     opponent = (
         MatchmakingTicket.objects.select_for_update()
-        .filter(event_code=event_code, status=MatchmakingStatus.WAITING)
+        .filter(
+            event_code=event_code,
+            status=MatchmakingStatus.WAITING,
+            team__board=team.board,
+        )
         .exclude(team=team)
         .order_by("created_at")
         .first()
@@ -259,6 +264,7 @@ def create_territory_game(
 ) -> TerritoryGame:
     if player_one.pk == player_two.pk:
         raise SamePlayer("یک تیم نمی‌تواند هر دو بازیکن مسابقه باشد.")
+    require_same_board(player_one, player_two)
 
     game = TerritoryGame.objects.create(
         player_one=player_one,
@@ -286,12 +292,13 @@ def create_territory_game(
 
 
 @transaction.atomic
-def create_charity_bag(starts_at, ends_at) -> CharityBagEvent:
+def create_charity_bag(starts_at, ends_at, *, board: str) -> CharityBagEvent:
     if ends_at <= starts_at:
         raise CharityBagInvalidWindow("زمان پایان رویداد باید بعد از زمان شروع باشد.")
     now = timezone.now()
     status = CharityBagStatus.ACTIVE if starts_at <= now < ends_at else CharityBagStatus.SCHEDULED
     event = CharityBagEvent.objects.create(
+        board=board,
         starts_at=starts_at,
         ends_at=ends_at,
         status=status,
@@ -395,6 +402,7 @@ def enter_charity_bag(
 ) -> CharityBagParticipation:
     now = timezone.now()
     event = CharityBagEvent.objects.select_for_update(of=("self",)).get(pk=event_id)
+    require_same_board(event, team)
 
     if event.status == CharityBagStatus.SCHEDULED and event.starts_at <= now < event.ends_at:
         event.status = CharityBagStatus.ACTIVE
@@ -605,6 +613,7 @@ def create_centipede_game(player_one: Team, player_two: Team) -> CentipedeGame:
     """Fund a shared pot atomically, locking both balances in a stable order."""
     if player_one.pk == player_two.pk:
         raise CentipedeSamePlayer("دو بازیکن بازی هزارپا باید دو تیم متفاوت باشند.")
+    require_same_board(player_one, player_two)
     players = list(
         Team.objects.select_for_update()
         .filter(pk__in=[player_one.pk, player_two.pk])
@@ -806,6 +815,7 @@ def create_olympics_match(
 ) -> OlympicsMatch:
     if player_one.pk == player_two.pk:
         raise OlympicsSamePlayer("دو شرکت‌کننده مسابقه باید متفاوت باشند.")
+    require_same_board(player_one, player_two)
     if mini_game not in OlympicsMiniGame.values:
         raise OlympicsInvalidConfiguration("نوع مینی‌گیم معتبر نیست.")
     zones = scoring_zones or []
@@ -1024,12 +1034,21 @@ def submit_olympics_player_run(
 
 @transaction.atomic
 def create_auction_event(
-    *, duration_seconds: int = 600, reward: int = 1000, opening_bid: int = 10, now=None
+    *,
+    board: str,
+    duration_seconds: int = 600,
+    reward: int = 1000,
+    opening_bid: int = 10,
+    now=None,
 ) -> AuctionEvent:
     if duration_seconds <= 0 or reward <= 0 or opening_bid <= 0:
         raise AuctionError("مدت، جایزه و پیشنهاد آغازین باید مثبت باشند.")
     now = now or timezone.now()
-    teams = list(Team.objects.select_for_update(of=("self",)).order_by("-balance", "code"))
+    teams = list(
+        Team.objects.select_for_update(of=("self",))
+        .filter(board=board)
+        .order_by("-balance", "code")
+    )
     if not teams:
         raise AuctionError("برای شروع حراج حداقل یک تیم لازم است.")
     snapshot = [
@@ -1037,6 +1056,7 @@ def create_auction_event(
         for index, team in enumerate(teams, start=1)
     ]
     event = AuctionEvent.objects.create(
+        board=board,
         status=AuctionStatus.ACTIVE,
         reward=reward,
         opening_bid=opening_bid,
@@ -1212,11 +1232,11 @@ def _validate_wheel_prizes(prizes: list[dict]) -> list[dict]:
 
 
 @transaction.atomic
-def create_wheel_event(*, spin_cost: int = 10, prizes: list[dict]) -> WheelEvent:
+def create_wheel_event(*, board: str, spin_cost: int = 10, prizes: list[dict]) -> WheelEvent:
     if spin_cost <= 0:
         raise WheelError("هزینه چرخاندن باید مثبت باشد.")
     normalized = _validate_wheel_prizes(prizes)
-    event = WheelEvent.objects.create(spin_cost=spin_cost)
+    event = WheelEvent.objects.create(board=board, spin_cost=spin_cost)
     WheelPrize.objects.bulk_create([WheelPrize(event=event, **prize) for prize in normalized])
     return event
 
@@ -1261,6 +1281,7 @@ def spin_wheel(event_id: int, team: Team, request_id, *, randbelow=secrets.randb
             return existing
         raise WheelError("شناسه این چرخش قبلاً استفاده شده است.")
     event = WheelEvent.objects.select_for_update(of=("self",)).get(pk=event_id)
+    require_same_board(event, team)
     if event.status != WheelStatus.ACTIVE:
         raise WheelError("گردونه فعال نیست.")
     prizes = list(WheelPrize.objects.select_for_update(of=("self",)).filter(event=event))
@@ -1336,10 +1357,10 @@ def deliver_wheel_prize(spin_id: int) -> WheelSpin:
 
 
 @transaction.atomic
-def create_pig_event(*, max_pot: int, entry_fee: int = 200) -> PigEvent:
+def create_pig_event(*, board: str, max_pot: int, entry_fee: int = 200) -> PigEvent:
     if max_pot <= 0 or entry_fee <= 0:
         raise PigError("ورودی و سقف دیگ باید مثبت باشند.")
-    return PigEvent.objects.create(max_pot=max_pot, entry_fee=entry_fee)
+    return PigEvent.objects.create(board=board, max_pot=max_pot, entry_fee=entry_fee)
 
 
 @transaction.atomic
@@ -1356,6 +1377,7 @@ def finish_pig_event(event_id: int) -> PigEvent:
 @transaction.atomic
 def start_pig_game(event_id: int, team: Team) -> PigGame:
     event = PigEvent.objects.select_for_update(of=("self",)).get(pk=event_id)
+    require_same_board(event, team)
     if event.status != PigEventStatus.ACTIVE:
         raise PigError("رویداد بازی خوک فعال نیست.")
     if PigGame.objects.filter(event=event, team=team, status=PigGameStatus.ACTIVE).exists():

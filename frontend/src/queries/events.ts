@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, type Ref } from 'vue'
+import { useBoard } from '@/composables/useBoard'
 import {
   createCentipedeGame,
   createCharityBag,
@@ -103,9 +104,10 @@ export function usePlayTerritoryTurnMutation() {
 }
 
 export function useCharityBagsQuery(enabled: () => boolean) {
+  const { board } = useBoard()
   return useQuery({
-    queryKey: queryKeys.charityBags(),
-    queryFn: ({ signal }) => listCharityBags(signal),
+    queryKey: computed(() => queryKeys.charityBags(board.value)),
+    queryFn: ({ signal }) => listCharityBags(board.value, signal),
     enabled,
     refetchInterval: (query) =>
       query.state.data?.some((event) => ['active', 'resolving'].includes(event.status))
@@ -139,8 +141,8 @@ export function useEnterCharityBagMutation() {
     onSuccess: (event: CharityBagEvent) => {
       queryClient.setQueryData(queryKeys.charityBag(event.id), event)
       queryClient.invalidateQueries({ queryKey: queryKeys.balanceEventsRoot() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.teams() })
-      return queryClient.invalidateQueries({ queryKey: queryKeys.charityBags() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.teamsRoot() })
+      return queryClient.invalidateQueries({ queryKey: queryKeys.charityBagsRoot() })
     },
   })
 }
@@ -151,7 +153,7 @@ export function useCreateCharityBagMutation() {
     mutationFn: (input: CreateCharityBagInput) => createCharityBag(input),
     onSuccess: (event) => {
       queryClient.setQueryData(queryKeys.charityBag(event.id), event)
-      return queryClient.invalidateQueries({ queryKey: queryKeys.charityBags() })
+      return queryClient.invalidateQueries({ queryKey: queryKeys.charityBagsRoot() })
     },
   })
 }
@@ -190,7 +192,7 @@ export function usePlayCentipedeActionMutation() {
     onSuccess: (game: CentipedeGame) => {
       queryClient.setQueryData(queryKeys.centipedeGame(game.id), game)
       queryClient.invalidateQueries({ queryKey: queryKeys.balanceEventsRoot() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.teams() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.teamsRoot() })
       return queryClient.invalidateQueries({ queryKey: queryKeys.centipedeGames() })
     },
   })
@@ -202,7 +204,7 @@ export function useCreateCentipedeGameMutation() {
     mutationFn: (input: CreateCentipedeGameInput) => createCentipedeGame(input),
     onSuccess: (game) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.balanceEventsRoot() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.teams() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.teamsRoot() })
       queryClient.setQueryData(queryKeys.centipedeGame(game.id), game)
       return queryClient.invalidateQueries({ queryKey: queryKeys.centipedeGames() })
     },
@@ -285,9 +287,10 @@ const refresh = (queryClient: ReturnType<typeof useQueryClient>, key: readonly u
   queryClient.invalidateQueries({ queryKey: key })
 
 export function useAuctionEventsQuery(enabled: () => boolean) {
+  const { board } = useBoard()
   return useQuery({
-    queryKey: queryKeys.auctionEvents(),
-    queryFn: ({ signal }) => listAuctionEvents(signal),
+    queryKey: computed(() => queryKeys.auctionEvents(board.value)),
+    queryFn: ({ signal }) => listAuctionEvents(board.value, signal),
     enabled,
     refetchInterval: (query) =>
       query.state.data?.some((event) => event.status === 'active') ? 2000 : false,
@@ -296,11 +299,12 @@ export function useAuctionEventsQuery(enabled: () => boolean) {
 
 export function useCreateAuctionMutation() {
   const queryClient = useQueryClient()
+  const { board } = useBoard()
   return useMutation({
-    mutationFn: (duration: number) => createAuctionEvent(duration),
+    mutationFn: (duration: number) => createAuctionEvent(board.value, duration),
     onSuccess: () => Promise.all([
-      refresh(queryClient, queryKeys.auctionEvents()),
-      refresh(queryClient, queryKeys.teams()),
+      refresh(queryClient, queryKeys.auctionEventsRoot()),
+      refresh(queryClient, queryKeys.teamsRoot()),
       refresh(queryClient, queryKeys.balanceEventsRoot()),
     ]),
   })
@@ -312,8 +316,8 @@ export function useAuctionBidMutation() {
     mutationFn: ({ pairId, amount, requestId }: { pairId: number; amount: number; requestId: string }) =>
       placeAuctionBid(pairId, amount, requestId),
     onSuccess: () => Promise.all([
-      refresh(queryClient, queryKeys.auctionEvents()),
-      refresh(queryClient, queryKeys.teams()),
+      refresh(queryClient, queryKeys.auctionEventsRoot()),
+      refresh(queryClient, queryKeys.teamsRoot()),
       refresh(queryClient, queryKeys.balanceEventsRoot()),
     ]),
   })
@@ -324,17 +328,18 @@ export function useResolveAuctionMutation() {
   return useMutation({
     mutationFn: (eventId: number) => resolveAuctionEvent(eventId),
     onSuccess: () => Promise.all([
-      refresh(queryClient, queryKeys.auctionEvents()),
-      refresh(queryClient, queryKeys.teams()),
+      refresh(queryClient, queryKeys.auctionEventsRoot()),
+      refresh(queryClient, queryKeys.teamsRoot()),
       refresh(queryClient, queryKeys.balanceEventsRoot()),
     ]),
   })
 }
 
 export function useWheelEventsQuery(enabled: () => boolean) {
+  const { board } = useBoard()
   return useQuery({
-    queryKey: queryKeys.wheelEvents(),
-    queryFn: ({ signal }) => listWheelEvents(signal),
+    queryKey: computed(() => queryKeys.wheelEvents(board.value)),
+    queryFn: ({ signal }) => listWheelEvents(board.value, signal),
     enabled,
     refetchInterval: (query) =>
       query.state.data?.some((event) => event.status === 'active') ? 2500 : false,
@@ -343,10 +348,11 @@ export function useWheelEventsQuery(enabled: () => boolean) {
 
 export function useCreateWheelMutation() {
   const queryClient = useQueryClient()
+  const { board } = useBoard()
   return useMutation({
     mutationFn: ({ spinCost, prizes }: { spinCost: number; prizes: WheelPrizeInput[] }) =>
-      createWheelEvent(spinCost, prizes),
-    onSuccess: () => refresh(queryClient, queryKeys.wheelEvents()),
+      createWheelEvent(board.value, spinCost, prizes),
+    onSuccess: () => refresh(queryClient, queryKeys.wheelEventsRoot()),
   })
 }
 
@@ -355,7 +361,7 @@ export function useWheelStateMutation() {
   return useMutation({
     mutationFn: ({ eventId, action }: { eventId: number; action: 'start' | 'stop' }) =>
       action === 'start' ? startWheelEvent(eventId) : stopWheelEvent(eventId),
-    onSuccess: () => refresh(queryClient, queryKeys.wheelEvents()),
+    onSuccess: () => refresh(queryClient, queryKeys.wheelEventsRoot()),
   })
 }
 
@@ -365,8 +371,8 @@ export function useWheelSpinMutation() {
     mutationFn: ({ eventId, requestId }: { eventId: number; requestId: string }) =>
       spinWheel(eventId, requestId),
     onSuccess: () => Promise.all([
-      refresh(queryClient, queryKeys.wheelEvents()),
-      refresh(queryClient, queryKeys.teams()),
+      refresh(queryClient, queryKeys.wheelEventsRoot()),
+      refresh(queryClient, queryKeys.teamsRoot()),
       refresh(queryClient, queryKeys.balanceEventsRoot()),
     ]),
   })
@@ -376,14 +382,15 @@ export function useWheelDeliveryMutation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (spinId: number) => deliverWheelSpin(spinId),
-    onSuccess: () => refresh(queryClient, queryKeys.wheelEvents()),
+    onSuccess: () => refresh(queryClient, queryKeys.wheelEventsRoot()),
   })
 }
 
 export function usePigEventsQuery(enabled: () => boolean) {
+  const { board } = useBoard()
   return useQuery({
-    queryKey: queryKeys.pigEvents(),
-    queryFn: ({ signal }) => listPigEvents(signal),
+    queryKey: computed(() => queryKeys.pigEvents(board.value)),
+    queryFn: ({ signal }) => listPigEvents(board.value, signal),
     enabled,
     refetchInterval: (query) =>
       query.state.data?.some((event) => event.games.some((game) => game.status === 'active'))
@@ -394,9 +401,10 @@ export function usePigEventsQuery(enabled: () => boolean) {
 
 export function useCreatePigMutation() {
   const queryClient = useQueryClient()
+  const { board } = useBoard()
   return useMutation({
-    mutationFn: (maxPot: number) => createPigEvent(maxPot),
-    onSuccess: () => refresh(queryClient, queryKeys.pigEvents()),
+    mutationFn: (maxPot: number) => createPigEvent(board.value, maxPot),
+    onSuccess: () => refresh(queryClient, queryKeys.pigEventsRoot()),
   })
 }
 
@@ -404,7 +412,7 @@ export function useFinishPigMutation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (eventId: number) => finishPigEvent(eventId),
-    onSuccess: () => refresh(queryClient, queryKeys.pigEvents()),
+    onSuccess: () => refresh(queryClient, queryKeys.pigEventsRoot()),
   })
 }
 
@@ -413,8 +421,8 @@ export function useStartPigGameMutation() {
   return useMutation({
     mutationFn: (eventId: number) => startPigGame(eventId),
     onSuccess: () => Promise.all([
-      refresh(queryClient, queryKeys.pigEvents()),
-      refresh(queryClient, queryKeys.teams()),
+      refresh(queryClient, queryKeys.pigEventsRoot()),
+      refresh(queryClient, queryKeys.teamsRoot()),
       refresh(queryClient, queryKeys.balanceEventsRoot()),
     ]),
   })
@@ -426,8 +434,8 @@ export function usePigActionMutation() {
     mutationFn: ({ gameId, action, requestId }: { gameId: number; action: 'roll' | 'cash_out'; requestId: string }) =>
       playPigAction(gameId, action, requestId),
     onSuccess: () => Promise.all([
-      refresh(queryClient, queryKeys.pigEvents()),
-      refresh(queryClient, queryKeys.teams()),
+      refresh(queryClient, queryKeys.pigEventsRoot()),
+      refresh(queryClient, queryKeys.teamsRoot()),
       refresh(queryClient, queryKeys.balanceEventsRoot()),
     ]),
   })
@@ -476,7 +484,7 @@ export function useMatchmakingMutation() {
     },
     onSuccess: () => Promise.all([
       refresh(queryClient, queryKeys.matchmaking()),
-      refresh(queryClient, queryKeys.teams()),
+      refresh(queryClient, queryKeys.teamsRoot()),
       refresh(queryClient, queryKeys.balanceEventsRoot()),
       refresh(queryClient, queryKeys.territoryGames()),
       refresh(queryClient, queryKeys.centipedeGames()),

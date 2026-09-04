@@ -29,6 +29,8 @@ Backend, in `backend/` (`SECRET_KEY` is the only required env var — `cp .env.e
 uv sync                                   # .venv from uv.lock
 uv run manage.py migrate
 uv run manage.py runserver                # :8000, /admin/, /api/docs/ (DEBUG only)
+uv run manage.py import_graph --board girls
+uv run manage.py import_graph --board boys
 uv run manage.py create_team_users --fund --csv teams.csv  # one login per team
 
 uv run pytest
@@ -74,12 +76,47 @@ touches existing rows against a database that actually has some.
 
 ## Architecture
 
+**Two boards, one instance.** The event runs a girls' contest and a boys' contest at the
+same time on identical copies of the map, judged by one set of organisers. `Board`
+(`core/boards.py`) is the whole of that split, and it lives on exactly two rows: `Team.board`
+and `Node.board`. Everything else derives — an `Occupancy`, `Duel`, `MatchmakingTicket` or
+`PigGame` reads `team.board` — except the four organiser-run event *instances*
+(`AuctionEvent`, `CharityBagEvent`, `WheelEvent`, `PigEvent`), which belong to no team and so
+carry their own column. Shared and deliberately unscoped: the question banks, the economy
+tables, `GameSettings` (**one clock for both contests** — pausing one pauses the other),
+`MapDesign`/`Neighborhood`, `EventConfiguration`, `duels.Room` and all of `notifications`.
+When a new app lands, put each of its models in one of those three buckets.
+
+**A team's board is its gender, and there is no second field for it.** `accounts.User` holds
+only `team`, so a player's board is `user.team.board`; organisers have no team and therefore
+no board, which is what lets one grading queue and one judge rotation serve both contests.
+It is fixed at team creation (in the admin) and never reassigned — every row a team has
+touched reads its board from there.
+
+**Node codes are unique per board, not globally.** Both boards hold `L1_0` and `CENTER`;
+`node_unique_per_board` is what allows it. Nothing was renamed, so `teams/start_colors.py`
+and the SPA's `startColors.js` are untouched (colour uniqueness is per board too), and the
+frontend renders **one** `graph_data.json` for both. **Always resolve a node as
+`(board, code)`** — `Node.objects.get(code=...)` is now a bug. That lookup is also the wall:
+a girls team cannot address a boys node, because the code resolves inside its own board.
+Roads never cross either; `import_graph` refuses an edge whose endpoints differ.
+
+**Everything a player reads is scoped; everything an organiser reads is not.** Teams see only
+their own board's team list, leaderboard, duel targets and event instances. `board_filter`
+and `viewing_board` (`core/boards.py`) encode the rule — a player is locked to its own board,
+an organiser picks with `?board=`. Two traps: `teams/board_cache.py` keys its snapshot on
+`(version, board)`, because both contests move under one SSE version; and SSE frames carry a
+`b` field that `game.sse._visible_to` drops for the other board, the same shape as the `u`
+recipients field. Pairing is the other half — `join_matchmaking` filters the queue by board,
+`create_auction_event` ranks and pairs within one, and the three pair-game creators call
+`require_same_board`.
+
 **`graph_data.json` is the map's single source of truth.** `frontend/src/data/graph_data.json`
-(473 nodes, 780 edges) is static with **no generator in this repo**; each node carries baked-in
+(465 nodes, 756 edges; imported once per board, so the backend holds twice that) is static; each node carries baked-in
 `x`/`y`/`color`/`shape`/`theta`/`r`, so there is no layout engine. Those layout fields stay
 frontend-only; the backend takes just the topology, via
-`uv run manage.py import_graph` (`game/management/commands/import_graph.py`), so `game.Node.code`
-holds the same ids the SPA uses (`L1_0`, `CENTER`, …). Re-running upserts and never deletes,
+`uv run manage.py import_graph --board <girls|boys>` (`game/management/commands/import_graph.py`),
+run once per board, so `game.Node.code` holds the same ids the SPA uses (`L1_0`, `CENTER`, …). Re-running upserts and never deletes,
 so `Occupancy`'s `PROTECT` FK is safe mid-game. `TYPE_TO_LEVEL` in that command maps the 11
 frontend `type` values onto the five playable levels plus `toll` — `center` is its own tier,
 one node (`CENTER`), priced like `hard` until an organiser tunes it, and its question pool
@@ -328,8 +365,8 @@ waited out the grace).
 
 **SQLite gives false passes.** `select_for_update()` is ignored, not rejected, so
 `conftest.py` force-skips `postgres_only` tests off Postgres. `uv run pytest` on SQLite
-gives 501 passed / 6 skipped; on Postgres, 507 passed. Run row-lock work against real
-Postgres. CI does — and CI is the only place the skipped six ever run, so a break in them
+gives 826 passed / 7 skipped; on Postgres, 833 passed. Run row-lock work against real
+Postgres. CI does — and CI is the only place the skipped seven ever run, so a break in them
 surfaces on the PR, not on your machine.
 
 **A `transaction=True` test starts on a flushed database.** `TransactionTestCase`

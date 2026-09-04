@@ -8,6 +8,7 @@ from django.contrib.auth.models import Group
 from django.core.cache import cache
 
 from accounts.permissions import GameIsRunning
+from core.boards import Board
 from game.models import GameSettings, GameStatus
 from teams.models import Team
 
@@ -30,12 +31,12 @@ def user():
 
 @pytest.fixture
 def team():
-    return Team.objects.create(code="alpha", name="Alpha", balance=42)
+    return Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=42)
 
 
 @pytest.fixture
 def other_team():
-    return Team.objects.create(code="beta", name="Beta", balance=7)
+    return Team.objects.create(board=Board.GIRLS, code="beta", name="Beta", balance=7)
 
 
 @pytest.fixture
@@ -111,7 +112,7 @@ def test_me_returns_team_identity_for_a_team_account(client, team):
     assert response.status_code == 200
     body = response.json()
     assert body["is_mentor"] is False
-    assert body["team"] == {"code": team.code, "name": team.name}
+    assert body["team"] == {"code": team.code, "name": team.name, "board": team.board}
 
 
 @pytest.mark.parametrize(

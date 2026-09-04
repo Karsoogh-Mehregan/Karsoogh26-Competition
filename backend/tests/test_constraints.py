@@ -10,6 +10,7 @@ import pytest
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from core.boards import Board
 from game.models import (
     AcquisitionSource,
     AnswerType,
@@ -40,12 +41,14 @@ def easy():
 
 @pytest.fixture
 def node(hard):
-    return Node.objects.create(code="h1", name="Hard 1", level=hard)
+    return Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
 
 
 @pytest.fixture
 def teams():
-    return [Team.objects.create(code=f"t{i}", name=f"Team {i}") for i in range(5)]
+    return [
+        Team.objects.create(board=Board.GIRLS, code=f"t{i}", name=f"Team {i}") for i in range(5)
+    ]
 
 
 def occupy(node, team, **kwargs):
@@ -131,26 +134,26 @@ class TestQuestionScale:
 class TestTeam:
     def test_negative_balance_rejected(self):
         with pytest.raises(IntegrityError), transaction.atomic():
-            Team.objects.create(code="broke", name="Broke", balance=-1)
+            Team.objects.create(board=Board.GIRLS, code="broke", name="Broke", balance=-1)
 
     def test_draft_order_unique(self):
-        Team.objects.create(code="a", name="A", draft_order=1)
+        Team.objects.create(board=Board.GIRLS, code="a", name="A", draft_order=1)
         with pytest.raises(IntegrityError), transaction.atomic():
-            Team.objects.create(code="b", name="B", draft_order=1)
+            Team.objects.create(board=Board.GIRLS, code="b", name="B", draft_order=1)
 
 
 class TestMap:
     def test_bridge_must_be_normalised(self, hard, node):
-        other = Node.objects.create(code="h2", name="Hard 2", level=hard)
+        other = Node.objects.create(board=Board.GIRLS, code="h2", name="Hard 2", level=hard)
         low, high = sorted([node, other], key=lambda i: i.pk)
         Edge.objects.create(a=low, b=high)
         with pytest.raises(IntegrityError), transaction.atomic():
             Edge.objects.create(a=high, b=low)
 
     def test_node_code_unique(self, easy):
-        Node.objects.create(code="dup", level=easy)
+        Node.objects.create(board=Board.GIRLS, code="dup", level=easy)
         with pytest.raises(IntegrityError), transaction.atomic():
-            Node.objects.create(code="dup", level=easy)
+            Node.objects.create(board=Board.GIRLS, code="dup", level=easy)
 
 
 class TestGameSettings:

@@ -70,7 +70,7 @@ class DuelAdmin(admin.ModelAdmin):
         "mentor",
         "created_at",
     )
-    list_filter = ("status", "node__level")
+    list_filter = ("status", "node__board", "node__level")
     search_fields = ("attacker__name", "attacked__name", "node__code")
     list_select_related = ("attacker", "attacked", "node", "winner", "mentor")
     autocomplete_fields = ("attacker", "attacked", "winner", "loser", "target")

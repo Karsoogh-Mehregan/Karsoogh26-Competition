@@ -5,6 +5,7 @@ from django.apps import apps
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 
+from core.boards import Board
 from game.models import GameSettings
 from teams.ledger import InsufficientFunds, apply_balance_change
 from teams.models import BalanceEvent, BalanceReason, Team
@@ -17,7 +18,7 @@ User = get_user_model()
 
 
 def test_apply_balance_change_writes_an_event():
-    team = Team.objects.create(code="alpha", name="Alpha", balance=100)
+    team = Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=100)
 
     apply_balance_change(team, -20, reason=BalanceReason.ENTRY, detail="L2_1")
 
@@ -31,7 +32,7 @@ def test_apply_balance_change_writes_an_event():
 
 
 def test_a_debit_that_exceeds_the_wallet_is_refused():
-    team = Team.objects.create(code="alpha", name="Alpha", balance=10)
+    team = Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=10)
 
     with pytest.raises(InsufficientFunds):
         apply_balance_change(team, -20, reason=BalanceReason.ENTRY)
@@ -42,7 +43,7 @@ def test_a_debit_that_exceeds_the_wallet_is_refused():
 
 
 def test_history_failure_rolls_back_wallet_even_without_outer_transaction(monkeypatch):
-    team = Team.objects.create(code="rollback", name="Rollback", balance=100)
+    team = Team.objects.create(board=Board.GIRLS, code="rollback", name="Rollback", balance=100)
 
     def fail(**kwargs):
         raise RuntimeError("history unavailable")
@@ -56,9 +57,9 @@ def test_history_failure_rolls_back_wallet_even_without_outer_transaction(monkey
 
 
 def test_seed_copies_existing_balances_without_touching_the_wallet():
-    kept = Team.objects.create(code="kept", name="Kept", balance=400)
-    empty = Team.objects.create(code="empty", name="Empty", balance=0)
-    already = Team.objects.create(code="logged", name="Logged", balance=50)
+    kept = Team.objects.create(board=Board.GIRLS, code="kept", name="Kept", balance=400)
+    empty = Team.objects.create(board=Board.GIRLS, code="empty", name="Empty", balance=0)
+    already = Team.objects.create(board=Board.GIRLS, code="logged", name="Logged", balance=50)
     BalanceEvent.objects.create(
         team=already,
         delta=50,
@@ -83,8 +84,8 @@ def test_seed_copies_existing_balances_without_touching_the_wallet():
 
 
 def test_team_can_read_its_own_balance_events(client):
-    team = Team.objects.create(code="alpha", name="Alpha", balance=80)
-    other = Team.objects.create(code="beta", name="Beta", balance=10)
+    team = Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=80)
+    other = Team.objects.create(board=Board.GIRLS, code="beta", name="Beta", balance=10)
     apply_balance_change(team, -20, reason=BalanceReason.ENTRY, detail="L2_1")
     apply_balance_change(other, 5, reason=BalanceReason.GRADE, detail="L1_0")
     user = User.objects.create_user("user-alpha", password="secret", team=team)
@@ -104,7 +105,7 @@ def test_team_can_read_its_own_balance_events(client):
 
 
 def test_create_team_users_fund_writes_an_initial_event():
-    team = Team.objects.create(code="alpha", name="Alpha", balance=0)
+    team = Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=0)
     initial = GameSettings.load().initial_balance
 
     call_command("create_team_users", "--fund")

@@ -105,7 +105,7 @@ def grade_attempt(holding: Occupancy, grade: int) -> Occupancy:
     holding.grade_multiplier = grade_ratio(grade, max_grade)
     holding.save(update_fields=["grade", "grade_multiplier"])
     # Registered before the floor re-rank so the early return below still announces.
-    publish_on_commit(BOARD_GRADED, {"node": node.code})
+    publish_on_commit(BOARD_GRADED, {"node": node.code}, board=holding.team.board)
 
     rewards = {
         reward.floor: reward.points for reward in FloorReward.objects.filter(level_id=level.pk)
@@ -238,6 +238,7 @@ def release_attempt(holding: Occupancy, reason: str) -> Occupancy:
     publish_on_commit(
         BOARD_RELEASED,
         {"team": locked.team.code, "node": locked.node.code, "reason": reason},
+        board=locked.team.board,
     )
 
     holding.released_at = locked.released_at

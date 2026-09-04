@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.cache import cache
 
+from core.boards import Board
 from game.models import LevelConfig, Node, Occupancy
 from game.services import events
 from teams import board_cache
@@ -33,9 +34,9 @@ def versioned(settings):
 @pytest.fixture
 def board():
     easy = LevelConfig.objects.get(level="easy")
-    node = Node.objects.create(code="e1", name="Easy 1", level=easy)
-    alpha = Team.objects.create(code="alpha", name="Alpha", balance=42)
-    bravo = Team.objects.create(code="bravo", name="Bravo", balance=99)
+    node = Node.objects.create(board=Board.GIRLS, code="e1", name="Easy 1", level=easy)
+    alpha = Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=42)
+    bravo = Team.objects.create(board=Board.GIRLS, code="bravo", name="Bravo", balance=99)
     Occupancy.objects.create(node=node, team=alpha, slot=1, floor=1)
     return {"alpha": alpha, "bravo": bravo, "node": node}
 
@@ -103,12 +104,14 @@ def test_snapshot_renders_once_per_version(rf, versioned, board, monkeypatch):
     calls = []
     original = board_cache._render
     monkeypatch.setattr(
-        board_cache, "_render", lambda request: calls.append(1) or original(request)
+        board_cache,
+        "_render",
+        lambda request, board: calls.append(1) or original(request, board),
     )
     request = rf.get("/api/teams/")
 
-    first = board_cache.snapshot(request)
-    second = board_cache.snapshot(request)
+    first = board_cache.snapshot(request, Board.GIRLS)
+    second = board_cache.snapshot(request, Board.GIRLS)
 
     assert len(calls) == 1
     assert first == second
@@ -118,13 +121,15 @@ def test_a_new_version_forces_a_re_render(rf, versioned, board, monkeypatch):
     calls = []
     original = board_cache._render
     monkeypatch.setattr(
-        board_cache, "_render", lambda request: calls.append(1) or original(request)
+        board_cache,
+        "_render",
+        lambda request, board: calls.append(1) or original(request, board),
     )
     request = rf.get("/api/teams/")
 
-    board_cache.snapshot(request)
+    board_cache.snapshot(request, Board.GIRLS)
     cache.set(events.BOARD_VERSION_CACHE_KEY, "2-0", timeout=None)
-    board_cache.snapshot(request)
+    board_cache.snapshot(request, Board.GIRLS)
 
     assert len(calls) == 2
 
@@ -134,12 +139,14 @@ def test_snapshot_is_not_cached_without_a_version(rf, settings, board, monkeypat
     calls = []
     original = board_cache._render
     monkeypatch.setattr(
-        board_cache, "_render", lambda request: calls.append(1) or original(request)
+        board_cache,
+        "_render",
+        lambda request, board: calls.append(1) or original(request, board),
     )
     request = rf.get("/api/teams/")
 
-    board_cache.snapshot(request)
-    board_cache.snapshot(request)
+    board_cache.snapshot(request, Board.GIRLS)
+    board_cache.snapshot(request, Board.GIRLS)
 
     assert len(calls) == 2
 

@@ -2,6 +2,8 @@ from django.core.validators import RegexValidator
 from django.db import models
 from django.db.models import CheckConstraint, Prefetch, Q, UniqueConstraint
 
+from core.boards import Board
+
 
 class BalanceReason(models.TextChoices):
     INITIAL = "initial", "موجودی اولیه"
@@ -39,6 +41,11 @@ class Team(models.Model):
     code = models.SlugField(max_length=32, unique=True)
     name = models.CharField(max_length=64)
 
+    # Which of the two parallel contests this team plays in. Fixed at creation:
+    # a team's occupancies, duels and event entries all read their board off
+    # here, so moving one mid-run would strand every row it has touched.
+    board = models.CharField(max_length=8, choices=Board.choices)
+
     balance = models.PositiveIntegerField(default=0)
 
     # Claimed from a start node; empty until the team enters one.
@@ -50,7 +57,7 @@ class Team(models.Model):
     )
 
     # Spawn sequence for teams based on entry question solved
-    draft_order = models.PositiveSmallIntegerField(null=True, blank=True, unique=True)
+    draft_order = models.PositiveSmallIntegerField(null=True, blank=True)
 
     # Duel cooldown is per team, not per holding: a team with several houses
     # must not be challengeable once per house inside the same window.
@@ -67,11 +74,21 @@ class Team(models.Model):
                 condition=Q(draft_order__isnull=True) | Q(draft_order__gte=1),
                 name="team_draft_order_positive",
             ),
+            # Both scoped to the board: the two contests run their own spawn
+            # palette and their own finishing order, so the girls' and the boys'
+            # first-qualifying teams are both draft_order 1.
             UniqueConstraint(
-                fields=["color"],
+                fields=["board", "color"],
                 condition=Q(color__isnull=False),
-                name="team_color_unique_when_set",
+                name="team_color_unique_per_board",
             ),
+            UniqueConstraint(
+                fields=["board", "draft_order"],
+                condition=Q(draft_order__isnull=False),
+                name="team_draft_order_unique_per_board",
+            ),
+            # See `node_board_valid`: choices alone would let a blank through.
+            CheckConstraint(condition=Q(board__in=Board.values), name="team_board_valid"),
         ]
 
     def __str__(self):

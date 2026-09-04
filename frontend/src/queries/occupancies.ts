@@ -17,7 +17,7 @@ export function useSubmitAnswerMutation() {
     onSuccess: (_result: SubmitCreated) => {
       return Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.attemptsRoot() }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.teams() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.teamsRoot() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.submissions() }),
       ])
     },

@@ -77,7 +77,7 @@ class CharityBagEventAdmin(admin.ModelAdmin):
         "total_requested",
         "charity_succeeded",
     )
-    list_filter = ("status", "charity_succeeded")
+    list_filter = ("board", "status", "charity_succeeded")
     inlines = (CharityBagParticipationInline,)
 
 
@@ -177,7 +177,8 @@ class OlympicsResultAdmin(admin.ModelAdmin):
 
 @admin.register(AuctionEvent)
 class AuctionEventAdmin(admin.ModelAdmin):
-    list_display = ("id", "status", "duration_seconds", "starts_at", "ends_at")
+    list_display = ("id", "board", "status", "duration_seconds", "starts_at", "ends_at")
+    list_filter = ("board", "status")
     readonly_fields = ("ranking_snapshot", "starts_at", "ends_at", "settled_at")
 
 

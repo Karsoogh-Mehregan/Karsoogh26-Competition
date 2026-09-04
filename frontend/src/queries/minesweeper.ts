@@ -21,7 +21,7 @@ function cacheAttempt(queryClient: QueryClient, game: MinesweeperGame): void {
   // team row (`cleared_tolls`), not on this response — so the board has to be
   // refetched or the map keeps the far side greyed out until the next poll.
   if (game.status === 'won') {
-    queryClient.invalidateQueries({ queryKey: queryKeys.teams() })
+    queryClient.invalidateQueries({ queryKey: queryKeys.teamsRoot() })
   }
 }
 
@@ -43,7 +43,7 @@ export function useStartMinesweeperMutation() {
     onSuccess: (game: MinesweeperGame) => {
       cacheAttempt(queryClient, game)
       // Starting a gate charges the toll, so the team's balance is now stale.
-      queryClient.invalidateQueries({ queryKey: queryKeys.teams() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.teamsRoot() })
     },
   })
 }
@@ -62,7 +62,7 @@ export function useRevealMinesweeperCellMutation() {
     onSuccess: (game: MinesweeperGame) => {
       cacheAttempt(queryClient, game)
       if (game.status === 'won') {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.teams() })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.teamsRoot() })
       }
     },
   })

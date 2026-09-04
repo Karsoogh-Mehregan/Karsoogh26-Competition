@@ -19,6 +19,7 @@ import {
 import { computed, markRaw, reactive, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { toast } from 'vue-sonner'
+import { useBoard } from '@/composables/useBoard'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -38,6 +39,7 @@ import {
 import type { EventCode, EventConfiguration, MatchmakingTicket } from '@/types/api'
 
 const { me, isMentor, isPlayer } = useActing()
+const { board } = useBoard()
 const catalogQuery = useEventCatalogQuery(() => me.value != null)
 const matchmakingQuery = useMatchmakingQuery(() => isPlayer.value)
 const updateMutation = useUpdateEventConfigurationMutation()
@@ -91,7 +93,7 @@ async function quickStart(item: EventConfiguration): Promise<void> {
   try {
     const minutes = Math.max(1, Math.floor(durationMinutes[item.code] || 1))
     const seconds = minutes * 60
-    if (item.code === 'charity_bag') await createCharityMutation.mutateAsync({ duration_seconds: seconds })
+    if (item.code === 'charity_bag') await createCharityMutation.mutateAsync({ board: board.value, duration_seconds: seconds })
     else if (item.code === 'limited_auction') await createAuctionMutation.mutateAsync(seconds)
     else return
     toast.success(`رویداد فعال ${minutes.toLocaleString('fa-IR')} دقیقه‌ای ساخته شد.`)

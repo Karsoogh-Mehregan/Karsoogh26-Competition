@@ -38,7 +38,7 @@ watch(expired, (isExpired) => {
   if (!isExpired) return
   if (props.attempt.status !== 'open') return
   void queryClient.invalidateQueries({ queryKey: queryKeys.attemptsRoot() })
-  void queryClient.invalidateQueries({ queryKey: queryKeys.teams() })
+  void queryClient.invalidateQueries({ queryKey: queryKeys.teamsRoot() })
 })
 
 const question = computed(() => props.attempt.question)

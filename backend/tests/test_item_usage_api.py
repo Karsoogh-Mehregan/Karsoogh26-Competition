@@ -4,6 +4,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
+from core.boards import Board
 from game.models import (
     AcquisitionSource,
     FloorReward,
@@ -37,12 +38,12 @@ def hard():
 
 @pytest.fixture
 def alpha():
-    return Team.objects.create(code="alpha", name="Alpha", balance=400)
+    return Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=400)
 
 
 @pytest.fixture
 def bravo():
-    return Team.objects.create(code="bravo", name="Bravo", balance=400)
+    return Team.objects.create(board=Board.GIRLS, code="bravo", name="Bravo", balance=400)
 
 
 def client_for(team: Team | None) -> APIClient:
@@ -87,7 +88,7 @@ class TestAuthentication:
 
 class TestFakeDocument:
     def test_valid_request_uses_the_item(self, running_game, hard, alpha):
-        node = Node.objects.create(code="h1", name="Hard 1", level=hard)
+        node = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
         give(alpha, ItemType.FAKE_DOCUMENT, quantity=2)
         client = client_for(alpha)
 
@@ -122,7 +123,7 @@ class TestFakeDocument:
 
 class TestGel:
     def test_valid_request_takes_over_the_node(self, running_game, hard, alpha, bravo):
-        node = Node.objects.create(code="h1", name="Hard 1", level=hard)
+        node = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
         previous = occupy(node, bravo, slot=1, floor=1)
         give(alpha, ItemType.GEL)
         client = client_for(alpha)
@@ -166,7 +167,7 @@ class TestGilari:
         assert Occupancy.objects.filter(team=alpha).count() == 0
 
     def test_extra_node_code_is_ignored(self, alpha, hard):
-        Node.objects.create(code="h1", name="Hard 1", level=hard)
+        Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
         give(alpha, ItemType.GILARI_100)
         client = client_for(alpha)
 

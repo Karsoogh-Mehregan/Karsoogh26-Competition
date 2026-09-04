@@ -7,6 +7,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from core.boards import Board
 from game.models import (
     AnswerType,
     GameSettings,
@@ -36,19 +37,19 @@ def spawn():
 
 @pytest.fixture
 def node(easy):
-    return Node.objects.create(code="e1", name="Easy 1", level=easy)
+    return Node.objects.create(board=Board.GIRLS, code="e1", name="Easy 1", level=easy)
 
 
 @pytest.fixture
 def spawn_node(spawn):
-    return Node.objects.create(code="s1", name="Start 1", level=spawn)
+    return Node.objects.create(board=Board.GIRLS, code="s1", name="Start 1", level=spawn)
 
 
 @pytest.fixture
 def teams():
     return [
-        Team.objects.create(code="alpha", name="Alpha"),
-        Team.objects.create(code="beta", name="Beta"),
+        Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha"),
+        Team.objects.create(board=Board.GIRLS, code="beta", name="Beta"),
     ]
 
 

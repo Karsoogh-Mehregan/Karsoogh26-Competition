@@ -10,6 +10,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.test import Client
 
+from core.boards import Board
 from game.models import GameSettings, LevelConfig, MapDesign, Neighborhood, Node, Occupancy
 from minesweeper.models import MinesweeperDifficulty, MinesweeperSettings
 from teams.models import Team
@@ -27,7 +28,7 @@ def node_url(code: str) -> str:
 
 @pytest.fixture
 def team():
-    return Team.objects.create(code="alpha", name="Alpha", balance=400)
+    return Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=400)
 
 
 @pytest.fixture
@@ -60,8 +61,8 @@ def nodes():
     easy = LevelConfig.objects.get(pk="easy")
     hard = LevelConfig.objects.get(pk="hard")
     return {
-        "easy": Node.objects.create(code="L2_0", level=easy),
-        "hard": Node.objects.create(code="L6_0", level=hard),
+        "easy": Node.objects.create(board=Board.GIRLS, code="L2_0", level=easy),
+        "hard": Node.objects.create(board=Board.GIRLS, code="L6_0", level=hard),
     }
 
 

@@ -3,6 +3,12 @@
 Read by every client at load; written only by Designers. A write publishes a
 `map.design` frame so open clients refetch, the same way a status change
 publishes `game.state`.
+
+The two boards play identical maps, so this app treats them as one: a read
+returns a single board's copy of the node list (they agree), and a node write is
+applied to *every* board's copy in one transaction. A Designer therefore pins a
+building once rather than twice, and the two contests cannot drift apart — which
+they must not, since the map is the fairness guarantee between them.
 """
 
 from django.db import transaction
@@ -12,6 +18,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import IsDesigner
+from core.boards import viewing_board
 from core.openapi import OpenApiExample, OpenApiParameter, extend_schema
 from game import services
 from game.api_exceptions import Conflict
@@ -33,11 +40,15 @@ _DESIGN_EXAMPLE = {
 }
 
 
-def _design_payload() -> dict:
+def _design_payload(board: str) -> dict:
     design = MapDesign.load()
     # Attach the two lists by hand: they are not relations on the singleton.
     design.neighborhoods = Neighborhood.objects.order_by("index")
-    design.nodes = Node.objects.select_related("level", "minesweeper_settings").order_by("code")
+    design.nodes = (
+        Node.objects.filter(board=board)
+        .select_related("level", "minesweeper_settings")
+        .order_by("code")
+    )
     return MapDesignSerializer(design).data
 
 
@@ -71,7 +82,7 @@ class MapDesignView(APIView):
         return [IsAuthenticated()]
 
     def get(self, request):
-        return Response(_design_payload())
+        return Response(_design_payload(viewing_board(request)))
 
     def patch(self, request):
         payload = MapDesignPatchSerializer(data=request.data, partial=True)
@@ -96,7 +107,7 @@ class MapDesignView(APIView):
 
             services.publish_on_commit(services.MAP_DESIGN, {"scope": "map"})
 
-        return Response(_design_payload())
+        return Response(_design_payload(viewing_board(request)))
 
 
 @extend_schema(
@@ -130,25 +141,32 @@ class NodeDesignView(APIView):
     serializer_class = NodeDesignSerializer
 
     def patch(self, request, node_code: str):
-        node = (
+        copies = list(
             Node.objects.select_related("level", "minesweeper_settings")
             .filter(code=node_code)
-            .first()
+            .order_by("board")
         )
-        if node is None:
+        if not copies:
             raise NotFound(f"خانهٔ «{node_code}» پیدا نشد.")
 
-        payload = NodeDesignSerializer(node, data=request.data, partial=True)
-        payload.is_valid(raise_exception=True)
+        # Validated once, then applied to every board's copy: the change is to
+        # the map, and the map is shared even though its rows are not.
+        payloads = [NodeDesignSerializer(node, data=request.data, partial=True) for node in copies]
+        for payload in payloads:
+            payload.is_valid(raise_exception=True)
 
-        new_level = payload.validated_data.get("level_id")
-        moving = new_level is not None and new_level != node.level_id
-        if moving and Occupancy.objects.active().filter(node=node).exists():
+        new_level = payloads[0].validated_data.get("level_id")
+        moving = [node for node in copies if new_level is not None and new_level != node.level_id]
+        # Occupied on *either* board blocks the move on both, so the two copies
+        # never disagree about a node's tier.
+        if moving and Occupancy.objects.active().filter(node__in=moving).exists():
             raise Conflict("تا وقتی تیمی روی این خانه است نمی‌توان سطح آن را عوض کرد.")
 
         with transaction.atomic():
-            payload.save()
-            services.publish_on_commit(services.MAP_DESIGN, {"scope": "node", "node": node.code})
+            for payload in payloads:
+                payload.save()
+            services.publish_on_commit(services.MAP_DESIGN, {"scope": "node", "node": node_code})
 
-        node.refresh_from_db()
-        return Response(NodeDesignSerializer(node).data)
+        shown = copies[0]
+        shown.refresh_from_db()
+        return Response(NodeDesignSerializer(shown).data)

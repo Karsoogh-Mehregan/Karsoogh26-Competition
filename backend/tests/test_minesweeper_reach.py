@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from core.boards import Board
 from game.models import (
     AnswerType,
     Edge,
@@ -105,11 +106,11 @@ def _questions(level: LevelConfig, n: int = 4) -> None:
 @pytest.fixture
 def graph(easy, spawn, toll_level):
     """L3 -> toll -> ahead, and behind -> toll only."""
-    home = Node.objects.create(code="L3_0", name="L3", level=easy)
-    toll = Node.objects.create(code="C34_0", name="Toll", level=toll_level)
-    ahead = Node.objects.create(code="L4_0", name="L4", level=easy)
-    behind = Node.objects.create(code="behind", name="Behind", level=easy)
-    isolated = Node.objects.create(code="far", name="Far", level=easy)
+    home = Node.objects.create(board=Board.GIRLS, code="L3_0", name="L3", level=easy)
+    toll = Node.objects.create(board=Board.GIRLS, code="C34_0", name="Toll", level=toll_level)
+    ahead = Node.objects.create(board=Board.GIRLS, code="L4_0", name="L4", level=easy)
+    behind = Node.objects.create(board=Board.GIRLS, code="behind", name="Behind", level=easy)
+    isolated = Node.objects.create(board=Board.GIRLS, code="far", name="Far", level=easy)
     Edge.objects.create(a=home, b=toll, directed=True)
     Edge.objects.create(a=toll, b=ahead, directed=True)
     Edge.objects.create(a=behind, b=toll, directed=True)
@@ -126,17 +127,19 @@ def graph(easy, spawn, toll_level):
 
 @pytest.fixture
 def alpha():
-    return Team.objects.create(code="alpha", name="Alpha", balance=500)
+    return Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=500)
 
 
 @pytest.fixture
 def beta():
-    return Team.objects.create(code="beta", name="Beta", balance=500)
+    return Team.objects.create(board=Board.GIRLS, code="beta", name="Beta", balance=500)
 
 
 class TestExpandableSources:
     def test_graded_occupancy_still_expands(self, alpha, graph):
-        neighbour = Node.objects.create(code="n2", name="N2", level=graph["easy"])
+        neighbour = Node.objects.create(
+            board=Board.GIRLS, code="n2", name="N2", level=graph["easy"]
+        )
         _undirected(graph["home"], neighbour)
         _hold(alpha, graph["home"], grade=80)
 
@@ -248,7 +251,9 @@ class TestDirectedReachAfterWin:
 
 class TestExistingFlows:
     def test_claim_node_on_a_normal_house_is_unchanged(self, running_game, alpha, graph):
-        neighbour = Node.objects.create(code="e-next", name="Next", level=graph["easy"])
+        neighbour = Node.objects.create(
+            board=Board.GIRLS, code="e-next", name="Next", level=graph["easy"]
+        )
         _undirected(graph["home"], neighbour)
         _questions(graph["easy"])
         _hold(alpha, graph["home"], grade=80)
@@ -258,8 +263,9 @@ class TestExistingFlows:
         assert holding.is_spawn is False
 
     def test_claim_spawn_is_unchanged(self, running_game, spawn):
-        start = Node.objects.create(code=START_CODE, name="Start", level=spawn)
+        start = Node.objects.create(board=Board.GIRLS, code=START_CODE, name="Start", level=spawn)
         team = Team.objects.create(
+            board=Board.GIRLS,
             code="spawned",
             name="Spawned",
             balance=400,

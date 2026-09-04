@@ -1,6 +1,7 @@
 from django.utils import timezone
 from rest_framework import serializers
 
+from core.boards import Board
 from core.openapi import extend_schema_field
 from game.design import ARCHETYPES
 from game.models import (
@@ -389,6 +390,12 @@ class GameRestartSerializer(serializers.Serializer):
     """
 
     confirm = serializers.BooleanField()
+    board = serializers.ChoiceField(
+        choices=Board.choices,
+        required=False,
+        allow_null=True,
+        help_text="Restart only this contest, leaving the shared clock alone. Omit for both.",
+    )
 
     def validate_confirm(self, value):
         if not value:
@@ -404,6 +411,7 @@ class GameRestartResultSerializer(serializers.Serializer):
     crossings went too, not just that "something" did.
     """
 
+    board = serializers.CharField(read_only=True)
     occupancies = serializers.IntegerField(read_only=True)
     submissions = serializers.IntegerField(read_only=True)
     entry_attempts = serializers.IntegerField(read_only=True)

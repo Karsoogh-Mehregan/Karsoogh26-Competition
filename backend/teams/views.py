@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import MENTOR_PERM, CanViewLeaderboard, GameIsRunning
+from core.boards import viewing_board
 from core.openapi import OpenApiExample, extend_schema
 from game.api_exceptions import Conflict
 from game.models import Node
@@ -70,7 +71,7 @@ class TeamListView(APIView):
         user = request.user
         return Response(
             board_cache.mask(
-                board_cache.snapshot(request),
+                board_cache.snapshot(request, viewing_board(request)),
                 is_mentor=user.has_perm(MENTOR_PERM),
                 viewer_team_code=user.team.code if user.team_id else None,
             )
@@ -81,8 +82,9 @@ class TeamListView(APIView):
     tags=["teams"],
     summary="Leaderboard",
     description=(
-        "Teams ranked by balance. Visible to mentors always; to teams only once "
-        "GameSettings.leaderboard_public is on."
+        "Teams ranked by balance, within one board. A team always sees its own; an "
+        "organiser picks with `?board=` and gets the girls' board by default. Visible to "
+        "mentors always; to teams only once GameSettings.leaderboard_public is on."
     ),
     examples=[
         OpenApiExample(
@@ -96,7 +98,9 @@ class LeaderboardView(APIView):
     permission_classes = [CanViewLeaderboard]
 
     def get(self, request):
-        teams = Team.objects.order_by("-balance", "code")
+        # One ranking per contest: a team sees only its own board, and ranks
+        # restart at 1 on each.
+        teams = Team.objects.filter(board=viewing_board(request)).order_by("-balance", "code")
         rows = [
             {"rank": rank, "code": team.code, "name": team.name, "balance": team.balance}
             for rank, team in enumerate(teams, start=1)
@@ -210,7 +214,7 @@ class ClaimStartView(APIView):
         serializer.is_valid(raise_exception=True)
         node_id = serializer.validated_data["node"]
         color = color_for_start(node_id)
-        node = Node.objects.select_related("level").filter(code=node_id).first()
+        node = Node.objects.select_related("level").filter(board=team.board, code=node_id).first()
         if node is None:
             raise NotFound(f"خانه «{node_id}» در نقشهٔ سرور نیست.")
         try:
@@ -219,7 +223,7 @@ class ClaimStartView(APIView):
                     claim_spawn(team, node)
                 elif team.color:
                     raise Conflict("این تیم قبلاً رنگ گرفته است.")
-                elif Team.objects.filter(color=color).exists():
+                elif Team.objects.filter(board=team.board, color=color).exists():
                     raise Conflict("این خانهٔ شروع قبلاً گرفته شده است.")
                 else:
                     team.color = color

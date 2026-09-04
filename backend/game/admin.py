@@ -93,8 +93,8 @@ class OccupancyInline(admin.TabularInline):
 
 @admin.register(Node)
 class NodeAdmin(admin.ModelAdmin):
-    list_display = ("code", "name", "level", "archetype")
-    list_filter = ("level", "archetype")
+    list_display = ("code", "name", "board", "level", "archetype")
+    list_filter = ("board", "level", "archetype")
     search_fields = ("code", "name")
     list_select_related = ("level",)
     inlines = [OccupancyInline]

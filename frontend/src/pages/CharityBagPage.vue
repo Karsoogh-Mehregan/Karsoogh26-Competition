@@ -12,6 +12,7 @@ import {
 } from '@lucide/vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
+import { useBoard } from '@/composables/useBoard'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -38,6 +39,7 @@ import {
 import type { CharityBagAction, CharityBagEvent } from '@/types/api'
 
 const { me, actingTeam, isMentor } = useActing()
+const { board } = useBoard()
 const enabled = () => me.value != null
 const eventsQuery = useCharityBagsQuery(enabled)
 const selectedEventId = ref<number | null>(null)
@@ -143,7 +145,7 @@ async function submitChoice(): Promise<void> {
 
 async function createNow(): Promise<void> {
   try {
-    const created = await createMutation.mutateAsync({ duration_seconds: 300 })
+    const created = await createMutation.mutateAsync({ board: board.value, duration_seconds: 300 })
     selectedEventId.value = created.id
     toast.success('یک کیسه خیریه پنج‌دقیقه‌ای باز شد.')
   } catch (error) {

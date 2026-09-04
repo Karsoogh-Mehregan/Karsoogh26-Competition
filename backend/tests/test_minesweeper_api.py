@@ -9,6 +9,7 @@ from django.contrib.auth.models import Group
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from core.boards import Board
 from game.models import Edge, GameSettings, GameStatus, LevelConfig, Node, Occupancy
 from minesweeper.models import (
     DifficultyConfig,
@@ -68,17 +69,18 @@ def running_contest():
 
 @pytest.fixture
 def alpha():
-    return Team.objects.create(code="alpha", name="Alpha")
+    return Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha")
 
 
 @pytest.fixture
 def beta():
-    return Team.objects.create(code="beta", name="Beta")
+    return Team.objects.create(board=Board.GIRLS, code="beta", name="Beta")
 
 
 @pytest.fixture
 def node():
     return Node.objects.create(
+        board=Board.GIRLS,
         code="ms1",
         name="MS 1",
         level=LevelConfig.objects.get(level="easy"),
@@ -88,6 +90,7 @@ def node():
 @pytest.fixture
 def other_node():
     return Node.objects.create(
+        board=Board.GIRLS,
         code="ms2",
         name="MS 2",
         level=LevelConfig.objects.get(level="easy"),
@@ -145,6 +148,7 @@ def _undirected(a: Node, b: Node) -> Edge:
 def grant_access(team: Team, node: Node) -> Occupancy:
     spawn = LevelConfig.objects.get(level="spawn")
     home = Node.objects.create(
+        board=Board.GIRLS,
         code=f"ms-home-{team.pk}-{node.pk}",
         name="home",
         level=spawn,
@@ -365,12 +369,16 @@ class TestEntryAuthorization:
         """A gate is entered from the road: the team must hold something next to it,
         and the road through a gate is one-way, as it is on the real map."""
         gate = Node.objects.create(
+            board=Board.GIRLS,
             code="C34_0",
             name="Connector",
             level=LevelConfig.objects.get(level="toll"),
         )
         road = Node.objects.create(
-            code="L3_0", name="Road", level=LevelConfig.objects.get(level="medium")
+            board=Board.GIRLS,
+            code="L3_0",
+            name="Road",
+            level=LevelConfig.objects.get(level="medium"),
         )
         Edge.objects.create(a=road, b=gate, directed=True)
         Occupancy.objects.create(node=road, team=alpha, slot=1, is_spawn=True)
