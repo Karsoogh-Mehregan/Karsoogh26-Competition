@@ -6,6 +6,7 @@ import { claimStart, getLeaderboard, listBalanceEvents, listTeams } from '@/serv
 import { useMeQuery } from './auth'
 import { useGameStateQuery } from './gameState'
 import type { Team } from '@/types/api'
+import { detach } from './invalidate'
 import { queryKeys } from './keys'
 
 export function useTeamsQuery(enabled: () => boolean) {
@@ -49,7 +50,7 @@ export function useClaimStartMutation() {
       queryClient.setQueryData<Team[]>(queryKeys.teams(board.value), (teams) =>
         teams?.map((item) => (item.code === team.code ? team : item)),
       )
-      return Promise.all([
+      detach([
         queryClient.invalidateQueries({ queryKey: queryKeys.teamsRoot() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.balanceEventsRoot() }),
       ])

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { listItems, useItem } from '@/services/items'
 import type { UseItemPayload, UseItemResult } from '@/types/api'
+import { detach } from './invalidate'
 import { queryKeys } from './keys'
 
 export function useItemsQuery(enabled: () => boolean) {
@@ -23,7 +24,7 @@ export function useItemMutation() {
           queryClient.invalidateQueries({ queryKey: queryKeys.attemptsRoot() }),
         )
       }
-      return Promise.all(tasks)
+      detach(tasks)
     },
   })
 }

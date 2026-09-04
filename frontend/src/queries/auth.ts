@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { ApiError } from '@/lib/http'
 import { ensureCsrf, getMe, login, logout } from '@/services/auth'
 import type { LoginCredentials, Me } from '@/types/api'
+import { detach } from './invalidate'
 import { queryKeys } from './keys'
 
 // Shared with the router guard (router.ts), which prefetches `me` via
@@ -32,7 +33,7 @@ export function useLoginMutation() {
     onSuccess: (me: Me) => {
       queryClient.setQueryData(queryKeys.me(), me)
       queryClient.removeQueries({ queryKey: queryKeys.minesweeperRoot() })
-      return Promise.all([
+      detach([
         queryClient.invalidateQueries({ queryKey: queryKeys.teamsRoot() }),
         // The sheet is per-team and cached forever, so it must not outlive
         // the session that drew it.

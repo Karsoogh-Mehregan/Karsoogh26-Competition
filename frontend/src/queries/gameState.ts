@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { getGameSettings, getGameState, restartGame, updateGameSettings } from '@/services/game'
 import type { GameRestartResult, GameSettings, GameState } from '@/types/api'
+import { detach } from './invalidate'
 import { queryKeys } from './keys'
 
 // The clock is derived from `server_time`, so a slow refetch only shifts the
@@ -38,7 +39,7 @@ export function useUpdateGameSettingsMutation() {
     mutationFn: (changes: Partial<GameSettings>) => updateGameSettings(changes),
     onSuccess: (settings: GameSettings) => {
       queryClient.setQueryData<GameSettings>(queryKeys.gameSettings(), settings)
-      return Promise.all([
+      detach([
         queryClient.invalidateQueries({ queryKey: queryKeys.gameState() }),
         // Freeze (or thaw) changes what competing teams read from this list.
         queryClient.invalidateQueries({ queryKey: queryKeys.leaderboardRoot() }),
