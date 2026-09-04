@@ -67,7 +67,10 @@ from game.serializers import (
     occupancy_for_user,
 )
 from game.services import grade_submission, release_expired_attempts, submit_answer
+from game.validators import ALLOWED_UPLOAD_EXTENSIONS
 from teams.models import Team
+
+_INLINE_SAFE_SUFFIXES = frozenset(f".{ext}" for ext in ALLOWED_UPLOAD_EXTENSIONS)
 
 _OCCUPANCY_PK = OpenApiParameter("pk", int, OpenApiParameter.PATH, description="Occupancy id")
 _SUBMISSION_PK = OpenApiParameter("pk", int, OpenApiParameter.PATH, description="Submission id")
@@ -565,23 +568,26 @@ def _serve_upload(fieldfile):
     if settings.USE_S3_MEDIA:
         return HttpResponseRedirect(fieldfile.url)
 
-    # POSIX basename: FileField stores "submissions/2026/09/a.pdf". On Windows,
-    # os.path.basename keeps the whole path and MIME sniffing breaks.
-    filename = PurePosixPath(fieldfile.name).name
+    name = PurePosixPath(fieldfile.name)
+    # Uploads bypass the model validators, so only a known-safe extension may
+    # render inline — anything else would run as script on our own origin.
+    inline = name.suffix.lower() in _INLINE_SAFE_SUFFIXES
     response = FileResponse(
         fieldfile.open("rb"),
-        as_attachment=False,
-        filename=filename,
+        as_attachment=not inline,
+        filename=name.name,
     )
-    # Default clickjacking middleware is DENY; allow same-origin iframe preview.
-    response["X-Frame-Options"] = "SAMEORIGIN"
+    response["X-Content-Type-Options"] = "nosniff"
+    if inline:
+        # Clickjacking middleware defaults to DENY; the grading iframe needs same-origin.
+        response["X-Frame-Options"] = "SAMEORIGIN"
     return response
 
 
 @extend_schema(
     tags=["game"],
     summary="Download submission file",
-    description="Owning team or mentor.",
+    description="Owning team, mentor or staff.",
     parameters=[_SUBMISSION_PK],
     responses={200: OpenApiTypes.BINARY},
 )
@@ -596,7 +602,7 @@ class SubmissionMediaView(APIView):
         if not submission.file:
             raise Http404("No file attached.")
         owns_file = submission.occupancy.team_id == request.user.team_id
-        if not _is_mentor(request.user) and not owns_file:
+        if not (_is_mentor(request.user) or request.user.is_staff or owns_file):
             raise PermissionDenied("You cannot access this file.")
         return _serve_upload(submission.file)
 

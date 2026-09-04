@@ -37,9 +37,10 @@ const detail = computed(() => detailQuery.data.value ?? null)
 const alreadyGraded = computed(() => detail.value?.grade != null)
 
 watch(
-  () => detail.value?.grade,
-  (grade) => {
+  () => [props.submissionId, detail.value?.grade] as const,
+  ([, grade]) => {
     gradeInput.value = grade == null ? '' : String(grade)
+    actionError.value = ''
   },
   { immediate: true },
 )
