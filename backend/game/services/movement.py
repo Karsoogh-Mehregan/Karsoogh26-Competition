@@ -20,22 +20,33 @@ def is_reachable(node: Node, held_ids: set[int]) -> bool:
     ).exists()
 
 
-def _expandable_node_ids(team: Team) -> set[int]:
-    """A reservation only opens its neighbours once it is graded; spawns start open.
+def expandable_node_ids(team: Team) -> set[int]:
+    """Everything the team can move *from* right now.
 
-    Item-granted seats expand reach the same way a grade does, without a grade.
+    A reservation only opens its neighbours once it is graded; spawns start
+    open. Item-granted seats expand reach the same way a grade does, without a
+    grade. A toll gate the team has beaten expands too, and it is the only way
+    onto the ring beyond it — the roads through a gate are one-way.
+
+    The minesweeper import is local on purpose: `minesweeper` depends on `game`,
+    so a module-level import here would close the loop.
     """
-    return set(
+    from minesweeper.crossings import cleared_node_ids
+
+    held = set(
         Occupancy.objects.active()
         .filter(team=team)
         .filter(Q(is_spawn=True) | Q(grade__isnull=False) | Q(source=AcquisitionSource.ITEM))
         .values_list("node_id", flat=True)
     )
+    return held | cleared_node_ids(team)
 
 
 def _reserve(team: Team, node: Node) -> Occupancy:
+    if node.level_id == Level.TOLL:
+        raise Conflict("عبور از عوارضی با بازی مین‌روب انجام می‌شود، نه با سؤال.")
     if Occupancy.objects.active().filter(team=team).exists():
-        held_ids = _expandable_node_ids(team)
+        held_ids = expandable_node_ids(team)
         if not held_ids:
             raise Conflict("تا وقتی این خانه نمره نداشته باشد نمی‌توان همسایه را رزرو کرد.")
         if not is_reachable(node, held_ids):

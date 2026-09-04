@@ -1,8 +1,20 @@
 from django.db import models
-from django.db.models import CheckConstraint, Q
+from django.db.models import CheckConstraint, F, Q
+
+# Sanity ceiling for an admin-entered board. A 40x40 grid is already far beyond
+# anything playable inside a contest slot; the cap exists so a typo cannot ask
+# the generator for a million cells.
+MAX_DIMENSION = 40
 
 
 class MinesweeperDifficulty(models.TextChoices):
+    """The three difficulties seeded by migration 0007.
+
+    Not the closed set any more: `DifficultyConfig` rows are data, and organisers
+    may add, retune or remove them in admin. These constants only name the rows
+    that ship, for seeds and tests.
+    """
+
     EASY = "easy", "آسان"
     MEDIUM = "medium", "متوسط"
     HARD = "hard", "سخت"
@@ -12,19 +24,6 @@ class MinesweeperStatus(models.TextChoices):
     IN_PROGRESS = "in_progress", "در حال اجرا"
     WON = "won", "برنده"
     LOST = "lost", "باخته"
-
-
-DIFFICULTY_LAYOUTS = {
-    MinesweeperDifficulty.EASY: {"width": 9, "height": 9, "mine_count": 10},
-    MinesweeperDifficulty.MEDIUM: {"width": 16, "height": 16, "mine_count": 40},
-    MinesweeperDifficulty.HARD: {"width": 30, "height": 16, "mine_count": 99},
-}
-
-DIFFICULTY_BASE_SCORES = {
-    MinesweeperDifficulty.EASY: 100,
-    MinesweeperDifficulty.MEDIUM: 250,
-    MinesweeperDifficulty.HARD: 500,
-}
 
 
 def empty_layout_board():
@@ -51,11 +50,54 @@ def empty_progress_board():
     return {"cells": []}
 
 
-def _layout_matches_difficulty() -> Q:
-    condition = Q()
-    for difficulty, layout in DIFFICULTY_LAYOUTS.items():
-        condition |= Q(difficulty=difficulty, **layout)
-    return condition
+class DifficultyConfig(models.Model):
+    """An editable difficulty, the way `game.LevelConfig` is an editable level.
+
+    Board size, mine count and base score are rows, not constants, so organisers
+    can retune a difficulty from admin between rounds. A generated
+    `MinesweeperGame` copies the numbers it was built with, so retuning never
+    reshapes a board a team is already playing.
+    """
+
+    key = models.SlugField(max_length=16, primary_key=True)
+    label = models.CharField(max_length=32, help_text="Shown to players, in Persian.")
+    width = models.PositiveSmallIntegerField()
+    height = models.PositiveSmallIntegerField()
+    mine_count = models.PositiveSmallIntegerField()
+    base_score = models.PositiveIntegerField(
+        help_text="Win pays this plus the same again minus the seconds taken.",
+    )
+    sort_order = models.PositiveSmallIntegerField(
+        default=0, help_text="Order in admin and in any difficulty picker; low first."
+    )
+
+    class Meta:
+        ordering = ["sort_order", "key"]
+        verbose_name = "difficulty config"
+        verbose_name_plural = "difficulty configs"
+        constraints = [
+            CheckConstraint(
+                condition=Q(
+                    width__gte=2,
+                    width__lte=MAX_DIMENSION,
+                    height__gte=2,
+                    height__lte=MAX_DIMENSION,
+                ),
+                name="difficultyconfig_dimension_range",
+            ),
+            CheckConstraint(
+                # At least one mine, and at least one safe cell to open.
+                condition=Q(mine_count__gte=1, mine_count__lt=F("width") * F("height")),
+                name="difficultyconfig_mine_count_range",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.label} ({self.width}×{self.height}, {self.mine_count})"
+
+    @property
+    def cell_count(self) -> int:
+        return self.width * self.height
 
 
 class MinesweeperSettings(models.Model):
@@ -67,7 +109,12 @@ class MinesweeperSettings(models.Model):
         related_name="minesweeper_settings",
     )
     enabled = models.BooleanField(default=True)
-    difficulty = models.CharField(max_length=8, choices=MinesweeperDifficulty.choices)
+    difficulty = models.ForeignKey(
+        DifficultyConfig,
+        on_delete=models.PROTECT,
+        related_name="node_settings",
+        db_column="difficulty",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -76,7 +123,7 @@ class MinesweeperSettings(models.Model):
 
     def __str__(self):
         state = "on" if self.enabled else "off"
-        return f"{self.node} {self.get_difficulty_display()} ({state})"
+        return f"{self.node} {self.difficulty_id} ({state})"
 
 
 class MinesweeperGame(models.Model):
@@ -87,10 +134,19 @@ class MinesweeperGame(models.Model):
         on_delete=models.PROTECT,
         related_name="minesweeper_games",
     )
-    difficulty = models.CharField(max_length=8, choices=MinesweeperDifficulty.choices)
+    difficulty = models.ForeignKey(
+        DifficultyConfig,
+        on_delete=models.PROTECT,
+        related_name="games",
+        db_column="difficulty",
+    )
     width = models.PositiveSmallIntegerField()
     height = models.PositiveSmallIntegerField()
     mine_count = models.PositiveSmallIntegerField()
+    base_score = models.PositiveIntegerField(
+        default=0,
+        help_text="Snapshot of the difficulty's base score, so retuning cannot rescore a live board.",
+    )
     board = models.JSONField(
         default=empty_layout_board,
         help_text=(
@@ -102,20 +158,17 @@ class MinesweeperGame(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
-        constraints = [
-            CheckConstraint(
-                condition=_layout_matches_difficulty(),
-                name="minesweepergame_layout_matches_difficulty",
-            ),
-        ]
 
     def __str__(self):
-        return f"{self.node} game {self.pk} {self.get_difficulty_display()}"
+        return f"{self.node} game {self.pk} {self.difficulty_id}"
 
 
 class MinesweeperAttemptQuerySet(models.QuerySet):
     def in_progress(self):
         return self.filter(status=MinesweeperStatus.IN_PROGRESS)
+
+    def won(self):
+        return self.filter(status=MinesweeperStatus.WON)
 
 
 class MinesweeperAttempt(models.Model):

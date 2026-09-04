@@ -54,7 +54,7 @@ const HouseCanvas = defineAsyncComponent({
 
 const inspector = useInspectorStore()
 const { spec, inspection, holdings } = useHouseSpec()
-const { me, claimStart, assignQuestion } = useActing()
+const { me, actingTeam, claimStart, assignQuestion } = useActing()
 const { open: openEntrySheet } = useEntry()
 const { pinOf } = useMapDesign()
 const { data: levelConfigs } = useLevelsQuery(() => !!me.value)
@@ -90,13 +90,23 @@ const reserveEntryCost = computed(() =>
   entryCostForLevel(spec.value?.level, levelConfigs.value),
 )
 
+// A toll node is a gate, not a building: it has no units to let, it charges to
+// play, and a win is a crossing this team keeps.
+const isGate = computed(() => spec.value?.level === 'toll')
+const hasCrossed = computed(
+  () => !!spec.value && (actingTeam.value?.crossings ?? []).includes(spec.value.nodeCode),
+)
+
+function withCost(label: string): string {
+  const cost = reserveEntryCost.value
+  return cost == null ? label : `${label} (${formatBalance(cost)})`
+}
+
 const actionLabel = computed(() => {
   const intent = inspection.value?.intent
   if (!intent) return ''
-  if (intent === 'reserve') {
-    const cost = reserveEntryCost.value
-    if (cost == null) return ACTION_LABEL.reserve
-    return `${ACTION_LABEL.reserve} (${formatBalance(cost)})`
+  if (intent === 'reserve' || intent === 'minesweeper') {
+    return withCost(ACTION_LABEL[intent])
   }
   return ACTION_LABEL[intent] ?? ''
 })
@@ -329,7 +339,11 @@ async function saveDesign() {
 
       <footer class="house-panel-foot">
         <p class="text-muted-foreground text-xs">
-          <template v-if="spec.freeSlots > 0">
+          <template v-if="isGate && hasCrossed">از این عوارضی عبور کرده‌اید</template>
+          <template v-else-if="isGate">
+            عوارضی؛ با بردن مین‌روب از آن عبور می‌کنید. ظرفیت ندارد.
+          </template>
+          <template v-else-if="spec.freeSlots > 0">
             {{ formatBalance(spec.freeSlots) }} واحد خالی از
             {{ formatBalance(spec.capacity) }}
           </template>

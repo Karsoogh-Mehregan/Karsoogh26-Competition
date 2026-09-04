@@ -30,10 +30,26 @@ class HoldingSerializer(serializers.ModelSerializer):
 class TeamSerializer(serializers.ModelSerializer):
     holdings = HoldingSerializer(many=True, read_only=True)
     balance = serializers.SerializerMethodField()
+    crossings = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
-        fields = ("code", "name", "balance", "color", "holdings")
+        fields = ("code", "name", "balance", "color", "holdings", "crossings")
+
+    def get_crossings(self, team: Team) -> list[str]:
+        """Toll gates this team has beaten, which is what opens the road past them.
+
+        A gate is not a holding — nobody owns it and it has no capacity — so it
+        cannot travel in `holdings`. The whole board's crossings are resolved in
+        one query by `teams.board_cache` and passed in through the context; the
+        fallback keeps a lone serializer (a test, a shell) honest.
+        """
+        by_team = self.context.get("crossings")
+        if by_team is None:
+            from minesweeper.crossings import cleared_node_codes
+
+            return cleared_node_codes(team)
+        return by_team.get(team.pk, [])
 
     def get_balance(self, team: Team) -> int | None:
         """Only mentors and the team itself see the number; other teams see null.
@@ -59,6 +75,7 @@ class LeaderboardRowSerializer(serializers.Serializer):
 REASON_LABELS: dict[str, str] = {
     BalanceReason.INITIAL: "موجودی اولیه",
     BalanceReason.ENTRY: "رزرو خانه",
+    BalanceReason.TOLL: "عوارضی",
     BalanceReason.GRADE: "نمره خانه",
 }
 

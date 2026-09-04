@@ -9,9 +9,9 @@ from django.contrib.auth.models import Group
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from game.models import GameSettings, GameStatus, LevelConfig, Node
+from game.models import Edge, GameSettings, GameStatus, LevelConfig, Node, Occupancy
 from minesweeper.models import (
-    DIFFICULTY_LAYOUTS,
+    DifficultyConfig,
     MinesweeperAttempt,
     MinesweeperDifficulty,
     MinesweeperGame,
@@ -132,10 +132,15 @@ def _begin(client, node):
     return client.post(_start(node.code), {"entry": token}, format="json")
 
 
+def _layout(difficulty) -> DifficultyConfig:
+    """The seeded config row. Difficulties are editable data, not constants."""
+    return DifficultyConfig.objects.get(pk=difficulty)
+
+
 def _configure(node, difficulty=MinesweeperDifficulty.HARD, *, enabled=True):
     return MinesweeperSettings.objects.create(
         node=node,
-        difficulty=difficulty,
+        difficulty_id=difficulty,
         enabled=enabled,
     )
 
@@ -331,13 +336,20 @@ class TestEntryAuthorization:
         assert response.json() == {"detail": "اجازهٔ ورود به این بازی صادر نشده است."}
         assert MinesweeperGame.objects.count() == 0
 
-    def test_graph_node_code_is_accepted(self, alpha_client, running_contest):
-        node = Node.objects.create(
+    def test_graph_node_code_is_accepted(self, alpha, alpha_client, running_contest):
+        """A gate is entered from the road: the team must hold something next to it."""
+        gate = Node.objects.create(
             code="C34_0",
             name="Connector",
             level=LevelConfig.objects.get(level="toll"),
         )
-        _configure(node)
+        road = Node.objects.create(
+            code="L3_0", name="Road", level=LevelConfig.objects.get(level="medium")
+        )
+        Edge.objects.create(a=road, b=gate, directed=True)
+        Occupancy.objects.create(node=road, team=alpha, slot=1, is_spawn=True)
+        _configure(gate)
+
         response = alpha_client.post(_enter("C34_0"), {}, format="json")
         assert response.status_code == 200
         assert response.json()["node"] == "C34_0"
@@ -347,16 +359,16 @@ class TestStartPlay:
     def test_creates_a_game_and_attempt_for_the_authenticated_team(
         self, alpha_client, alpha, node, running_contest
     ):
-        layout = DIFFICULTY_LAYOUTS[MinesweeperDifficulty.HARD]
+        layout = _layout(MinesweeperDifficulty.HARD)
         _configure(node, MinesweeperDifficulty.HARD)
         response = _begin(alpha_client, node)
         assert response.status_code == 201
         body = response.json()
         assert body["node"] == node.code
         assert body["difficulty"] == MinesweeperDifficulty.HARD
-        assert body["width"] == layout["width"]
-        assert body["height"] == layout["height"]
-        assert body["mine_count"] == layout["mine_count"]
+        assert body["width"] == layout.width
+        assert body["height"] == layout.height
+        assert body["mine_count"] == layout.mine_count
         assert body["status"] == MinesweeperStatus.IN_PROGRESS
         assert "team" not in body
         assert "id" not in body

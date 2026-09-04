@@ -22,8 +22,7 @@ from minesweeper.exceptions import (
     SettingsNotConfigured,
 )
 from minesweeper.models import (
-    DIFFICULTY_BASE_SCORES,
-    DIFFICULTY_LAYOUTS,
+    DifficultyConfig,
     MinesweeperAttempt,
     MinesweeperDifficulty,
     MinesweeperGame,
@@ -75,10 +74,15 @@ def node():
     )
 
 
+def _layout(difficulty) -> DifficultyConfig:
+    """The seeded config row. Difficulties are editable data, not constants."""
+    return DifficultyConfig.objects.get(pk=difficulty)
+
+
 def _configure(node, difficulty=MinesweeperDifficulty.HARD, *, enabled=True):
     return MinesweeperSettings.objects.create(
         node=node,
-        difficulty=difficulty,
+        difficulty_id=difficulty,
         enabled=enabled,
     )
 
@@ -103,33 +107,33 @@ def _neighbor_mine_count(cells: list[list[dict]], row: int, col: int) -> int:
 class TestCreateGame:
     @pytest.mark.parametrize("difficulty", list(MinesweeperDifficulty))
     def test_creates_a_runtime_board(self, node, difficulty):
-        layout = DIFFICULTY_LAYOUTS[difficulty]
+        layout = _layout(difficulty)
         game = create_game(node, difficulty)
 
         field_names = {field.name for field in MinesweeperGame._meta.get_fields()}
         assert "team" not in field_names
         assert game.node_id == node.pk
-        assert game.difficulty == difficulty
-        assert game.width == layout["width"]
-        assert game.height == layout["height"]
-        assert game.mine_count == layout["mine_count"]
+        assert game.difficulty_id == difficulty
+        assert game.width == layout.width
+        assert game.height == layout.height
+        assert game.mine_count == layout.mine_count
         assert game.created_at is not None
         assert MinesweeperAttempt.objects.count() == 0
 
 
 class TestCreateGameFromNode:
-    def test_uses_node_difficulty(self, node):
+    def test_uses_node_difficulty(self, team, node):
         _configure(node, MinesweeperDifficulty.HARD)
         game = create_game_from_node(node)
-        layout = DIFFICULTY_LAYOUTS[MinesweeperDifficulty.HARD]
+        layout = _layout(MinesweeperDifficulty.HARD)
         assert game.node_id == node.pk
-        assert game.difficulty == MinesweeperDifficulty.HARD
-        assert game.width == layout["width"]
-        assert game.height == layout["height"]
-        assert game.mine_count == layout["mine_count"]
+        assert game.difficulty_id == MinesweeperDifficulty.HARD
+        assert game.width == layout.width
+        assert game.height == layout.height
+        assert game.mine_count == layout.mine_count
         assert game.board["cells"]
 
-    def test_each_call_creates_a_new_game(self, node):
+    def test_each_call_creates_a_new_game(self, team, node):
         _configure(node, MinesweeperDifficulty.EASY)
         first = create_game_from_node(node)
         second = create_game_from_node(node)
@@ -142,7 +146,7 @@ class TestCreateGameFromNode:
         assert isinstance(caught.value, MinesweeperServiceError)
         assert MinesweeperGame.objects.count() == 0
 
-    def test_disabled_settings_are_rejected(self, node):
+    def test_disabled_settings_are_rejected(self, team, node):
         _configure(node, MinesweeperDifficulty.MEDIUM, enabled=False)
         with pytest.raises(SettingsDisabled) as caught:
             create_game_from_node(node)
@@ -151,13 +155,13 @@ class TestCreateGameFromNode:
 
 
 class TestMapEntry:
-    def test_issue_and_consume(self, node):
+    def test_issue_and_consume(self, team, node):
         _configure(node)
         session = {}
-        token = issue_entry(session, user_id=7, node=node)
+        token = issue_entry(session, user_id=7, node=node, team=team)
         consume_entry(session, user_id=7, node=node, token=token)
 
-    def test_wrong_node_is_rejected(self, node):
+    def test_wrong_node_is_rejected(self, team, node):
         _configure(node)
         other = Node.objects.create(
             code="ms-other",
@@ -166,41 +170,41 @@ class TestMapEntry:
         )
         _configure(other)
         session = {}
-        token = issue_entry(session, user_id=7, node=node)
+        token = issue_entry(session, user_id=7, node=node, team=team)
         with pytest.raises(EntryUnauthorized):
             consume_entry(session, user_id=7, node=other, token=token)
         with pytest.raises(EntryUnauthorized):
             consume_entry(session, user_id=7, node=node, token=token)
 
-    def test_token_cannot_be_reused(self, node):
+    def test_token_cannot_be_reused(self, team, node):
         _configure(node)
         session = {}
-        token = issue_entry(session, user_id=7, node=node)
+        token = issue_entry(session, user_id=7, node=node, team=team)
         consume_entry(session, user_id=7, node=node, token=token)
         with pytest.raises(EntryUnauthorized):
             consume_entry(session, user_id=7, node=node, token=token)
 
-    def test_expired_token_is_rejected(self, node, monkeypatch):
+    def test_expired_token_is_rejected(self, team, node, monkeypatch):
         _configure(node)
         started = timezone.now()
         monkeypatch.setattr("minesweeper.services._now", lambda: started)
         session = {}
-        token = issue_entry(session, user_id=7, node=node)
+        token = issue_entry(session, user_id=7, node=node, team=team)
         monkeypatch.setattr("minesweeper.services._now", lambda: started + timedelta(seconds=61))
         with pytest.raises(EntryUnauthorized):
             consume_entry(session, user_id=7, node=node, token=token)
 
-    def test_forged_token_is_rejected(self, node):
+    def test_forged_token_is_rejected(self, team, node):
         _configure(node)
         session = {}
-        issue_entry(session, user_id=7, node=node)
+        issue_entry(session, user_id=7, node=node, team=team)
         with pytest.raises(EntryUnauthorized):
             consume_entry(session, user_id=7, node=node, token="forged")
 
-    def test_wrong_user_is_rejected_and_token_is_consumed(self, node):
+    def test_wrong_user_is_rejected_and_token_is_consumed(self, team, node):
         _configure(node)
         session = {}
-        token = issue_entry(session, user_id=7, node=node)
+        token = issue_entry(session, user_id=7, node=node, team=team)
         with pytest.raises(EntryUnauthorized):
             consume_entry(session, user_id=8, node=node, token=token)
         with pytest.raises(EntryUnauthorized):
@@ -209,7 +213,7 @@ class TestMapEntry:
     def test_issue_requires_enabled_settings(self, node):
         session = {}
         with pytest.raises(SettingsNotConfigured):
-            issue_entry(session, user_id=7, node=node)
+            issue_entry(session, user_id=7, node=node, team=team)
 
 
 class TestStartPlay:
@@ -219,7 +223,7 @@ class TestStartPlay:
         assert attempt.team_id == team.pk
         assert attempt.status == MinesweeperStatus.IN_PROGRESS
         assert attempt.game.node_id == node.pk
-        assert attempt.game.difficulty == MinesweeperDifficulty.HARD
+        assert attempt.game.difficulty_id == MinesweeperDifficulty.HARD
         assert len(attempt.board["cells"]) == attempt.game.height
 
     def test_same_team_reentering_resumes_the_active_attempt(self, team, node):
@@ -253,8 +257,8 @@ class TestStartPlay:
         assert alpha.pk != beta.pk
         assert alpha.team_id == team.pk
         assert beta.team_id == other_team.pk
-        assert alpha.game.difficulty == MinesweeperDifficulty.MEDIUM
-        assert beta.game.difficulty == MinesweeperDifficulty.MEDIUM
+        assert alpha.game.difficulty_id == MinesweeperDifficulty.MEDIUM
+        assert beta.game.difficulty_id == MinesweeperDifficulty.MEDIUM
 
     def test_progress_does_not_affect_another_attempt(self, team, other_team, node):
         _configure(node, MinesweeperDifficulty.EASY)
@@ -303,15 +307,15 @@ class TestAttempts:
 class TestBoardGeneration:
     @pytest.mark.parametrize("difficulty", list(MinesweeperDifficulty))
     def test_layout_matches_invariants(self, node, difficulty):
-        layout = DIFFICULTY_LAYOUTS[difficulty]
+        layout = _layout(difficulty)
         game = create_game(node, difficulty)
         cells = game.board["cells"]
 
-        assert len(cells) == layout["height"]
-        assert all(len(row) == layout["width"] for row in cells)
+        assert len(cells) == layout.height
+        assert all(len(row) == layout.width for row in cells)
 
         mines = [cell for row in cells for cell in row if cell["mine"]]
-        assert len(mines) == layout["mine_count"]
+        assert len(mines) == layout.mine_count
 
         for row_index, row in enumerate(cells):
             for col_index, cell in enumerate(row):
@@ -462,8 +466,8 @@ def _reveal_all_safe_except(attempt, except_cells: set[tuple[int, int]]):
 
 
 def _cluster_mines(difficulty) -> frozenset[tuple[int, int]]:
-    layout = DIFFICULTY_LAYOUTS[difficulty]
-    width, height, count = layout["width"], layout["height"], layout["mine_count"]
+    layout = _layout(difficulty)
+    width, height, count = layout.width, layout.height, layout.mine_count
     positions = [
         (row, col) for row in range(height - 1, -1, -1) for col in range(width - 1, -1, -1)
     ]
@@ -950,9 +954,8 @@ class TestScoring:
         updated = reveal_cell(attempt.pk, 0, 0)
         assert updated.status == MinesweeperStatus.WON
         assert updated.score == expected
-        assert updated.score == DIFFICULTY_BASE_SCORES[difficulty] + max(
-            0, DIFFICULTY_BASE_SCORES[difficulty] - elapsed
-        )
+        base = _layout(difficulty).base_score
+        assert updated.score == base + max(0, base - elapsed)
 
     def test_loss_score_is_zero(self, team, node, monkeypatch):
         started = timezone.now()

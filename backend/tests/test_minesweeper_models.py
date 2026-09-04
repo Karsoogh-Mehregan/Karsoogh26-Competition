@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from game.models import LevelConfig, Node
 from minesweeper.models import (
-    DIFFICULTY_LAYOUTS,
+    DifficultyConfig,
     MinesweeperAttempt,
     MinesweeperDifficulty,
     MinesweeperGame,
@@ -38,22 +38,28 @@ def node():
     )
 
 
+def layout_for(difficulty=MinesweeperDifficulty.EASY) -> DifficultyConfig:
+    """The seeded config row. Difficulties are data now, not constants."""
+    return DifficultyConfig.objects.get(pk=difficulty)
+
+
 def start_settings(node, difficulty=MinesweeperDifficulty.HARD, *, enabled=True):
     return MinesweeperSettings.objects.create(
         node=node,
-        difficulty=difficulty,
+        difficulty_id=difficulty,
         enabled=enabled,
     )
 
 
 def start_game(node, difficulty=MinesweeperDifficulty.EASY, **kwargs):
-    layout = DIFFICULTY_LAYOUTS[difficulty]
+    layout = layout_for(difficulty)
     payload = {
         "node": node,
-        "difficulty": difficulty,
-        "width": layout["width"],
-        "height": layout["height"],
-        "mine_count": layout["mine_count"],
+        "difficulty": layout,
+        "width": layout.width,
+        "height": layout.height,
+        "mine_count": layout.mine_count,
+        "base_score": layout.base_score,
     }
     payload.update(kwargs)
     return MinesweeperGame.objects.create(**payload)
@@ -69,7 +75,7 @@ class TestMinesweeperSettings:
     def test_node_can_have_settings(self, node):
         settings = start_settings(node, MinesweeperDifficulty.HARD)
         assert settings.node_id == node.pk
-        assert settings.difficulty == MinesweeperDifficulty.HARD
+        assert settings.difficulty_id == MinesweeperDifficulty.HARD
         assert settings.enabled is True
         assert node.minesweeper_settings.pk == settings.pk
         assert settings.created_at is not None
@@ -78,7 +84,8 @@ class TestMinesweeperSettings:
     def test_difficulty_is_stored(self, node):
         settings = start_settings(node, MinesweeperDifficulty.MEDIUM)
         stored = MinesweeperSettings.objects.get(pk=settings.pk)
-        assert stored.difficulty == MinesweeperDifficulty.MEDIUM
+        assert stored.difficulty_id == MinesweeperDifficulty.MEDIUM
+        assert stored.difficulty.width == 16
 
     def test_one_settings_row_per_node(self, node):
         start_settings(node)
@@ -119,31 +126,43 @@ class TestMinesweeperGameDefaults:
     @pytest.mark.parametrize("difficulty", list(MinesweeperDifficulty))
     def test_legal_layouts_are_accepted(self, node, difficulty):
         game = start_game(node, difficulty)
+        layout = layout_for(difficulty)
         assert (game.width, game.height, game.mine_count) == (
-            DIFFICULTY_LAYOUTS[difficulty]["width"],
-            DIFFICULTY_LAYOUTS[difficulty]["height"],
-            DIFFICULTY_LAYOUTS[difficulty]["mine_count"],
+            layout.width,
+            layout.height,
+            layout.mine_count,
         )
+
+    def test_board_keeps_its_own_layout_when_the_difficulty_is_retuned(self, node):
+        game = start_game(node, MinesweeperDifficulty.EASY)
+        config = layout_for(MinesweeperDifficulty.EASY)
+        config.width, config.height, config.mine_count, config.base_score = 12, 12, 20, 999
+        config.save()
+
+        game.refresh_from_db()
+        assert (game.width, game.height, game.mine_count) == (9, 9, 10)
+        assert game.base_score == 100
 
 
 class TestMinesweeperGameConstraints:
-    def test_layout_must_match_difficulty(self, node):
-        with pytest.raises(IntegrityError), transaction.atomic():
-            start_game(node, width=16, height=16, mine_count=40)
-
     def test_node_delete_is_protected(self, node):
         start_game(node)
         with pytest.raises(ProtectedError), transaction.atomic():
             node.delete()
 
+    def test_difficulty_delete_is_protected(self, node):
+        start_game(node, MinesweeperDifficulty.EASY)
+        with pytest.raises(ProtectedError), transaction.atomic():
+            layout_for(MinesweeperDifficulty.EASY).delete()
+
     def test_node_is_required(self):
-        layout = DIFFICULTY_LAYOUTS[MinesweeperDifficulty.EASY]
+        layout = layout_for(MinesweeperDifficulty.EASY)
         with pytest.raises(IntegrityError), transaction.atomic():
             MinesweeperGame.objects.create(
-                difficulty=MinesweeperDifficulty.EASY,
-                width=layout["width"],
-                height=layout["height"],
-                mine_count=layout["mine_count"],
+                difficulty=layout,
+                width=layout.width,
+                height=layout.height,
+                mine_count=layout.mine_count,
             )
 
 

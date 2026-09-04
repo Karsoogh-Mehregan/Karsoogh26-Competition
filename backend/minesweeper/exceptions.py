@@ -36,3 +36,15 @@ class CellFlagged(MinesweeperServiceError):
 
 class CannotFlagRevealed(MinesweeperServiceError):
     """A revealed cell cannot be flagged or unflagged."""
+
+
+class NodeUnreachable(MinesweeperServiceError):
+    """The team holds nothing adjacent to this gate, so it cannot enter yet."""
+
+
+class AlreadyCleared(MinesweeperServiceError):
+    """The team has already beaten this gate; there is nothing left to pay for."""
+
+
+class EntryFeeUnaffordable(MinesweeperServiceError):
+    """The team cannot afford this node's entry cost."""

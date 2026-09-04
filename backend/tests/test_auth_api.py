@@ -130,8 +130,22 @@ def test_teams_list_returns_code_name_balance(auth_client, team, other_team):
     response = auth_client.get("/api/teams/")
     assert response.status_code == 200
     assert response.json() == [
-        {"code": "alpha", "name": "Alpha", "balance": 42, "holdings": [], "color": None},
-        {"code": "beta", "name": "Beta", "balance": 7, "holdings": [], "color": None},
+        {
+            "code": "alpha",
+            "name": "Alpha",
+            "balance": 42,
+            "holdings": [],
+            "color": None,
+            "crossings": [],
+        },
+        {
+            "code": "beta",
+            "name": "Beta",
+            "balance": 7,
+            "holdings": [],
+            "color": None,
+            "crossings": [],
+        },
     ]
 
 

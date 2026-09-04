@@ -17,7 +17,7 @@ from game.models import (
 from game.services import consume_item, is_reachable, use_fake_document, use_gel, use_gilari
 from game.services.events import BOARD_NODE_CLAIMED, BOARD_RELEASED
 from game.services.mentor import Conflict
-from game.services.movement import _expandable_node_ids
+from game.services.movement import expandable_node_ids
 from teams.models import ItemType, Team, TeamItem
 
 pytestmark = pytest.mark.django_db
@@ -144,7 +144,7 @@ class TestFakeDocument:
 
         use_fake_document(team, e1)
 
-        held = _expandable_node_ids(team)
+        held = expandable_node_ids(team)
         assert e1.pk in held
         assert is_reachable(neighbour, held)
         assert not is_reachable(far, held)

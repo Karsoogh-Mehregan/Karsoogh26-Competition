@@ -15,6 +15,12 @@ export interface Team {
   balance: number | null
   color: string | null
   holdings: Holding[]
+  /**
+   * Toll gates this team has beaten. Not holdings — a gate seats nobody and has
+   * no capacity — but they expand reach exactly the way a graded node does, and
+   * they are the only way onto the rings past a `C34` / `C45` connector.
+   */
+  crossings: string[]
 }
 
 export interface Me {
@@ -377,7 +383,12 @@ export interface NodeDesignPatch {
 
 // ---- minesweeper ---------------------------------------------------------
 
-export type MinesweeperDifficulty = 'easy' | 'medium' | 'hard'
+/**
+ * Difficulties are server rows now (`DifficultyConfig`), so organisers can add
+ * and retune them; these three are only the ones that ship. Read
+ * `difficulty_label` for anything shown to a player.
+ */
+export type MinesweeperDifficulty = 'easy' | 'medium' | 'hard' | (string & {})
 
 export type MinesweeperStatus = 'in_progress' | 'won' | 'lost'
 
@@ -413,6 +424,8 @@ interface MinesweeperGameBase {
   attempt_id: number
   node: string
   difficulty: MinesweeperDifficulty
+  /** Persian name of the difficulty, straight from its config row. */
+  difficulty_label: string
   width: number
   height: number
   mine_count: number
