@@ -1,5 +1,6 @@
 """Atomic balance changes with an audit trail."""
 
+from django.db import transaction
 from django.db.models import F
 
 from .models import BalanceEvent, Team
@@ -9,6 +10,7 @@ class InsufficientFunds(Exception):
     """Raised when a debit would take a team's balance below zero."""
 
 
+@transaction.atomic
 def apply_balance_change(
     team: Team,
     delta: int,
@@ -24,6 +26,8 @@ def apply_balance_change(
     if delta == 0:
         return team
 
+    # Keep the wallet and its history together, including standalone callers.
+    Team.objects.select_for_update().get(pk=team.pk)
     qs = Team.objects.filter(pk=team.pk)
     if delta < 0:
         updated = qs.filter(balance__gte=-delta).update(balance=F("balance") + delta)
