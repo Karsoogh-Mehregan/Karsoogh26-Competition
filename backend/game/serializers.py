@@ -405,6 +405,8 @@ class GameRestartResultSerializer(serializers.Serializer):
     occupancies = serializers.IntegerField(read_only=True)
     submissions = serializers.IntegerField(read_only=True)
     entry_attempts = serializers.IntegerField(read_only=True)
+    balance_events = serializers.IntegerField(read_only=True)
+    sent_messages = serializers.IntegerField(read_only=True)
     duels = serializers.IntegerField(read_only=True)
     rooms_requeued = serializers.IntegerField(read_only=True)
     minesweeper_attempts = serializers.IntegerField(read_only=True)

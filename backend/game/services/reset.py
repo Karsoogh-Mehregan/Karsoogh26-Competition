@@ -20,7 +20,8 @@ from django.db import transaction
 from duels.models import Duel, Room
 from game.models import EntryAttempt, GameSettings, GameStatus, Occupancy
 from minesweeper.models import MinesweeperGame
-from teams.models import Team
+from notifications.models import Message, MessageStatus
+from teams.models import BalanceEvent, Team
 
 logger = logging.getLogger("karsoogh")
 
@@ -65,6 +66,15 @@ def restart_game(*, by=None) -> dict:
     # team would ever see a sheet. The EntryQuestion bank is content and stays.
     entry_attempts, _ = EntryAttempt.objects.all().delete()
 
+    # The score log is run state, not content. Left behind, last contest's
+    # credits and charges would still show in the team panel.
+    balance_events, _ = BalanceEvent.objects.all().delete()
+
+    # Sent mail is of this run; drafts are the announcer's unfinished work and
+    # survive. Notifications cascade off Message, so inboxes empty with the
+    # sent rows.
+    _total_mail, deleted_mail = Message.objects.filter(status=MessageStatus.SENT).delete()
+
     teams = Team.objects.update(
         balance=settings_row.initial_balance,
         color=None,
@@ -87,6 +97,8 @@ def restart_game(*, by=None) -> dict:
         "occupancies": deleted.get("game.Occupancy", 0),
         "submissions": deleted.get("game.Submission", 0),
         "entry_attempts": entry_attempts,
+        "balance_events": balance_events,
+        "sent_messages": deleted_mail.get("notifications.Message", 0),
         "duels": duels,
         "rooms_requeued": rooms,
         "minesweeper_attempts": board_counts.get("minesweeper.MinesweeperAttempt", 0),

@@ -861,9 +861,12 @@ class GameSettingsView(APIView):
         "Game god only, and only with `confirm: true` in the body. Deletes every "
         "occupancy — and the submissions and served-question records that hang off "
         "them — refunds every team to the starting balance, drops claimed colours and "
-        "draft order, and puts the status back to not_started. The map, the question "
-        "bank and the economy tables are untouched, so the next run starts on the same "
-        "board. `duration_minutes` is deliberately kept."
+        "draft order, wipes the balance-event log, deletes sent announcements "
+        "(drafts stay), and clears the duels and the toll crossings — the duel rooms "
+        "survive with their place in the judge rotation reset — then puts the status "
+        "back to not_started. The map, the question bank and the economy tables are "
+        "untouched, so the next run starts on the same board. `duration_minutes` is "
+        "deliberately kept."
     ),
     request=GameRestartSerializer,
     responses=GameRestartResultSerializer,
@@ -874,7 +877,9 @@ class GameSettingsView(APIView):
             value={
                 "occupancies": 37,
                 "submissions": 21,
-                "entry_attempts": 8,
+                "entry_attempts": 12,
+                "balance_events": 40,
+                "sent_messages": 9,
                 "duels": 3,
                 "rooms_requeued": 6,
                 "minesweeper_attempts": 12,

@@ -333,6 +333,8 @@ def test_restart_clears_the_board(game_god, played_board):
         "occupancies": 2,
         "submissions": 1,
         "entry_attempts": 0,
+        "balance_events": 0,
+        "sent_messages": 0,
         "duels": 0,
         "rooms_requeued": 0,
         "minesweeper_attempts": 0,
@@ -341,6 +343,50 @@ def test_restart_clears_the_board(game_god, played_board):
     }
     assert Occupancy.objects.count() == 0
     assert Submission.objects.count() == 0
+
+
+def test_restart_clears_balance_events(game_god, team):
+    from teams.models import BalanceEvent, BalanceReason
+
+    BalanceEvent.objects.create(
+        team=team, delta=400, balance_after=400, reason=BalanceReason.INITIAL
+    )
+    BalanceEvent.objects.create(
+        team=team, delta=-20, balance_after=380, reason=BalanceReason.ENTRY, detail="L1_2"
+    )
+
+    response = _restart(game_god)
+
+    assert response.status_code == 200
+    assert response.json()["balance_events"] == 2
+    assert BalanceEvent.objects.count() == 0
+
+
+def test_restart_deletes_sent_messages_and_keeps_drafts(game_god):
+    from notifications.models import Message, MessageStatus, Notification
+
+    author = User.objects.create_user("announcer", password="x")
+    draft = Message.objects.create(title="پیش‌نویس", body="نگه دار", sender=author)
+    sent = Message.objects.create(
+        title="ارسال‌شده",
+        body="پاک شود",
+        sender=author,
+        status=MessageStatus.SENT,
+        sent_at=timezone.now(),
+    )
+    Notification.objects.create(message=sent, user=author)
+
+    response = _restart(game_god)
+
+    assert response.status_code == 200
+    assert response.json()["sent_messages"] == 1
+    assert Message.objects.filter(status=MessageStatus.SENT).count() == 0
+    assert Notification.objects.count() == 0
+    draft.refresh_from_db()
+    assert draft.title == "پیش‌نویس"
+    assert draft.body == "نگه دار"
+    assert draft.status == MessageStatus.DRAFT
+    assert draft.sent_at is None
 
 
 @pytest.fixture
