@@ -71,10 +71,6 @@ const fileUrl = computed(() => {
   return null
 })
 
-const questionAttachmentUrl = computed(() =>
-  sameOriginApiUrl(detail.value?.question.attachment_url ?? null),
-)
-
 const fileExt = computed(() => {
   const name = detail.value?.file_name ?? ''
   const dot = name.lastIndexOf('.')
@@ -120,86 +116,76 @@ async function submitGrade() {
 <template>
   <Dialog v-model:open="dialogOpen">
     <DialogContent
-      class="flex max-h-[90vh] max-w-4xl flex-col overflow-y-auto sm:max-w-4xl"
+      class="flex h-[92vh] max-h-[92vh] w-[min(96vw,72rem)] max-w-[min(96vw,72rem)] flex-col gap-4 overflow-hidden p-6 sm:max-w-[min(96vw,72rem)]"
       dir="rtl"
     >
-      <DialogHeader>
+      <DialogHeader class="shrink-0">
         <DialogTitle>
           بررسی پاسخ {{ detail ? detail.id : submissionId }}
         </DialogTitle>
         <DialogDescription v-if="detail">
-          {{ detail.team_name }} · {{ detail.question.code }} · خانه {{ detail.node_code }}
+          {{ detail.team_name }} ·
+          <span dir="ltr">{{ detail.question.code }}</span>
+          · خانه {{ detail.node_code }}
         </DialogDescription>
         <DialogDescription v-else>
           در حال بارگذاری پاسخ…
         </DialogDescription>
       </DialogHeader>
 
-      <div v-if="loading" class="flex flex-col gap-3">
+      <div v-if="loading" class="flex min-h-0 flex-1 flex-col gap-3">
         <Skeleton class="h-8 w-2/3" />
-        <Skeleton class="h-40 w-full" />
+        <Skeleton class="min-h-0 w-full flex-1" />
       </div>
 
       <p v-else-if="loadError" class="text-destructive text-sm">
         بارگذاری این پاسخ ناموفق بود.
       </p>
 
-      <div v-else-if="detail" class="flex flex-col gap-4">
-        <section class="flex flex-col gap-1.5">
-          <a
-            v-if="questionAttachmentUrl"
-            :href="questionAttachmentUrl"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="text-primary w-fit text-base font-semibold underline underline-offset-4"
-          >
-            سؤال {{ detail.question.code }}
-          </a>
-          <p v-else class="text-base font-semibold">
-            سؤال {{ detail.question.code }}
-          </p>
-          <p v-if="!questionAttachmentUrl" class="text-muted-foreground text-xs">
-            پیوست صورت سؤال ندارد
-          </p>
-          <p v-if="detail.question.answer_key" class="bg-muted rounded-md p-3 text-sm leading-7 whitespace-pre-wrap">
-            <span class="text-muted-foreground font-medium">کلید:</span>
-            {{ detail.question.answer_key }}
-          </p>
-        </section>
+      <div v-else-if="detail" class="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+        <p class="text-muted-foreground shrink-0 text-sm">
+          سؤال
+          <span class="text-foreground font-semibold" dir="ltr">{{ detail.question.code }}</span>
+        </p>
 
-        <section class="flex flex-col gap-2">
-          <h3 class="text-sm font-semibold">پاسخ تیم</h3>
-          <p
-            v-if="detail.body"
-            class="rounded-md border p-3 text-sm leading-7 whitespace-pre-wrap"
-          >
-            {{ detail.body }}
-          </p>
-          <img
-            v-if="fileKind === 'image' && fileUrl"
-            :src="fileUrl"
-            :alt="detail.file_name ?? 'پاسخ تصویری'"
-            class="max-h-[70vh] w-full rounded-md border object-contain"
-          >
-          <iframe
-            v-else-if="fileKind === 'pdf' && fileUrl"
-            :src="fileUrl"
-            title="پیش‌نمایش PDF"
-            class="h-[70vh] w-full rounded-md border bg-muted"
-          />
-          <a
-            v-if="fileUrl"
-            :href="fileUrl"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="text-primary w-fit text-sm underline-offset-4 hover:underline"
-          >
-            باز کردن فایل{{ detail.file_name ? ` (${detail.file_name})` : '' }}
-          </a>
+        <section class="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+          <div class="flex shrink-0 items-center justify-between gap-3">
+            <h3 class="text-sm font-semibold">پاسخ تیم</h3>
+            <a
+              v-if="fileUrl"
+              :href="fileUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-primary shrink-0 text-sm underline-offset-4 hover:underline"
+              dir="ltr"
+            >
+              باز کردن فایل{{ detail.file_name ? ` (${detail.file_name})` : '' }}
+            </a>
+          </div>
+          <div class="min-h-0 flex-1 overflow-y-auto">
+            <p
+              v-if="detail.body"
+              class="rounded-md border p-3 text-sm leading-7 whitespace-pre-wrap"
+            >
+              {{ detail.body }}
+            </p>
+            <img
+              v-if="fileKind === 'image' && fileUrl"
+              :src="fileUrl"
+              :alt="detail.file_name ?? 'پاسخ تصویری'"
+              class="max-h-full w-full rounded-md border object-contain"
+            >
+            <iframe
+              v-else-if="fileKind === 'pdf' && fileUrl"
+              :src="fileUrl"
+              title="پیش‌نمایش PDF"
+              class="h-full min-h-[50vh] w-full rounded-md border bg-muted"
+            />
+          </div>
         </section>
       </div>
 
-      <form class="flex flex-col gap-3" @submit.prevent="submitGrade" @click.stop>
+      <form class="shrink-0" @submit.prevent="submitGrade" @click.stop>
         <DialogFooter class="flex-col items-stretch gap-3 sm:flex-col">
           <div class="flex flex-col gap-1.5">
             <Label for="grade-input">نمره (۰ تا ۱۰۰)</Label>
