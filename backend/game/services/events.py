@@ -20,6 +20,9 @@ SUBMISSION_CREATED = "mentor.submission.created"
 GAME_STATE = "game.state"
 NOTIFICATION_CREATED = "notification.created"
 MAP_DESIGN = "map.design"
+# Addressed frames: only the two teams and the judge are told a duel moved.
+# The board frame below is the public half — a resolved duel moves a floor.
+DUEL_UPDATED = "duel.updated"
 MINESWEEPER_CLEARED = "minesweeper.cleared"
 RESYNC = "resync"
 

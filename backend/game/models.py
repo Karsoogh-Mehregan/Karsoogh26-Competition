@@ -43,6 +43,15 @@ class ReleaseReason(models.TextChoices):
 class AcquisitionSource(models.TextChoices):
     ATTEMPT = "attempt", "تلاش"
     ITEM = "item", "آیتم"
+    DUEL = "duel", "دوئل"
+
+
+# Seats a team was *given* rather than earned by answering. They behave alike
+# everywhere it matters: they expand reach without a grade, they are never
+# offered a question, and grading elsewhere on the node must route around their
+# floor rather than re-rank it. Behavioural checks go through this set so a
+# fourth way of acquiring a floor is one line, not a search of the codebase.
+GRANTED_SOURCES = frozenset({AcquisitionSource.ITEM, AcquisitionSource.DUEL})
 
 
 class GameStatus(models.TextChoices):
@@ -66,7 +75,12 @@ class LevelConfig(models.Model):
 
     networth_base = models.IntegerField(default=0)
     networth_factor = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0"))
-    duel_factor = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("2"))
+    duel_factor = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("2"),
+        help_text="Fallback duel price: this times the floor's points, when the floor has no override.",
+    )
     buyout_factor = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("4"))
     attempt_ttl_minutes = models.PositiveSmallIntegerField(
         default=15,
@@ -97,6 +111,14 @@ class FloorReward(models.Model):
     )
     floor = models.PositiveSmallIntegerField()
     points = models.IntegerField()
+    duel_cost_override = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text=(
+            "What a duel for this floor costs. Leave empty to fall back to the level's "
+            "duel factor times the floor's points."
+        ),
+    )
 
     class Meta:
         ordering = ["level", "floor"]
@@ -118,6 +140,16 @@ class FloorReward(models.Model):
 
     @property
     def duel_cost(self) -> int:
+        """What challenging this floor costs the attacker.
+
+        The design doc prices duels from a hand-written table that no single
+        factor reproduces — easy floor 1 is 4x its points, hard floor 3 is
+        3.52x — so the number is a column when an organiser has set one, and
+        the level's `duel_factor` only supplies the default for a floor nobody
+        has priced yet.
+        """
+        if self.duel_cost_override is not None:
+            return self.duel_cost_override
         return _round_half_up(self.level.duel_factor * self.points)
 
     @property
@@ -291,8 +323,17 @@ class Occupancy(models.Model):
 class GameSettings(models.Model):
     id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
 
-    duel_cooldown_minutes = models.PositiveSmallIntegerField(default=10)
-    duel_deadline_minutes = models.PositiveSmallIntegerField(default=15)
+    duel_cooldown_minutes = models.PositiveSmallIntegerField(
+        default=5,
+        help_text="Minutes a team must rest after a duel before it may take part in another.",
+    )
+    duel_deadline_minutes = models.PositiveSmallIntegerField(
+        default=15,
+        help_text=(
+            "Unused. Duel timing is run by the judge in the meeting, not by the server: "
+            "a team that does not show up is simply not named as the winner."
+        ),
+    )
     initial_balance = models.PositiveIntegerField(
         default=400,
         help_text="Every team starts here, entry sheet cleared or not.",

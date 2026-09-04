@@ -9,6 +9,7 @@ from django.db import connection
 _SEED_MIGRATIONS = (
     "game.migrations.0002_seed_economy",
     "game.migrations.0007_seed_toll_level",
+    "game.migrations.0024_seed_duel_costs",
     "minesweeper.migrations.0007_difficultyconfig",
 )
 

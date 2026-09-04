@@ -27,6 +27,10 @@ const ROUTES: Record<string, () => QueryKey[]> = {
   'map.design': () => [queryKeys.mapDesign()],
   // A won Minesweeper toll expands reach; holdings themselves did not change.
   'minesweeper.cleared': () => BOARD,
+  // Addressed to the two teams and the judge only — see `game.sse._visible_to`.
+  // A resolved duel also emits the public board frames above, so this one only
+  // has to refresh the duel page itself.
+  'duel.updated': () => [queryKeys.duelsRoot()],
 }
 
 const RESYNC_KEYS: QueryKey[] = [
@@ -37,6 +41,7 @@ const RESYNC_KEYS: QueryKey[] = [
   queryKeys.attemptsRoot(),
   queryKeys.inbox(),
   queryKeys.mapDesign(),
+  queryKeys.duelsRoot(),
 ]
 
 function createBoardStream() {

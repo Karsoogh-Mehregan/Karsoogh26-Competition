@@ -151,11 +151,13 @@ class TestEconomy:
     @pytest.mark.parametrize(
         ("level", "floor", "points", "networth", "duel", "buyout"),
         [
-            ("easy", 1, 100, 40, 200, 400),
-            ("medium", 1, 200, 115, 360, 800),
-            ("medium", 2, 250, 125, 450, 1000),
-            ("hard", 1, 400, 270, 600, 1600),
-            ("hard", 3, 500, 300, 750, 2000),
+            # `duel` is the doc's price table, written into duel_cost_override
+            # by game/0024; it is deliberately not level.duel_factor * points.
+            ("easy", 1, 100, 40, 400, 400),
+            ("medium", 1, 200, 115, 720, 800),
+            ("medium", 2, 250, 125, 900, 1000),
+            ("hard", 1, 400, 270, 1440, 1600),
+            ("hard", 3, 500, 300, 1760, 2000),
         ],
     )
     def test_seeded_costs(self, level, floor, points, networth, duel, buyout):

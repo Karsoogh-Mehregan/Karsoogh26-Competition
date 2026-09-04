@@ -55,7 +55,18 @@ class LevelConfigAdmin(admin.ModelAdmin):
 
 @admin.register(FloorReward)
 class FloorRewardAdmin(admin.ModelAdmin):
-    list_display = ("level", "floor", "points", "networth", "duel_cost", "buyout_cost")
+    list_display = (
+        "level",
+        "floor",
+        "points",
+        "duel_cost_override",
+        "networth",
+        "duel_cost",
+        "buyout_cost",
+    )
+    # The duel price is the one economy number organisers retune mid-event,
+    # so it is editable straight from the list.
+    list_editable = ("duel_cost_override",)
     list_filter = ("level",)
     list_select_related = ("level",)
 
