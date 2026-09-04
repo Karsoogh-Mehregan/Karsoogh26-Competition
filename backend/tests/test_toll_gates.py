@@ -346,3 +346,30 @@ class TestDifficultyIsData:
             MinesweeperSettings.objects.get(node=road["gate"]).difficulty_id
             == MinesweeperDifficulty.HARD
         )
+
+
+@pytest.mark.django_db(transaction=True)
+class TestDifficultiesSurviveAFlush:
+    """`DifficultyConfig` is migration-seeded, so it has to be re-seeded after a
+    transactional test truncates the database.
+
+    Two transactional tests, in order, because that is the shape of the bug: the
+    first one's teardown truncates every table, seeded rows included, and the
+    second then starts on a database where `difficulty_id="easy"` is a dangling
+    foreign key. The first test in a session always gets away with it, which is
+    why this needs a pair rather than a single case — and why it lives here
+    unmarked, instead of among the `postgres_only` concurrency tests where it
+    would only ever run in CI.
+    """
+
+    def test_a_transactional_test_runs_and_flushes(self, team):
+        assert DifficultyConfig.objects.exists()
+
+    def test_the_next_one_still_finds_its_difficulties(self, team, road, running_game):
+        assert set(DifficultyConfig.objects.values_list("key", flat=True)) == {
+            "easy",
+            "medium",
+            "hard",
+        }
+        seat(team, road["near"])
+        assert start_play(road["gate"], team).game.difficulty_id == MinesweeperDifficulty.EASY

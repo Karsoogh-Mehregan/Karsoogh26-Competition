@@ -18,6 +18,9 @@ import django.db.models.deletion
 from django.db import migrations, models
 
 # The values that were constants in models.py before this migration.
+# `seed` is called by name from conftest, not only by the migration runner: a
+# transactional test truncates these rows and has to put them back. Keep the
+# name, and keep it re-runnable.
 SEED = [
     ("easy", "آسان", 9, 9, 10, 100, 10),
     ("medium", "متوسط", 16, 16, 40, 250, 20),
@@ -25,7 +28,7 @@ SEED = [
 ]
 
 
-def seed_difficulties(apps, schema_editor):
+def seed(apps, schema_editor):
     DifficultyConfig = apps.get_model("minesweeper", "DifficultyConfig")
     for key, label, width, height, mine_count, base_score, sort_order in SEED:
         DifficultyConfig.objects.get_or_create(
@@ -41,7 +44,7 @@ def seed_difficulties(apps, schema_editor):
         )
 
 
-def unseed_difficulties(apps, schema_editor):
+def unseed(apps, schema_editor):
     """Drop only the shipped rows; a difficulty an organiser added is theirs."""
     DifficultyConfig = apps.get_model("minesweeper", "DifficultyConfig")
     DifficultyConfig.objects.filter(key__in=[row[0] for row in SEED]).delete()
@@ -111,7 +114,7 @@ class Migration(migrations.Migration):
                 name="difficultyconfig_mine_count_range",
             ),
         ),
-        migrations.RunPython(seed_difficulties, unseed_difficulties),
+        migrations.RunPython(seed, unseed),
         migrations.RemoveConstraint(
             model_name="minesweepergame",
             name="minesweepergame_layout_matches_difficulty",
