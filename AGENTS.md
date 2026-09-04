@@ -247,7 +247,10 @@ event-wide switch, not a revocation. Every logged-in
 client reads `GET /api/map/design/` — **this is now the level-of-record for the SPA map**;
 `frontend/src/lib/mapLevels.ts` mirrors `TYPE_TO_LEVEL` only as the fallback before that query
 answers. Building-type keys are duplicated on purpose in `backend/game/design.py` and
-`frontend/src/lib/house/archetypes.ts`; add to both. Sector membership is *not* stored: it is
+`frontend/src/lib/house/archetypes.ts`; add to both. Three plots ignore pins and wear a
+fixed building keyed on the level — spawn, toll and `center`, whose city hall carries one
+column per neighbourhood at that neighbourhood's bearing, in its colour (`docs/house-view.md`
+§2.4). Sector membership is *not* stored: it is
 `floor(theta / 45)` computed client-side (`lib/mapNeighborhoods.ts`), which lines up with the
 connectivity groups in `generateGraph.mjs`. The 3D house panel, its rebuild-vs-repaint
 invariant, and the Designer UI are documented in `docs/house-view.md` — read it before touching

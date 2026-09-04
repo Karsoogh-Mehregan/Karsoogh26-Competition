@@ -17,12 +17,11 @@
  * contact shadow, the theme's motif around the plot, and scaffolding on any
  * storey a team has reserved but not yet earned.
  */
-import { Group, InstancedMesh, Object3D, type Material } from 'three'
+import { Group, InstancedMesh, Object3D } from 'three'
 
-import { buildArchetype, type Placement } from './buildings'
-import { geometry, type GeometryKey } from './geometry'
+import { buildArchetype } from './buildings'
 import { SCAFFOLD, contactShadow, glass as glassMaterial, shade, solid, teamColor } from './materials'
-import { buildMotif, mesh, type Paint } from './props'
+import { buildMotif, instancedMesh as instanced, mesh, type Paint, type Placement } from './props'
 import type { HouseSpec } from './spec'
 import type { Theme } from './themes'
 
@@ -57,26 +56,6 @@ function paintFor(theme: Theme): Paint {
   }
 }
 
-function instanced(
-  key: GeometryKey,
-  material: Material,
-  placements: Placement[],
-  scale: { x: number; y: number; z: number },
-): InstancedMesh | null {
-  if (placements.length === 0) return null
-  const item = new InstancedMesh(geometry(key), material, placements.length)
-  const dummy = new Object3D()
-  placements.forEach((placement, index) => {
-    dummy.position.set(placement.x, placement.y, placement.z)
-    dummy.rotation.set(0, placement.rotY, 0)
-    dummy.scale.set(scale.x, scale.y, scale.z)
-    dummy.updateMatrix()
-    item.setMatrixAt(index, dummy.matrix)
-  })
-  item.instanceMatrix.needsUpdate = true
-  return item
-}
-
 export function buildHouse(spec: HouseSpec): HouseHandle {
   const group = new Group()
   const paint = paintFor(spec.theme)
@@ -100,7 +79,8 @@ export function buildHouse(spec: HouseSpec): HouseHandle {
   if (windows) group.add(windows)
 
   let top = built.top
-  for (const part of buildMotif(spec.theme.motif, built.plot, built.groundY, paint, spec.capacity)) {
+  const motif = built.dressing ? buildMotif(spec.theme.motif, built.plot, built.groundY, paint, spec.capacity) : []
+  for (const part of motif) {
     group.add(part)
     top = Math.max(top, part.position.y + part.scale.y / 2)
   }
@@ -166,13 +146,20 @@ export function buildHouse(spec: HouseSpec): HouseHandle {
         const record = built.floors[index]
         if (!record) return
         if (slot.status === 'empty') {
-          for (const body of record.bodies) body.material = solid(wallColor)
+          for (const body of record.bodies) body.material = built.emptyWall ?? solid(wallColor)
           for (const trim of record.trims) trim.material = solid(trimColor)
           return
         }
         const color = teamColor(slot.color)
         for (const body of record.bodies) body.material = solid(color)
         for (const trim of record.trims) trim.material = solid(shade(color))
+      })
+      // The centre's columns: one per neighbourhood, in the colour a Designer
+      // gave it. A colour change is paint too, so it never costs a rebuild.
+      built.sectorParts.forEach((meshes, sector) => {
+        if (meshes.length === 0) return
+        const material = solid(teamColor(next.neighborhoodColors[sector]))
+        for (const item of meshes) item.material = material
       })
     },
   }

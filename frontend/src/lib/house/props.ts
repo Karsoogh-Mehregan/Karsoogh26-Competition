@@ -10,7 +10,7 @@
  * instead of guessing a height, which is what keeps a chimney sitting *on* a
  * slope rather than floating above the ridge.
  */
-import { Mesh, Object3D, type Material } from 'three'
+import { InstancedMesh, Mesh, Object3D, type Material } from 'three'
 
 import type { FoundationKind, RoofKind } from './archetypes'
 import { geometry, type GeometryKey } from './geometry'
@@ -37,6 +37,38 @@ export function mesh(
   if (rotation) {
     item.rotation.set(rotation.x ?? 0, rotation.y ?? 0, rotation.z ?? 0)
   }
+  return item
+}
+
+export interface Placement {
+  x: number
+  y: number
+  z: number
+  rotY: number
+}
+
+/**
+ * Many copies of one shape in one material for one draw call: a run of
+ * windows, a row of pilasters, the plinths of a colonnade. Every copy shares
+ * the scale; the placement turns it onto its face.
+ */
+export function instancedMesh(
+  key: GeometryKey,
+  material: Material,
+  placements: Placement[],
+  scale: { x: number; y: number; z: number },
+): InstancedMesh | null {
+  if (placements.length === 0) return null
+  const item = new InstancedMesh(geometry(key), material, placements.length)
+  const dummy = new Object3D()
+  placements.forEach((placement, index) => {
+    dummy.position.set(placement.x, placement.y, placement.z)
+    dummy.rotation.set(0, placement.rotY, 0)
+    dummy.scale.set(scale.x, scale.y, scale.z)
+    dummy.updateMatrix()
+    item.setMatrixAt(index, dummy.matrix)
+  })
+  item.instanceMatrix.needsUpdate = true
   return item
 }
 

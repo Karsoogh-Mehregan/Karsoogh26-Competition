@@ -167,12 +167,16 @@ export function useMapDesign() {
 
   function metaOf(node: MapNodeLike): NodeMeta {
     const neighborhood = neighborhoodOf(node)
+    const level = levelOf(node.id, node.type)
     return {
-      level: levelOf(node.id, node.type),
+      level,
       capacity: capacityOf(node.id, node.type),
       archetype: archetypeOf(node),
       theme: THEMES[neighborhood.theme] ?? DEFAULT_THEME,
-      neighborhoodName: neighborhood.name,
+      // The centre sits at theta 0, which is technically sector 0, but it
+      // belongs to the whole city — its columns carry every neighbourhood.
+      neighborhoodName: level === 'center' ? 'مرکز شهر' : neighborhood.name,
+      neighborhoodColors: neighborhoods.value.map((row) => row.color),
     }
   }
 

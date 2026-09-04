@@ -68,6 +68,7 @@ gave every type the same box stack and a different hat. Now:
 | hotel | a tall narrow tower with a balcony on every floor and an entrance canopy |
 | toll (عوارضی) | a **road through the plot** with a dashed centre line, a booth, a striped barrier arm, an overhead gantry with a sign |
 | spawn | a pavilion whose base **and flag** wear the team colour |
+| center (مرکز شهر) | the city hall on the one `CENTER` node — see §2.4 |
 | bakery, restaurant, school, icecream, newspaper, grocery, hospital, trade, industry, sawmill, tailor, smithy | each with its own trade props: oven and bread, terrace and umbrellas, bell tower and flagpole, cone roof and scoop, sawtooth roof and billboard, produce stand, ambulance canopy and helipad, loading dock and crane, smokestacks and gear, saw bench and log piles, mannequin and fabric rolls, forge and anvil |
 
 Two rules hold across all of them:
@@ -116,6 +117,41 @@ Each theme carries the feel of the character who wears its colour in the story
 
 `palette.wall` is the colour of an *unclaimed* storey; claimed storeys always
 wear the team's colour.
+
+### 2.4 The centre: three storeys, two colonnades, eight neighbourhoods
+
+The `CENTER` node is the `center` tier's only member and gets a fixed building,
+the way spawn and toll do: `CENTER_ARCHETYPE` in `archetypes.ts`, returned for
+the level whatever a Designer pinned, and skipped by the assignment in
+`lib/mapArchetypes.ts`. The panel hides the type picker for it.
+
+The massing follows the brief literally — a square stone city hall: a tall
+ground storey with a pointed-arch portal and steps, then an **open colonnade of
+eight columns**, a second storey, a second colonnade, a third storey, a flat
+roof. The three storeys are the three seats (`Ctx.storey()` as everywhere, so
+paint and scaffolding work unchanged).
+
+The eight columns are the eight neighbourhoods. Column *k* stands on the
+colonnade's square at the bearing of sector *k*'s bisector on the map
+(`22.5° + 45°·k`, with the map's theta mapped to the model as `x = cos θ`,
+`z = -sin θ`), which puts two on every side, each pair facing the pair across
+the floor, and it wears that neighbourhood's `Neighborhood.color`. So the
+building is a compass of the city: the blue column points at the blue quarter.
+Those colours arrive on the spec as `neighborhoodColors` (from
+`useMapDesign().neighborhoods`) and are applied in `paint()`, through
+`Built.sectorParts` — a Designer recolouring a neighbourhood repaints the
+column without a rebuild, and `structureKey` is untouched.
+
+Two small departures from the shared chassis, both flags on `Built`: the walls
+and cornices are fixed ivory stone (`emptyWall`) rather than the sector-0 theme
+the node technically sits in, because the centre belongs to everyone; and the
+neighbourhood motif is skipped (`dressing = false`) for the same reason.
+Windows and the portal are pointed arches built from a box plus a four-sided
+cone squashed flat — square-on it is a triangle — and every repeated piece
+(window kits, pilasters, corner piers, column plinths, rings and capitals) goes
+through `Ctx.instances()`, so the whole building is ~85 draw calls despite its
+size; only the sixteen shafts are individual meshes, because each wears its own
+paint.
 
 ---
 
@@ -224,9 +260,9 @@ tall (was 12), and an **expand** toggle (persisted) that takes the column to
 |---|---|
 | `geometry.ts` | Eight cached geometries + the contact-shadow texture |
 | `materials.ts` | Colour-keyed pools: `solid()`, `glass()`, `shade()`, `teamColor()` |
-| `archetypes.ts` | 26 types `{roof, foundation, props, awning}` + spawn/toll; `hashCode()` |
+| `archetypes.ts` | 26 types `{roof, foundation, props, awning}` + spawn/toll/center; `hashCode()` |
 | `themes.ts` | 9 themes: palette, emblem, motif, character |
-| `props.ts` | Footprint-aware foundations and roofs (`surfaceY`), positioned emblem, character motifs |
+| `props.ts` | Footprint-aware foundations and roofs (`surfaceY`), positioned emblem, character motifs, `instancedMesh()` |
 | `buildings.ts` | **`Ctx` + one builder per type**; `buildArchetype()` |
 | `spec.ts` | `buildSpec(code, meta, holdings)` → `HouseSpec`; owns `structureKey` |
 | `build.ts` | Orchestration: builder → windows → motif → scaffolding from floor bounds → `paint()` |
@@ -277,6 +313,8 @@ migration drift.
 5. **`three` stays confined to `HouseCanvas.vue` and `lib/house/`.**
 6. **Archetype keys are duplicated on purpose** — `backend/game/design.py` and
    `frontend/src/lib/house/archetypes.ts`. Add to both, and add a builder.
+   The three fixed plots (spawn, toll, center) are frontend-only and keyed by
+   level, not by pin.
 7. **Sector = `floor(theta/45)`; borders come from the real ring gaps.** If
    `generateGraph.mjs` changes layer offsets, re-check `sectorGeometries()`.
 8. **Roof-mounted pieces ask `roof.surfaceY(x, z)`.** Never guess a height.

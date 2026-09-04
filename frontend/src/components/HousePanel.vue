@@ -244,7 +244,9 @@ watch(
   { immediate: true },
 )
 
-const isSpecialPlot = computed(() => spec.value?.level === 'spawn' || spec.value?.level === 'toll')
+const isSpecialPlot = computed(
+  () => spec.value?.level === 'spawn' || spec.value?.level === 'toll' || spec.value?.level === 'center',
+)
 const nodeOccupied = computed(() => holdings.value.length > 0)
 const designDirty = computed(
   () =>
