@@ -42,7 +42,7 @@ minesweeper.services    start from node / reveal / flag
     ↓
 MinesweeperSettings     Node configuration
 MinesweeperGame         generated mine layout
-MinesweeperAttempt      one team's play (progress, status, score)
+MinesweeperAttempt      one team's play (progress, status)
     ↓
 database
 ```
@@ -84,11 +84,11 @@ This app does **not** check node occupancy, capture the node, or change `Team.ba
 A board the team already owns here is exempt from the reach rule and from the fee, because it is already bought. `_existing_attempt` returns it:
 
 - **unfinished** → resumes, so the map offers «ادامه بازی» instead of quoting the toll again;
-- **won** → handed back as-is, so the finished grid can be looked at, the gate is never bought twice, and it never scores twice.
+- **won** → handed back as-is, so the finished grid can be looked at and the gate is never bought twice.
 
 Either one reopens even if the holding the team reached the gate from has since been released. The two lists ride to the SPA on the team row as `cleared_tolls` and `active_tolls`.
 
-`services._charge_entry` takes the fee whenever a **new** board is generated. Resuming an unfinished board is free; a lost board may be replayed at full price; an unaffordable one raises `EntryFeeUnaffordable` (409) before any board exists. The debit is a `BalanceEvent` with `reason=toll` and the node code as its detail.
+`services._charge_entry` takes the fee whenever a **new** board is generated. Resuming an unfinished board is free; a lost board may be replayed at full price; an unaffordable one raises `EntryFeeUnaffordable` (409) before any board exists. The debit is a `BalanceEvent` with `reason=toll` and the node code as its detail. Winning does **not** award score or currency: it only sets `status=WON`, which is the crossing. Losing has no extra penalty; starting a new board after a loss charges the toll again.
 
 Starting a board on a gate publishes `board.toll.started` and any win publishes `minesweeper.cleared`; both bump the board snapshot version so `/api/teams/` stops serving a cached row that predates the payment or the crossing. Both frames are **payload-free** — a hint must not tell the hall who crossed where, and the client refetches and sees only what it is allowed to. The SPA reads both lists off the team row (`cleared_tolls`, `active_tolls`), never off `holdings`.
 
@@ -115,12 +115,12 @@ Difficulties are rows, the way `game.LevelConfig` is: organisers retune a board 
 | `label` | text | Shown to players, in Persian; travels on the API as `difficulty_label`. |
 | `width`, `height` | 2–40 | Grid for the next board generated at this difficulty. |
 | `mine_count` | ≥ 1 and `< width * height` | Constraint-checked, so a typo cannot make an empty or unwinnable board. |
-| `base_score` | positive int | A win pays `base + max(0, base - seconds taken)`. |
+| `base_score` | positive int | Legacy unused field. A win does not award points. |
 | `sort_order` | small int | Ordering in admin. |
 
 Seeded by `migrations/0007_difficultyconfig` with exactly the numbers that used to be constants: easy 9×9/10/100, medium 16×16/40/250, hard 30×16/99/500.
 
-**A board is a snapshot.** `MinesweeperGame` copies `width`, `height`, `mine_count` and `base_score` at creation, and the old `minesweepergame_layout_matches_difficulty` check is gone precisely so it can: retuning reshapes the *next* board, never one a team is playing, and never rescores an attempt in flight. `PROTECT` on both FKs stops a difficulty in use from being deleted.
+**A board is a snapshot.** `MinesweeperGame` copies `width`, `height`, `mine_count` and `base_score` at creation, and the old `minesweepergame_layout_matches_difficulty` check is gone precisely so it can: retuning reshapes the *next* board, never one a team is playing. `PROTECT` on both FKs stops a difficulty in use from being deleted.
 
 ---
 
@@ -132,7 +132,7 @@ Per-node configuration. `related_name="minesweeper_settings"` on `Node` (`OneToO
 | ----- | ---- | ------- |
 | `node` | OneToOne → `game.Node`, **`CASCADE`** | Which map node this config belongs to. |
 | `enabled` | bool, default `True` | Enter/start are rejected when false. |
-| `difficulty` | FK → `DifficultyConfig`, **`PROTECT`** | Layout and payout used when generating a game. |
+| `difficulty` | FK → `DifficultyConfig`, **`PROTECT`** | Layout used when generating a game. |
 | `created_at` / `updated_at` | timestamps | Audit. |
 
 Django admin is the intended configuration path: pick a node, pick a difficulty, enable or disable.
@@ -149,7 +149,7 @@ One generated board, created when a team starts play. `related_name="minesweeper
 | `node` | FK → `game.Node`, **`PROTECT`** | Associated map node. Not an ownership record. |
 | `difficulty` | FK → `DifficultyConfig`, **`PROTECT`** | Copied from settings at create. |
 | `width`, `height`, `mine_count` | positive small ints | Snapshot of the config at create. |
-| `base_score` | positive int | Snapshot of the payout, so retuning cannot rescore a live board. |
+| `base_score` | positive int | Legacy unused snapshot of the old payout field. |
 | `board` | JSON | **Mine layout only** (`mine`, `adjacent_mines`). Never sent to teams while an attempt is in progress. |
 | `created_at` | `auto_now_add` | Audit timestamp. |
 
@@ -168,8 +168,8 @@ One team's execution of a generated game. `related_name="attempts"` on the game,
 | `team` | FK → `teams.Team`, **`PROTECT`** | Who is playing. |
 | `status` | `in_progress` / `won` / `lost` | Default `in_progress`. |
 | `board` | JSON | **Progress only** (`revealed`, `flagged`). |
-| `score` | `PositiveIntegerField`, default `0` | Written on finish. Not `Team.balance`. |
-| `started_at` | `auto_now_add` | Scoring clock. |
+| `score` | `PositiveIntegerField`, default `0` | Legacy unused field. A win does not write a reward. |
+| `started_at` | `auto_now_add` | When the attempt began. |
 | `finished_at` | nullable datetime | Set only when won or lost. |
 | `created_at` | `auto_now_add` | Audit timestamp. |
 
@@ -227,7 +227,7 @@ Revealed: `{ "revealed": true, "flagged": false, "adjacent_mines": 2 }` (still n
 
 Every cell includes `revealed`, `flagged`, `adjacent_mines`, and `mine`. The SPA renders this as a read-only result board (all mines and numbers visible). Active games never include `mine`.
 
-Public fields: `game_id`, `attempt_id`, `node`, `difficulty`, `difficulty_label`, `width`, `height`, `mine_count`, `status`, `score`, `started_at`, `finished_at`, `board`. **No `team`.**
+Public fields: `game_id`, `attempt_id`, `node`, `difficulty`, `difficulty_label`, `width`, `height`, `mine_count`, `status`, `started_at`, `finished_at`, `board`. **No `team`. No `score`.**
 
 ---
 
@@ -248,9 +248,9 @@ Implemented only in `services.py`, against an **attempt**.
 7. Else if every non-mine layout cell is revealed → **win** on the attempt.
 8. Else save progress only. The game layout is not written.
 
-### Flood-fill / flag / win / loss / scoring
+### Flood-fill / flag / win / loss
 
-Mines are read from `attempt.game.board`. Flags and reveals are stored on `attempt.board`. Score is written on the attempt: `base + max(0, base - floor(elapsed))`, where `base` is the **board's** `base_score` snapshot. Loss scores `0`. Clock is `services._now()`. A win on a toll node also publishes `board.toll.cleared`.
+Mines are read from `attempt.game.board`. Flags and reveals are stored on `attempt.board`. A win sets `status=WON` and `finished_at` and publishes `minesweeper.cleared`; it does **not** award points. A loss sets `status=LOST` and `finished_at` with no extra economy effect. Clock is `services._now()`.
 
 ---
 
@@ -392,7 +392,7 @@ uv run pytest -q
 | File | What it covers |
 | ---- | -------------- |
 | `tests/test_minesweeper_models.py` | Settings OneToOne; game has no team/status/score; attempt FKs; layout/status constraints; `PROTECT` / `CASCADE`. |
-| `tests/test_minesweeper_services.py` | Settings-driven create; map-entry tokens; resume vs new game; independent boards; reveal/flag/win/loss/scoring. `postgres_only` for row locks. |
+| `tests/test_minesweeper_services.py` | Settings-driven create; map-entry tokens; resume vs new game; independent boards; reveal/flag/win/loss. `postgres_only` for row locks. |
 | `tests/test_minesweeper_api.py` | Enter/start authorization, attempt ownership, sanitization, contest clock, HTTP mapping. |
 | `tests/test_toll_gates.py` | Gates: adjacency, the fee, replay after a loss, the crossing opening one-way roads, no occupancy, provisioning, retuning. |
 
@@ -437,7 +437,7 @@ The SPA does **not** send difficulty. Frontend `type === "c34"|"c45"` only choos
 
 ## Design decisions
 
-- **Settings vs game vs attempt.** Configuration lives on the node. Progress and score belong to the attempt.
+- **Settings vs game vs attempt.** Configuration lives on the node. Progress and `status` belong to the attempt. A win does not award points.
 - **No shared board.** Two teams on the same node get two random layouts.
 - **One active attempt per team per node.** Returning while in progress resumes that attempt. After it finishes, a new visit creates a new game. Finished attempts are kept as history.
 - **Map entry is server-authorized.** A session-bound one-time token is required to start. The Vue route is not the security mechanism.

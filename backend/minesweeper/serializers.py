@@ -66,7 +66,6 @@ class PublicGameSerializer(serializers.Serializer):
     height = serializers.IntegerField(source="game.height", read_only=True)
     mine_count = serializers.IntegerField(source="game.mine_count", read_only=True)
     status = serializers.CharField(read_only=True)
-    score = serializers.IntegerField(read_only=True)
     started_at = serializers.DateTimeField(read_only=True)
     finished_at = serializers.DateTimeField(read_only=True, allow_null=True)
     board = serializers.SerializerMethodField()

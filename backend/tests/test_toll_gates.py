@@ -177,7 +177,7 @@ class TestEnteringAGate:
 
         Not an error: the map still offers the gate so the finished grid can be
         looked at, and the crossing is permanent, so a second board would charge
-        for a road that is already open — and hand out a second score row.
+        for a road that is already open.
         """
         seat(team, road["near"])
         won = win(start_play(road["gate"], team))

@@ -537,7 +537,7 @@ class TestAttemptDetail:
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == MinesweeperStatus.IN_PROGRESS
-        assert body["score"] == 0
+        assert "score" not in body
         _assert_no_hidden_mines(body["board"])
 
     def test_missing_attempt_is_404(self, alpha_client, running_contest):
@@ -573,7 +573,7 @@ class TestAttemptDetail:
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == MinesweeperStatus.LOST
-        assert body["score"] == 0
+        assert "score" not in body
         _assert_finished_layout(body["board"], mine_count=attempt.game.mine_count)
         mine = body["board"]["cells"][0][4]
         assert mine["mine"] is True
@@ -590,7 +590,7 @@ class TestAttemptDetail:
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == MinesweeperStatus.WON
-        assert body["score"] > 0
+        assert "score" not in body
         _assert_finished_layout(body["board"], mine_count=attempt.game.mine_count)
         assert body["board"]["cells"][0][4]["mine"] is True
 
@@ -659,7 +659,7 @@ class TestRevealApi:
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == MinesweeperStatus.IN_PROGRESS
-        assert body["score"] == 0
+        assert "score" not in body
         assert body["finished_at"] is None
         cell = body["board"]["cells"][0][3]
         assert cell["revealed"] is True
@@ -689,7 +689,7 @@ class TestRevealApi:
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == MinesweeperStatus.LOST
-        assert body["score"] == 0
+        assert "score" not in body
         assert body["finished_at"] is not None
         _assert_finished_layout(body["board"], mine_count=attempt.game.mine_count)
         assert body["board"]["cells"][0][4]["mine"] is True
@@ -701,7 +701,7 @@ class TestRevealApi:
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == MinesweeperStatus.WON
-        assert body["score"] > 0
+        assert "score" not in body
         assert body["finished_at"] is not None
         _assert_finished_layout(body["board"], mine_count=attempt.game.mine_count)
         assert body["board"]["cells"][0][4]["mine"] is True
@@ -741,7 +741,7 @@ class TestFlagApi:
         cell = flagged.json()["board"]["cells"][0][0]
         assert cell == {"revealed": False, "flagged": True}
         assert flagged.json()["status"] == MinesweeperStatus.IN_PROGRESS
-        assert flagged.json()["score"] == 0
+        assert "score" not in flagged.json()
 
         unflagged = alpha_client.post(_flag(attempt.pk), {"row": 0, "col": 0}, format="json")
         assert unflagged.json()["board"]["cells"][0][0] == {"revealed": False, "flagged": False}

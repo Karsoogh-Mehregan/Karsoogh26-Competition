@@ -764,7 +764,6 @@ interface MinesweeperGameBase {
   width: number
   height: number
   mine_count: number
-  score: number
   started_at: string
 }
 
