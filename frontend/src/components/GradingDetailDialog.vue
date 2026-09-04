@@ -4,10 +4,10 @@ import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
+  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
-  DialogScrollContent,
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -31,7 +31,8 @@ const emit = defineEmits<{
 const detailQuery = useSubmissionQuery(() => props.submissionId)
 const gradeMutation = useGradeSubmissionMutation()
 
-const gradeInput = ref('')
+const gradeInput = ref<string | number>('')
+const actionError = ref('')
 
 const detail = computed(() => detailQuery.data.value ?? null)
 const alreadyGraded = computed(() => detail.value?.grade != null)
@@ -44,8 +45,8 @@ watch(
   { immediate: true },
 )
 
-function toAsciiDigits(value: string): string {
-  return value
+function toAsciiDigits(value: string | number): string {
+  return String(value)
     .replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
     .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
 }
@@ -97,10 +98,12 @@ const dialogOpen = computed({
 })
 
 async function submitGrade() {
+  actionError.value = ''
   const raw = toAsciiDigits(gradeInput.value).trim()
   const parsed = Number(raw)
   if (raw === '' || !Number.isInteger(parsed) || parsed < 0 || parsed > 100) {
-    toast.error('نمره باید عدد صحیح بین ۰ و ۱۰۰ باشد.')
+    actionError.value = 'نمره باید عدد صحیح بین ۰ و ۱۰۰ باشد.'
+    toast.error(actionError.value)
     return
   }
   try {
@@ -108,14 +111,18 @@ async function submitGrade() {
     toast.success(`نمره ${parsed} ثبت شد`)
     emit('graded')
   } catch (err) {
-    toast.error(err instanceof ApiError ? err.detail : 'ثبت نمره ناموفق بود.')
+    actionError.value = err instanceof ApiError ? err.detail : 'ثبت نمره ناموفق بود.'
+    toast.error(actionError.value)
   }
 }
 </script>
 
 <template>
   <Dialog v-model:open="dialogOpen">
-    <DialogScrollContent class="max-w-4xl" dir="rtl">
+    <DialogContent
+      class="flex max-h-[90vh] max-w-4xl flex-col overflow-y-auto sm:max-w-4xl"
+      dir="rtl"
+    >
       <DialogHeader>
         <DialogTitle>
           بررسی پاسخ {{ detail ? detail.id : submissionId }}
@@ -188,31 +195,34 @@ async function submitGrade() {
         </section>
       </div>
 
-      <DialogFooter class="flex-col items-stretch gap-3 sm:flex-col">
-        <div class="flex flex-col gap-1.5">
-          <Label for="grade-input">نمره (۰ تا ۱۰۰)</Label>
-          <div class="flex gap-2">
-            <Input
-              id="grade-input"
-              v-model="gradeInput"
-              type="number"
-              min="0"
-              max="100"
-              class="flex-1"
-              :disabled="alreadyGraded || saving"
-            />
-            <Button
-              :disabled="alreadyGraded || saving"
-              @click="submitGrade"
-            >
-              {{ alreadyGraded ? 'ثبت‌شده' : 'ثبت نمره' }}
-            </Button>
+      <form class="flex flex-col gap-3" @submit.prevent="submitGrade" @click.stop>
+        <DialogFooter class="flex-col items-stretch gap-3 sm:flex-col">
+          <div class="flex flex-col gap-1.5">
+            <Label for="grade-input">نمره (۰ تا ۱۰۰)</Label>
+            <div class="flex gap-2">
+              <Input
+                id="grade-input"
+                v-model="gradeInput"
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+                class="flex-1"
+                :disabled="alreadyGraded || saving"
+              />
+              <Button type="submit" :disabled="alreadyGraded || saving">
+                {{ alreadyGraded ? 'ثبت‌شده' : saving ? 'در حال ثبت…' : 'ثبت نمره' }}
+              </Button>
+            </div>
+            <p v-if="actionError" class="text-destructive text-sm" role="alert">
+              {{ actionError }}
+            </p>
+            <p v-if="alreadyGraded" class="text-muted-foreground text-xs">
+              نمره {{ detail?.grade }} قبلاً ثبت شده و قابل تغییر نیست.
+            </p>
           </div>
-          <p v-if="alreadyGraded" class="text-muted-foreground text-xs">
-            نمره {{ detail?.grade }} قبلاً ثبت شده و قابل تغییر نیست.
-          </p>
-        </div>
-      </DialogFooter>
-    </DialogScrollContent>
+        </DialogFooter>
+      </form>
+    </DialogContent>
   </Dialog>
 </template>
