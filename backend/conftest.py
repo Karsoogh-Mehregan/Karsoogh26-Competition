@@ -7,10 +7,7 @@ from django.db import connection
 # Migrations whose RunPython writes rows the tests read back. Re-run rather than
 # restated here, so the economy stays defined in exactly one place.
 _SEED_MIGRATIONS = (
-    "game.migrations.0002_seed_economy",
-    "game.migrations.0007_seed_toll_level",
-    "game.migrations.0024_seed_duel_costs",
-    "game.migrations.0026_seed_center_level",
+    "game.migrations.0032_seed_economy_costs",
     "minesweeper.migrations.0009_remove_score_fields",
 )
 

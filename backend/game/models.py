@@ -77,15 +77,6 @@ class LevelConfig(models.Model):
     capacity = models.PositiveSmallIntegerField()
     entry_cost = models.PositiveIntegerField()
 
-    networth_base = models.IntegerField(default=0)
-    networth_factor = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0"))
-    duel_factor = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        default=Decimal("2"),
-        help_text="Fallback duel price: this times the floor's points, when the floor has no override.",
-    )
-    buyout_factor = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("4"))
     attempt_ttl_minutes = models.PositiveSmallIntegerField(
         default=15,
         help_text="Minutes the team has to answer after a question is assigned on this level.",
@@ -115,13 +106,12 @@ class FloorReward(models.Model):
     )
     floor = models.PositiveSmallIntegerField()
     points = models.IntegerField()
-    duel_cost_override = models.PositiveIntegerField(
-        null=True,
-        blank=True,
-        help_text=(
-            "What a duel for this floor costs. Leave empty to fall back to the level's "
-            "duel factor times the floor's points."
-        ),
+    networth = models.IntegerField(default=0, help_text="End-of-game value of holding this floor.")
+    duel_cost = models.PositiveIntegerField(
+        default=0, help_text="What challenging this floor costs the attacker."
+    )
+    buyout_cost = models.PositiveIntegerField(
+        default=0, help_text="What buying this floor out from its holder costs."
     )
 
     class Meta:
@@ -136,29 +126,6 @@ class FloorReward(models.Model):
 
     def __str__(self):
         return f"{self.level_id} floor {self.floor} = {self.points}"
-
-    @property
-    def networth(self) -> int:
-        """End-of-game value of holding this floor."""
-        return self.level.networth_base + _round_half_up(self.level.networth_factor * self.points)
-
-    @property
-    def duel_cost(self) -> int:
-        """What challenging this floor costs the attacker.
-
-        The design doc prices duels from a hand-written table that no single
-        factor reproduces — easy floor 1 is 4x its points, hard floor 3 is
-        3.52x — so the number is a column when an organiser has set one, and
-        the level's `duel_factor` only supplies the default for a floor nobody
-        has priced yet.
-        """
-        if self.duel_cost_override is not None:
-            return self.duel_cost_override
-        return _round_half_up(self.level.duel_factor * self.points)
-
-    @property
-    def buyout_cost(self) -> int:
-        return _round_half_up(self.level.buyout_factor * self.points)
 
 
 class GradeMultiplier(models.Model):

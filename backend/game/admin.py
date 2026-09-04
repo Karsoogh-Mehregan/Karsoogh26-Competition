@@ -45,10 +45,6 @@ class LevelConfigAdmin(admin.ModelAdmin):
         "capacity",
         "entry_cost",
         "attempt_ttl_minutes",
-        "networth_base",
-        "networth_factor",
-        "duel_factor",
-        "buyout_factor",
     )
     inlines = [FloorRewardInline]
 
@@ -59,14 +55,11 @@ class FloorRewardAdmin(admin.ModelAdmin):
         "level",
         "floor",
         "points",
-        "duel_cost_override",
         "networth",
         "duel_cost",
         "buyout_cost",
     )
-    # The duel price is the one economy number organisers retune mid-event,
-    # so it is editable straight from the list.
-    list_editable = ("duel_cost_override",)
+    list_editable = ("points", "networth", "duel_cost", "buyout_cost")
     list_filter = ("level",)
     list_select_related = ("level",)
 

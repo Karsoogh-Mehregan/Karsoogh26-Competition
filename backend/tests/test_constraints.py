@@ -172,22 +172,20 @@ class TestEconomy:
     @pytest.mark.parametrize(
         ("level", "floor", "points", "networth", "duel", "buyout"),
         [
-            # `duel` is the doc's price table, written into duel_cost_override
-            # by game/0024; it is deliberately not level.duel_factor * points.
+            # `duel` is the doc's price table; no single factor reproduces it.
             ("easy", 1, 100, 40, 400, 400),
             ("medium", 1, 200, 115, 720, 800),
             ("medium", 2, 250, 125, 900, 1000),
             ("hard", 1, 400, 270, 1440, 1600),
             ("hard", 3, 500, 300, 1760, 2000),
-            # `center` arrived after that table (game/0026) and is deliberately
-            # left unpriced, so it is the one tier still falling back to
-            # level.duel_factor * points — 1.50 x 400 and 1.50 x 500.
+            # `center` arrived after that table (game/0026) and was priced off
+            # hard's old 1.50 duel factor, frozen into the column by game/0031.
             ("center", 1, 400, 270, 600, 1600),
             ("center", 3, 500, 300, 750, 2000),
         ],
     )
     def test_seeded_costs(self, level, floor, points, networth, duel, buyout):
-        fr = FloorReward.objects.select_related("level").get(level_id=level, floor=floor)
+        fr = FloorReward.objects.get(level_id=level, floor=floor)
         assert (fr.points, fr.networth, fr.duel_cost, fr.buyout_cost) == (
             points,
             networth,
