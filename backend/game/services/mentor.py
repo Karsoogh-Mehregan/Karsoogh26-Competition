@@ -104,6 +104,13 @@ def grade_attempt(holding: Occupancy, grade: int) -> Occupancy:
     # Registered before the floor re-rank so the early return below still announces.
     publish_on_commit(BOARD_GRADED, {"node": node.code})
 
+    rewards = {
+        reward.floor: reward.points for reward in FloorReward.objects.filter(level_id=level.pk)
+    }
+
+    if not _keeps_floor(holding, grade, max_grade):
+        return _pay_and_release_without_ranking(holding, locked, rewards, grade, max_grade)
+
     ranked = [
         occupancy
         for occupancy in locked.values()
@@ -118,9 +125,6 @@ def grade_attempt(holding: Occupancy, grade: int) -> Occupancy:
     # Ranked on the ratio, not the raw grade: two teams on one node can hold
     # questions with different max_grade, which makes raw grades incomparable.
     ranked.sort(key=lambda occupancy: (-occupancy.grade_multiplier, occupancy.question_assigned_at))
-    rewards = {
-        reward.floor: reward.points for reward in FloorReward.objects.filter(level_id=level.pk)
-    }
     reserved_floors = {
         occupancy.floor
         for occupancy in locked.values()
@@ -156,9 +160,43 @@ def grade_attempt(holding: Occupancy, grade: int) -> Occupancy:
     return _release_unless_perfect(holding, grade, max_grade)
 
 
+def _keeps_floor(holding: Occupancy, grade: int, max_grade: int) -> bool:
+    return holding.question_id is None or grade >= max_grade
+
+
+def _pay_and_release_without_ranking(
+    holding: Occupancy,
+    locked: dict[int, Occupancy],
+    rewards: dict[int, int],
+    grade: int,
+    max_grade: int,
+) -> Occupancy:
+    """Pay a partial grade off the floor it would have taken, moving nobody.
+
+    The holding is about to be released, so ranking it would push the teams above
+    it up a floor and then leave a hole behind when it goes.
+    """
+    taken = {
+        occupancy.floor
+        for occupancy in locked.values()
+        if occupancy.floor is not None and occupancy.pk != holding.pk
+    }
+    free = sorted(floor for floor in rewards if floor not in taken)
+    holding.awarded = floor_points(rewards, free[0] if free else None, holding.grade_multiplier)
+    if holding.awarded > 0:
+        apply_balance_change(
+            holding.team,
+            holding.awarded,
+            reason=BalanceReason.GRADE,
+            detail=holding.node.code,
+        )
+        holding.team.refresh_from_db(fields=["balance"])
+    return _release_unless_perfect(holding, grade, max_grade)
+
+
 def _release_unless_perfect(holding: Occupancy, grade: int, max_grade: int) -> Occupancy:
     """Anything short of full marks keeps the money but gives the slot back."""
-    if holding.question_id is None or grade >= max_grade:
+    if _keeps_floor(holding, grade, max_grade):
         return holding
 
     awarded = holding.awarded
