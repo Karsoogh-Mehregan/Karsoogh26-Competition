@@ -436,6 +436,29 @@ class TestResolving:
         with pytest.raises(Conflict):
             claim_node(attacker, board["house"])
 
+    def test_a_won_floor_is_owned_not_reserved_over_the_api(self, duel, attacker, board):
+        """The shape the SPA reads to tell a reservation from an owned floor.
+
+        A reservation is `floor is None` — the floor is captured at grading, not
+        at claiming. A duel win hands over the floor itself, so `floor` is set
+        and `grade` stays null because nothing was answered for it. Anything
+        keying "reserved" off `grade` instead of `floor` paints this seat as
+        scaffolding and offers its owner a question it has already won.
+        """
+        resolve_duel(duel, attacker, by=duel.mentor)
+
+        client = APIClient()
+        client.force_authenticate(
+            User.objects.create_user("u-alpha-api", password="secret", team=attacker)
+        )
+        rows = client.get("/api/teams/").json()
+        row = next(team for team in rows if team["code"] == attacker.code)
+        holding = next(h for h in row["holdings"] if h["node_code"] == board["house"].code)
+
+        assert holding["floor"] == 2, "a won floor is owned outright"
+        assert holding["grade"] is None, "nothing was answered for it"
+        assert holding["source"] == AcquisitionSource.DUEL
+
 
 class TestNotices:
     def test_opening_a_duel_writes_to_both_teams_and_the_judge(

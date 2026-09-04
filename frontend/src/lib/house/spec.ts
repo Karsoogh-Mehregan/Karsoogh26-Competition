@@ -10,6 +10,7 @@
  * renderer tells the two apart, and it is what keeps a busy board — where
  * every grade fires an SSE frame — from rebuilding geometry on every event.
  */
+import { isReservation } from '@/lib/holdings'
 import { LEVEL_LABEL, type Level } from '@/lib/mapLevels'
 import type { Archetype } from './archetypes'
 import type { Theme } from './themes'
@@ -25,6 +26,10 @@ export interface FloorState {
   color: string | null
   grade: number | null
   isOwnTeam: boolean
+  /** The seat's Occupancy id — what a duel challenge names as its target. */
+  occupancyId: number | null
+  /** How the seat was acquired; `duel`/`item` own a floor without a grade. */
+  source: string | null
 }
 
 export interface HouseSpec {
@@ -44,7 +49,9 @@ export interface HouseSpec {
 
 /** A holding as the map paints it — `Holding` plus the owning team's identity. */
 export interface PaintedHolding {
+  id: number
   node_code: string
+  source?: string
   level: string
   slot: number
   floor: number | null
@@ -72,15 +79,18 @@ function emptyFloor(floor: number): FloorState {
     color: null,
     grade: null,
     isOwnTeam: false,
+    occupancyId: null,
+    source: null,
   }
 }
 
 /**
  * Seat the holdings on the node's floors.
  *
- * Graded holdings own the floor the server put them on. Ungraded ones have no
- * floor yet — reserving is not owning — so they are shown as scaffolding on the
- * lowest seat still free, which is where they would land if graded right now.
+ * A holding with a floor owns it, however it got there: a grade, an item, or a
+ * won duel. Only a *reservation* — no floor yet, because the floor is captured
+ * at grading — is scaffolding, shown on the lowest seat still free, which is
+ * where it would land if graded right now.
  */
 export function buildSpec(
   nodeCode: string,
@@ -106,6 +116,8 @@ export function buildSpec(
     slot.color = holding.color
     slot.grade = holding.grade
     slot.isOwnTeam = ownTeamCode != null && holding.team_code === ownTeamCode
+    slot.occupancyId = holding.id ?? null
+    slot.source = holding.source ?? null
   }
 
   for (const holding of holdings) {
@@ -114,7 +126,7 @@ export function buildSpec(
   }
 
   for (const holding of holdings) {
-    if (holding.floor != null || holding.is_spawn) continue
+    if (!isReservation(holding)) continue
     const index = floors.findIndex((slot) => slot.status === 'empty')
     if (index === -1) break
     seat(index, holding, 'reserved')

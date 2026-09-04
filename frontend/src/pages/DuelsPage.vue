@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/table'
 import { useActing } from '@/composables/useActing'
 import { useDuels } from '@/composables/useDuels'
+import { useMapDesign } from '@/composables/useMapDesign'
 import { formatBalance, formatRelativeTime } from '@/lib/format'
 import type { Duel, DuelTarget } from '@/types/api'
 
@@ -54,11 +55,48 @@ const {
   callWinner,
 } = useDuels()
 
+const { metaByCode } = useMapDesign()
+
 const LEVEL_LABEL: Record<string, string> = {
   easy: 'آسان',
   medium: 'متوسط',
   hard: 'سخت',
 }
+
+/**
+ * Where a building sits, not just what it is called.
+ *
+ * A bare «برج شمالی» tells a player nothing about which of eight neighbourhoods
+ * they are being asked to walk into, and node names repeat across the map. The
+ * tier and the neighbourhood come from the same design layer the map paints
+ * from, so this reads exactly as the board does.
+ */
+function categoryOf(nodeCode: string, name?: string): string {
+  const meta = metaByCode(nodeCode)
+  const parts = [LEVEL_LABEL[meta?.level ?? ''] ?? meta?.level, meta?.neighborhoodName]
+  // Unnamed nodes already show their code as the title; repeating it reads as a
+  // stutter — «L2_16 · آسان · محلهٔ آبی · L2_16».
+  if (name && name !== nodeCode) parts.push(nodeCode)
+  return parts.filter(Boolean).join(' · ')
+}
+
+/** Targets grouped by the building they belong to, best floor first. */
+const targetGroups = computed(() => {
+  const groups = new Map<string, { code: string; name: string; rows: DuelTarget[] }>()
+  for (const row of targets.value) {
+    const group = groups.get(row.node_code) ?? {
+      code: row.node_code,
+      name: row.node_name || row.node_code,
+      rows: [],
+    }
+    group.rows.push(row)
+    groups.set(row.node_code, group)
+  }
+  for (const group of groups.values()) {
+    group.rows.sort((a, b) => b.floor - a.floor)
+  }
+  return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name, 'fa'))
+})
 
 // Which row's button is spinning. Without it every button in the table would
 // look busy while one of them is submitting.
@@ -66,10 +104,6 @@ const pendingTarget = ref<number | null>(null)
 const pendingWinner = ref<string | null>(null)
 
 const pastDuels = computed<Duel[]>(() => (isDuelMentor.value ? judged.value : history.value))
-
-function levelLabel(level: string): string {
-  return LEVEL_LABEL[level] ?? level
-}
 
 function houseLabel(duel: Duel | DuelTarget): string {
   const name = 'node_name' in duel ? duel.node_name : ''
@@ -146,7 +180,8 @@ async function onCallWinner(duel: Duel, winnerCode: string) {
             <span class="font-bold">{{ active.attacked.name }}</span>
           </div>
           <p class="text-muted-foreground text-sm">
-            بر سر طبقهٔ {{ active.floor }} ساختمان «{{ houseLabel(active) }}» —
+            بر سر طبقهٔ {{ active.floor }} ساختمان «{{ houseLabel(active) }}»
+            ({{ categoryOf(active.node_code, houseLabel(active)) }}) —
             ورودی {{ formatBalance(active.stake) }}
           </p>
           <p class="text-muted-foreground text-sm">
@@ -177,6 +212,7 @@ async function onCallWinner(duel: Duel, winnerCode: string) {
               <span class="font-bold">{{ judging.attacked.name }}</span>
               <span class="text-muted-foreground">
                 — طبقهٔ {{ judging.floor }} ساختمان «{{ houseLabel(judging) }}»
+                ({{ categoryOf(judging.node_code, houseLabel(judging)) }})
               </span>
             </p>
             <Button v-if="judging.room_link" as-child variant="outline" class="w-fit">
@@ -221,7 +257,6 @@ async function onCallWinner(duel: Duel, winnerCode: string) {
             <Table>
               <TableHeader>
                 <TableRow class="hover:bg-transparent">
-                  <TableHead class="border-e">ساختمان</TableHead>
                   <TableHead class="border-e text-center">طبقه</TableHead>
                   <TableHead class="border-e">صاحب</TableHead>
                   <TableHead class="border-e text-end">ورودی</TableHead>
@@ -229,37 +264,43 @@ async function onCallWinner(duel: Duel, winnerCode: string) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                <TableEmpty v-if="targets.length === 0" :colspan="5">
+                <TableEmpty v-if="targetGroups.length === 0" :colspan="4">
                   <span class="text-muted-foreground text-sm">
                     ساختمان پُری در همسایگی شما نیست.
                   </span>
                 </TableEmpty>
-                <TableRow v-for="target in targets" :key="target.occupancy_id">
-                  <TableCell class="border-e">
-                    <span class="font-medium">{{ houseLabel(target) }}</span>
-                    <span class="text-muted-foreground text-xs">
-                      · {{ levelLabel(target.level) }}
-                    </span>
-                  </TableCell>
-                  <TableCell class="border-e text-center tabular-nums">
-                    {{ target.floor }}
-                  </TableCell>
-                  <TableCell class="border-e">{{ target.team.name }}</TableCell>
-                  <TableCell class="border-e text-end tabular-nums">
-                    {{ formatBalance(target.cost) }}
-                  </TableCell>
-                  <TableCell class="text-center">
-                    <Button
-                      size="sm"
-                      :disabled="!canRequest || submitting"
-                      :aria-busy="pendingTarget === target.occupancy_id"
-                      @click="onChallenge(target)"
-                    >
-                      <SwordsIcon class="size-3.5" />
-                      دوئل
-                    </Button>
-                  </TableCell>
-                </TableRow>
+                <!-- Grouped by building: one header naming the house and where
+                     it sits, then its floors underneath. -->
+                <template v-for="group in targetGroups" :key="group.code">
+                  <TableRow class="bg-muted/50 hover:bg-muted/50">
+                    <TableCell colspan="4" class="py-2">
+                      <span class="font-bold">{{ group.name }}</span>
+                      <span class="text-muted-foreground text-xs">
+                        · {{ categoryOf(group.code, group.name) }}
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                  <TableRow v-for="target in group.rows" :key="target.occupancy_id">
+                    <TableCell class="border-e text-center tabular-nums">
+                      {{ target.floor }}
+                    </TableCell>
+                    <TableCell class="border-e">{{ target.team.name }}</TableCell>
+                    <TableCell class="border-e text-end tabular-nums">
+                      {{ formatBalance(target.cost) }}
+                    </TableCell>
+                    <TableCell class="text-center">
+                      <Button
+                        size="sm"
+                        :disabled="!canRequest || submitting"
+                        :aria-busy="pendingTarget === target.occupancy_id"
+                        @click="onChallenge(target)"
+                      >
+                        <SwordsIcon class="size-3.5" />
+                        دوئل
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                </template>
               </TableBody>
             </Table>
           </Card>
@@ -288,7 +329,10 @@ async function onCallWinner(duel: Duel, winnerCode: string) {
                     {{ duel.attacker.name }} — {{ duel.attacked.name }}
                   </TableCell>
                   <TableCell class="border-e">
-                    {{ houseLabel(duel) }} · طبقهٔ {{ duel.floor }}
+                    <span>{{ houseLabel(duel) }} · طبقهٔ {{ duel.floor }}</span>
+                    <span class="text-muted-foreground block text-xs">
+                      {{ categoryOf(duel.node_code, houseLabel(duel)) }}
+                    </span>
                   </TableCell>
                   <TableCell class="border-e text-end tabular-nums">
                     {{ formatBalance(duel.stake) }}

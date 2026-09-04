@@ -4,6 +4,7 @@ import MapHud from './MapHud.vue'
 import { useActing } from '../composables/useActing'
 import { useEntry } from '../composables/useEntry'
 import { useMapDesign } from '../composables/useMapDesign'
+import { isReservation, unlocksNeighbors } from '../lib/holdings'
 import { sectorGeometries } from '../lib/mapNeighborhoods'
 import { useInspectorStore } from '../stores/inspector'
 import { useGraph } from '../composables/useGraph.js'
@@ -91,9 +92,7 @@ const actingHeldIds = computed(() => {
   return new Set(actingTeam.value.holdings.map((holding) => holding.node_code))
 })
 
-function holdingUnlocksNeighbors(holding) {
-  return holding.is_spawn === true || holding.grade != null || holding.source === 'item'
-}
+const holdingUnlocksNeighbors = unlocksNeighbors
 
 // Gates the team has beaten. Not holdings — nobody owns a gate — but the roads
 // out of one are one-way, so a crossing is the only thing that opens the ring
@@ -126,6 +125,18 @@ function isEntryGate(n) {
   return canAct.value && !canClaimStart.value && actingHeldIds.value.size === 0 && isFreeStart(n.id)
 }
 
+/**
+ * A house with every slot taken cannot be reserved, whoever is standing next to
+ * it. The server refuses it either way; without this the map paints a full
+ * house as «قابل رزرو» and the panel offers a button that can only 409. A full
+ * house is what a *duel* is for, and the panel offers that instead.
+ */
+function isNodeFull(id) {
+  const node = nodeById.get(id)
+  if (!node) return false
+  return (holdingsByNode.value.get(id) ?? []).length >= slotCount(node)
+}
+
 function isNodeSelectable(id) {
   if (!canAct.value) return false
   // An unfinished board is bought and waiting: it outranks every reach rule,
@@ -137,9 +148,11 @@ function isNodeSelectable(id) {
     return canClaimStart.value && isFreeStart(id)
   }
   if (held.has(id)) return false
+  const node = nodeById.get(id)
+  // A gate seats nobody, so the capacity rule does not apply to it.
+  if (node && !isGatewayNode(node) && isNodeFull(id)) return false
   // A gate is not a move to make twice: once crossed it stops being offered as
   // a fresh one, though `inspectIntent` still opens its finished board.
-  const node = nodeById.get(id)
   if (node && isGatewayNode(node) && (crossedGateIds.value.has(id) || !design.hasMinesweeper(id))) {
     return false
   }
@@ -157,8 +170,11 @@ function isNodeSelected(id) {
 function answerableHolding(id) {
   if (!canAct.value) return null
   return (
+    // A reservation, not merely an ungraded seat: a floor won in a duel or
+    // taken with an item also has no grade, and there is nothing to answer
+    // for it — the team already owns it.
     actingTeam.value.holdings.find(
-      (h) => h.node_code === id && !h.is_spawn && h.grade == null,
+      (h) => h.node_code === id && isReservation(h),
     ) ?? null
   )
 }
@@ -376,10 +392,10 @@ function onNodeClick(n) {
   inspector.inspect(n.id, intent, occupancyId)
 }
 
+// Scaffolding on the map: seats still owing an answer. Keyed on `floor`, so a
+// granted floor paints as owned rather than as a building site.
 function reservedHoldingsOn(n) {
-  return (holdingsByNode.value.get(n.id) ?? []).filter(
-    (holding) => !holding.is_spawn && holding.grade == null,
-  )
+  return (holdingsByNode.value.get(n.id) ?? []).filter(isReservation)
 }
 
 // Team colour is the node's message; only dim it when there is a team to
