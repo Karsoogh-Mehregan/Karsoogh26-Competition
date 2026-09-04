@@ -83,11 +83,11 @@ function setStatus(status: GameStatus) {
   apply({ status }, `وضعیت بازی: ${label}`)
 }
 
-function toggleLeaderboard() {
-  const next = !settings.value?.leaderboard_public
+function setLeaderboardFrozen(frozen: boolean) {
+  if (settings.value?.leaderboard_frozen === frozen) return
   apply(
-    { leaderboard_public: next },
-    next ? 'جدول امتیازات برای تیم‌ها باز شد' : 'جدول امتیازات پنهان شد',
+    { leaderboard_frozen: frozen },
+    frozen ? 'جدول امتیازات برای تیم‌ها فریز شد' : 'جدول امتیازات به حالت عادی برگشت',
   )
 }
 
@@ -170,19 +170,28 @@ function saveDuration() {
           </p>
         </section>
 
-        <section class="flex items-center justify-between gap-3 rounded-md border p-3">
+        <section class="flex flex-col gap-2 rounded-md border p-3">
           <div class="flex flex-col gap-0.5">
             <span class="text-sm font-medium">جدول امتیازات</span>
             <span class="text-muted-foreground text-xs">
-              وقتی باز باشد، تیم‌ها هم رتبه‌ها را می‌بینند.
+              در حالت عادی تیم‌ها رتبهٔ زنده را می‌بینند. فریز همان جدول را برای تیم‌ها قفل
+              می‌کند؛ منتورها و بقیهٔ نقش‌ها همچنان به‌روز می‌بینند.
             </span>
           </div>
-          <div class="flex shrink-0 items-center gap-2">
-            <Badge :variant="settings.leaderboard_public ? 'default' : 'secondary'">
-              {{ settings.leaderboard_public ? 'باز' : 'پنهان' }}
-            </Badge>
-            <Button size="sm" variant="outline" :disabled="saving" @click="toggleLeaderboard">
-              {{ settings.leaderboard_public ? 'پنهان کن' : 'باز کن' }}
+          <div class="grid grid-cols-2 gap-2">
+            <Button
+              :variant="settings.leaderboard_frozen ? 'outline' : 'default'"
+              :disabled="saving"
+              @click="setLeaderboardFrozen(false)"
+            >
+              عادی
+            </Button>
+            <Button
+              :variant="settings.leaderboard_frozen ? 'default' : 'outline'"
+              :disabled="saving"
+              @click="setLeaderboardFrozen(true)"
+            >
+              فریز
             </Button>
           </div>
         </section>

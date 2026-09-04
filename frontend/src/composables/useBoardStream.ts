@@ -3,23 +3,39 @@ import { openBoardStream } from '@/lib/eventSource'
 import { streamConnected } from '@/lib/boardStreamState'
 import { queryClient } from '@/lib/queryClient'
 import { queryKeys } from '@/queries/keys'
+import type { GameState, Me } from '@/types/api'
 
 const MIN_INTERVAL_MS = 1800
 const JITTER_MS = 600
 
 type QueryKey = readonly unknown[]
 
+function viewerSeesFrozenLeaderboard(): boolean {
+  const me = queryClient.getQueryData<Me | null>(queryKeys.me())
+  const state = queryClient.getQueryData<GameState>(queryKeys.gameState())
+  return me?.team != null && state?.leaderboard_frozen === true
+}
+
 const BOARD = [queryKeys.teamsRoot()]
 const ROUTES: Record<string, () => QueryKey[]> = {
   'board.spawn.claimed': () => BOARD,
   'board.node.claimed': () => [queryKeys.teamsRoot(), queryKeys.balanceEventsRoot()],
   'board.released': () => [queryKeys.teamsRoot(), queryKeys.attemptsRoot()],
-  // A grade moves balances, so the leaderboard is stale too.
-  'board.graded': () => [queryKeys.teamsRoot(), queryKeys.leaderboardRoot(), queryKeys.balanceEventsRoot()],
+  // A grade moves balances. Frozen players keep their snapshot; organisers
+  // still need the live list.
+  'board.graded': () => {
+    const keys: QueryKey[] = [queryKeys.teamsRoot(), queryKeys.balanceEventsRoot()]
+    if (!viewerSeesFrozenLeaderboard()) keys.push(queryKeys.leaderboardRoot())
+    return keys
+  },
   'question.assigned': () => [queryKeys.attemptsRoot()],
   'mentor.submission.created': () => [queryKeys.submissions()],
-  // An admin flipped the game state; everyone's clock and stage bar are stale.
-  'game.state': () => [queryKeys.gameState(), queryKeys.gameSettings()],
+  // Freeze (or thaw) rides on this frame; competing teams must re-read ranks.
+  'game.state': () => [
+    queryKeys.gameState(),
+    queryKeys.gameSettings(),
+    queryKeys.leaderboardRoot(),
+  ],
   // The frame is a hint, as ever: the inbox itself is refetched, and
   // useNotifications decides whether that counts as news worth a toast.
   'notification.created': () => [queryKeys.inbox()],

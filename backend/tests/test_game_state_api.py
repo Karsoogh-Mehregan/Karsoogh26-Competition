@@ -248,11 +248,11 @@ def test_game_god_pauses_and_finishes(game_god):
 
 def test_a_patch_touches_only_what_it_names(game_god):
     _patch(game_god, {"initial_balance": 400})
-    _patch(game_god, {"leaderboard_public": True})
+    _patch(game_god, {"leaderboard_frozen": True})
 
     settings = GameSettings.load()
     assert settings.initial_balance == 400
-    assert settings.leaderboard_public is True
+    assert settings.leaderboard_frozen is True
     assert settings.status == GameStatus.NOT_STARTED
 
 
@@ -286,11 +286,16 @@ def test_the_design_lock_is_a_game_god_switch(game_god, player):
     assert player.get(STATE_URL).json()["design_locked"] is False
 
 
-def test_leaderboard_opens_to_teams_when_published(game_god, player):
-    assert player.get("/api/leaderboard/").status_code == 403
-
-    _patch(game_god, {"leaderboard_public": True})
+def test_leaderboard_freeze_is_on_the_clock_payload(game_god, player):
+    assert player.get(STATE_URL).json()["leaderboard_frozen"] is False
     assert player.get("/api/leaderboard/").status_code == 200
+
+    assert _patch(game_god, {"leaderboard_frozen": True}).status_code == 200
+    assert player.get(STATE_URL).json()["leaderboard_frozen"] is True
+    assert GameSettings.load().leaderboard_snapshot is not None
+
+    _patch(game_god, {"leaderboard_frozen": False})
+    assert player.get(STATE_URL).json()["leaderboard_frozen"] is False
 
 
 # --- restart ------------------------------------------------------------------

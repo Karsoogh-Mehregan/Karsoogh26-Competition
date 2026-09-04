@@ -9,7 +9,7 @@ from accounts.permissions import MENTOR_PERM, CanViewLeaderboard, GameIsRunning
 from core.boards import viewing_board
 from core.openapi import OpenApiExample, extend_schema
 from game.api_exceptions import Conflict
-from game.models import Node
+from game.models import GameSettings, Node
 from game.permissions import IsOwnTeam, IsTeamMember
 from game.services import (
     claim_spawn,
@@ -21,6 +21,7 @@ from game.services import (
 )
 
 from . import board_cache
+from .leaderboard import ranked_rows, sees_frozen_snapshot
 from .models import BalanceEvent, ItemType, Team, TeamItem
 from .serializers import (
     BalanceEventSerializer,
@@ -83,8 +84,9 @@ class TeamListView(APIView):
     summary="Leaderboard",
     description=(
         "Teams ranked by balance, within one board. A team always sees its own; an "
-        "organiser picks with `?board=` and gets the girls' board by default. Visible to "
-        "mentors always; to teams only once GameSettings.leaderboard_public is on."
+        "organiser picks with `?board=` and gets the girls' board by default. When "
+        "the board is frozen, competing teams get the snapshot taken at the freeze; "
+        "organisers keep seeing live ranks."
     ),
     examples=[
         OpenApiExample(
@@ -100,12 +102,14 @@ class LeaderboardView(APIView):
     def get(self, request):
         # One ranking per contest: a team sees only its own board, and ranks
         # restart at 1 on each.
-        teams = Team.objects.filter(board=viewing_board(request)).order_by("-balance", "code")
-        rows = [
-            {"rank": rank, "code": team.code, "name": team.name, "balance": team.balance}
-            for rank, team in enumerate(teams, start=1)
-        ]
-        return Response(LeaderboardRowSerializer(rows, many=True).data)
+        board = viewing_board(request)
+        settings = GameSettings.load()
+        if settings.leaderboard_frozen and sees_frozen_snapshot(request.user):
+            snap = settings.leaderboard_snapshot or {}
+            rows = snap.get(board)
+            if isinstance(rows, list):
+                return Response(LeaderboardRowSerializer(rows, many=True).data)
+        return Response(LeaderboardRowSerializer(ranked_rows(board), many=True).data)
 
 
 @extend_schema(

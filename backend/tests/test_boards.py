@@ -183,9 +183,6 @@ class TestReadsAreScoped:
         assert codes == {"alpha"}
 
     def test_the_leaderboard_ranks_within_one_board(self, django_user_model, both_maps):
-        settings = GameSettings.load()
-        settings.leaderboard_public = True
-        settings.save(update_fields=["leaderboard_public"])
         girls = _team(Board.GIRLS, "alpha")
         boys = _team(Board.BOYS, "bravo")
         Team.objects.filter(pk=boys.pk).update(balance=10_000)

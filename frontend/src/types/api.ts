@@ -460,12 +460,14 @@ export interface GameState {
   elapsed_seconds: number | null
   remaining_seconds: number | null
   leaderboard_public: boolean
+  leaderboard_frozen: boolean
   design_locked: boolean
 }
 
 export interface GameSettings {
   status: GameStatus
   leaderboard_public: boolean
+  leaderboard_frozen: boolean
   design_locked: boolean
   duration_minutes: number
   initial_balance: number

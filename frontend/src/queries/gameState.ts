@@ -40,7 +40,7 @@ export function useUpdateGameSettingsMutation() {
       queryClient.setQueryData<GameSettings>(queryKeys.gameSettings(), settings)
       return Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.gameState() }),
-        // Publishing the leaderboard changes who may read it.
+        // Freeze (or thaw) changes what competing teams read from this list.
         queryClient.invalidateQueries({ queryKey: queryKeys.leaderboardRoot() }),
       ])
     },

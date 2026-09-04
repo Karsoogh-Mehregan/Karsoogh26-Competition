@@ -72,17 +72,11 @@ class GameIsRunning(BasePermission):
 
 
 class CanViewLeaderboard(BasePermission):
-    """Mentors always see the leaderboard; teams only once it is made public."""
-
-    message = "جدول امتیازات پنهان است."
+    """Any logged-in user may read the board. Freeze is applied in the view."""
 
     def has_permission(self, request, view):
         user = request.user
-        if not (user and user.is_authenticated):
-            return False
-        if user.has_perm(MENTOR_PERM):
-            return True
-        return GameSettings.load().leaderboard_public
+        return bool(user and user.is_authenticated)
 
 
 class IsDesigner(BasePermission):
