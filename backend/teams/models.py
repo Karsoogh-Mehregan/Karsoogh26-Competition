@@ -6,6 +6,7 @@ from django.db.models import CheckConstraint, Prefetch, Q, UniqueConstraint
 class BalanceReason(models.TextChoices):
     INITIAL = "initial", "موجودی اولیه"
     ENTRY = "entry", "رزرو خانه"
+    TOLL = "toll", "عوارضی"
     GRADE = "grade", "نمره خانه"
     EVENT = "event", "رویداد"
 

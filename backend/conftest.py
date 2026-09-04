@@ -9,6 +9,7 @@ from django.db import connection
 _SEED_MIGRATIONS = (
     "game.migrations.0002_seed_economy",
     "game.migrations.0007_seed_toll_level",
+    "minesweeper.migrations.0007_difficultyconfig",
 )
 
 
@@ -22,8 +23,10 @@ def _reseed_after_flush(request):
     it, which is exactly the kind of order-dependent green that hides until a new
     test file lands after this one.
 
-    Only the economy is restored. A transactional test that needs the group or
-    map-design seeds should add its migration to `_SEED_MIGRATIONS`.
+    Only the economy and the Minesweeper difficulties are restored. A
+    transactional test that needs the group or map-design seeds should add its
+    migration to `_SEED_MIGRATIONS`; the migration's function has to be called
+    `seed`, because that is the name re-run here.
     """
     marker = request.node.get_closest_marker("django_db")
     if not (marker and marker.kwargs.get("transaction")):

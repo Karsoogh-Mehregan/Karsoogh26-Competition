@@ -1,16 +1,47 @@
 from django.contrib import admin
 
-from .models import MinesweeperAttempt, MinesweeperGame, MinesweeperSettings
+from .models import DifficultyConfig, MinesweeperAttempt, MinesweeperGame, MinesweeperSettings
+
+
+@admin.register(DifficultyConfig)
+class DifficultyConfigAdmin(admin.ModelAdmin):
+    """Board size, mines and payout, editable between rounds.
+
+    Retuning a row reshapes the *next* board generated at that difficulty.
+    Boards already in play keep the numbers they were built with, so nobody
+    loses a grid mid-game.
+    """
+
+    list_display = ("key", "label", "width", "height", "mine_count", "base_score", "sort_order")
+    list_editable = ("width", "height", "mine_count", "base_score", "sort_order")
+    search_fields = ("key", "label")
+    ordering = ("sort_order", "key")
 
 
 @admin.register(MinesweeperSettings)
 class MinesweeperSettingsAdmin(admin.ModelAdmin):
-    list_display = ("node", "difficulty", "enabled", "updated_at")
-    list_filter = ("difficulty", "enabled")
+    list_display = ("node", "node_level", "difficulty", "enabled", "updated_at")
+    list_filter = ("difficulty", "enabled", "node__level")
+    list_editable = ("difficulty", "enabled")
     search_fields = ("node__code", "node__name")
-    list_select_related = ("node",)
+    list_select_related = ("node", "node__level")
     autocomplete_fields = ("node",)
     ordering = ("node__code",)
+    actions = ("enable_boards", "disable_boards")
+
+    @admin.display(description="level", ordering="node__level")
+    def node_level(self, obj):
+        return obj.node.level_id
+
+    @admin.action(description="Enable the selected boards")
+    def enable_boards(self, request, queryset):
+        updated = queryset.update(enabled=True)
+        self.message_user(request, f"{updated} board(s) enabled.")
+
+    @admin.action(description="Disable the selected boards")
+    def disable_boards(self, request, queryset):
+        updated = queryset.update(enabled=False)
+        self.message_user(request, f"{updated} board(s) disabled.")
 
 
 class MinesweeperAttemptInline(admin.TabularInline):
@@ -56,6 +87,7 @@ class MinesweeperGameAdmin(admin.ModelAdmin):
         "width",
         "height",
         "mine_count",
+        "base_score",
         "board",
         "created_at",
     )

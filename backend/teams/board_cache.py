@@ -9,6 +9,8 @@ SNAPSHOT_TTL_SECONDS = 60
 
 
 def _render(request) -> list[dict]:
+    # `with_holdings()` prefetches the toll attempts too, so the whole board's
+    # crossings cost one query rather than one per team.
     serializer = TeamSerializer(
         Team.objects.with_holdings(),
         many=True,

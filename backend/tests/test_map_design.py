@@ -100,7 +100,7 @@ def test_any_logged_in_user_can_read_the_design(player, nodes):
 )
 def test_design_reports_where_minesweeper_is_playable(player, nodes, enabled, expected):
     MinesweeperSettings.objects.create(
-        node=nodes["hard"], difficulty=MinesweeperDifficulty.EASY, enabled=enabled
+        node=nodes["hard"], difficulty_id=MinesweeperDifficulty.EASY, enabled=enabled
     )
     by_code = {row["code"]: row for row in player.get(DESIGN_URL).json()["nodes"]}
     assert by_code["L6_0"]["minesweeper"] is expected

@@ -12,6 +12,9 @@ BOARD_SPAWN_CLAIMED = "board.spawn.claimed"
 BOARD_NODE_CLAIMED = "board.node.claimed"
 BOARD_GRADED = "board.graded"
 BOARD_RELEASED = "board.released"
+# Paying for a board and clearing a gate both change the cached team row,
+# so both need a frame; the win keeps `main`'s name.
+BOARD_TOLL_STARTED = "board.toll.started"
 QUESTION_ASSIGNED = "question.assigned"
 SUBMISSION_CREATED = "mentor.submission.created"
 GAME_STATE = "game.state"

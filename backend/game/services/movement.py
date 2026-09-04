@@ -20,40 +20,42 @@ def is_reachable(node: Node, held_ids: set[int]) -> bool:
     ).exists()
 
 
-def _cleared_toll_ids(team: Team) -> set[int]:
-    """Nodes this team has won Minesweeper on. Not occupancy — pass-through only."""
-    from minesweeper.models import MinesweeperAttempt, MinesweeperStatus
+def expandable_node_ids(team: Team) -> set[int]:
+    """Everything the team can move *from* right now.
 
-    return set(
-        MinesweeperAttempt.objects.filter(team=team, status=MinesweeperStatus.WON).values_list(
-            "game__node_id", flat=True
-        )
-    )
+    A reservation only opens its neighbours once it is graded; spawns start
+    open. Item-granted seats expand reach the same way a grade does, without a
+    grade. A toll gate the team has beaten expands too, and it is the only way
+    onto the ring beyond it — the roads through a gate are one-way.
 
-
-def _expandable_node_ids(team: Team) -> set[int]:
-    """A reservation only opens its neighbours once it is graded; spawns start open.
-
-    Item-granted seats expand reach the same way a grade does, without a grade.
-    A won Minesweeper toll also expands, without seating the team on that node.
+    The minesweeper import is local on purpose: `minesweeper` depends on `game`,
+    so a module-level import here would close the loop.
     """
+    from minesweeper.crossings import cleared_node_ids
+
     held = set(
         Occupancy.objects.active()
         .filter(team=team)
         .filter(Q(is_spawn=True) | Q(grade__isnull=False) | Q(source=AcquisitionSource.ITEM))
         .values_list("node_id", flat=True)
     )
-    return held | _cleared_toll_ids(team)
+    return held | cleared_node_ids(team)
 
 
 def team_can_access_node(team: Team, node: Node) -> bool:
-    """True if `node` is an expandable source or a neighbour of one."""
-    expandable = _expandable_node_ids(team)
+    """True if `node` is an expandable source or a neighbour of one.
+
+    A cleared gate is in the set itself, which is what lets a team walk back
+    onto one it has already beaten.
+    """
+    expandable = expandable_node_ids(team)
     return node.pk in expandable or is_reachable(node, expandable)
 
 
 def _reserve(team: Team, node: Node) -> Occupancy:
-    held_ids = _expandable_node_ids(team)
+    if node.level_id == Level.TOLL:
+        raise Conflict("عبور از عوارضی با بازی مین‌روب انجام می‌شود، نه با سؤال.")
+    held_ids = expandable_node_ids(team)
     if held_ids:
         if not is_reachable(node, held_ids):
             raise Conflict("این خانه به هیچ‌کدام از خانه‌های فعلی تیم متصل نیست.")

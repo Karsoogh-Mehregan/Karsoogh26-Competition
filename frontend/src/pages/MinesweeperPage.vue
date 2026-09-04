@@ -14,7 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Skeleton } from '@/components/ui/skeleton'
 import { useMinesweeper } from '@/composables/useMinesweeper'
 import { formatBalance } from '@/lib/format'
-import type { MinesweeperDifficulty, MinesweeperGame } from '@/types/api'
+import type { MinesweeperGame } from '@/types/api'
 
 const STATUS_LABEL: Record<MinesweeperGame['status'], string> = {
   in_progress: 'در حال بازی',
@@ -22,7 +22,9 @@ const STATUS_LABEL: Record<MinesweeperGame['status'], string> = {
   lost: 'باخت',
 }
 
-const DIFFICULTY_LABEL: Record<MinesweeperDifficulty, string> = {
+// Only a fallback: difficulties are server rows, so the board carries its own
+// `difficulty_label` and an organiser may add a key this map has never heard of.
+const DIFFICULTY_LABEL: Record<string, string> = {
   easy: 'آسان',
   medium: 'متوسط',
   hard: 'سخت',
@@ -163,7 +165,7 @@ async function onFlag(row: number, col: number): Promise<void> {
             <dl class="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
               <div class="flex flex-col gap-0.5">
                 <dt class="text-muted-foreground">سطح</dt>
-                <dd class="font-semibold">{{ DIFFICULTY_LABEL[game.difficulty] }}</dd>
+                <dd class="font-semibold">{{ game.difficulty_label || DIFFICULTY_LABEL[game.difficulty] || game.difficulty }}</dd>
               </div>
               <div class="flex flex-col gap-0.5">
                 <dt class="text-muted-foreground">مین‌ها</dt>

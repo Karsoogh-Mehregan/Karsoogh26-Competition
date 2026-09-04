@@ -62,9 +62,24 @@ class Command(BaseCommand):
         with transaction.atomic():
             nodes = self._import_nodes(data.get("nodes", []))
             self._import_edges(data.get("edges", []), nodes)
+            self._ensure_toll_boards()
             if options["dry_run"]:
                 transaction.set_rollback(True)
                 self.stdout.write(self.style.WARNING("Dry run: rolled back."))
+
+    def _ensure_toll_boards(self):
+        """A toll gate is crossed by beating its Minesweeper board, so importing
+        one without a board would import a road that is permanently shut.
+
+        Local import: `minesweeper` depends on `game`, so importing it at module
+        level here would close the loop. Only fills gaps — a gate an organiser
+        has already tuned or disabled is left exactly as it is.
+        """
+        from minesweeper.services import ensure_toll_boards
+
+        counts = ensure_toll_boards()
+        if counts["created"]:
+            self.stdout.write(f"Toll boards: {counts['created']} created.")
 
     def _import_nodes(self, raw_nodes):
         unknown = sorted({n["type"] for n in raw_nodes if n["type"] not in TYPE_TO_LEVEL})

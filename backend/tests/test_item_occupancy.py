@@ -21,7 +21,7 @@ from game.models import (
 )
 from game.services import claim_node, grade_attempt, is_reachable
 from game.services.mentor import Conflict
-from game.services.movement import _expandable_node_ids
+from game.services.movement import expandable_node_ids
 from teams.models import Team
 from teams.start_colors import color_for_start
 
@@ -141,7 +141,7 @@ class TestItemReach:
             source=AcquisitionSource.ITEM,
         )
 
-        held = _expandable_node_ids(team)
+        held = expandable_node_ids(team)
         assert graph["e1"].pk in held
         assert is_reachable(graph["m1"], held)
         assert not is_reachable(graph["far"], held)
@@ -156,7 +156,7 @@ class TestItemReach:
         )
         Occupancy.objects.create(node=graph["e1"], team=team, slot=1)
 
-        held = _expandable_node_ids(team)
+        held = expandable_node_ids(team)
         assert held == set()
         assert not is_reachable(graph["m1"], held)
 

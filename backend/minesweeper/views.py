@@ -13,6 +13,7 @@ from minesweeper.exceptions import (
     CannotFlagRevealed,
     CellAlreadyRevealed,
     CellFlagged,
+    EntryFeeUnaffordable,
     EntryUnauthorized,
     GameFinished,
     InvalidCell,
@@ -50,6 +51,7 @@ _PUBLIC_IN_PROGRESS = {
     "attempt_id": 25,
     "node": "C34_0",
     "difficulty": "hard",
+    "difficulty_label": "سخت",
     "width": 30,
     "height": 16,
     "mine_count": 99,
@@ -79,6 +81,8 @@ def _map_service_error(exc: Exception):
         raise Conflict(str(exc)) from exc
     if isinstance(exc, SettingsDisabled):
         raise Conflict("این بازی مین‌روب فعال نیست.") from exc
+    if isinstance(exc, EntryFeeUnaffordable):
+        raise Conflict("موجودی تیم برای ورود به این عوارضی کافی نیست.") from exc
     if isinstance(exc, GameFinished):
         raise Conflict("این بازی تمام شده است.") from exc
     if isinstance(exc, InvalidCell):
@@ -99,7 +103,9 @@ def _map_service_error(exc: Exception):
 def _own_attempt(request, attempt_id: int) -> MinesweeperAttempt:
     """The caller's attempt. Other teams' rows are invisible (404)."""
     try:
-        attempt = MinesweeperAttempt.objects.select_related("game__node").get(pk=attempt_id)
+        attempt = MinesweeperAttempt.objects.select_related("game__node", "game__difficulty").get(
+            pk=attempt_id
+        )
     except MinesweeperAttempt.DoesNotExist:
         raise NotFound("بازی پیدا نشد.") from None
     if attempt.team_id != request.user.team_id:
@@ -123,8 +129,9 @@ class EnterPlayView(APIView):
         summary="Request Minesweeper map-entry authorization",
         description=(
             "Issues a short-lived, one-time, session-bound authorization for this node. "
-            "The SPA must then POST start with that token. The node must be reachable "
-            "from the caller's expandable holdings or a won Minesweeper toll."
+            "The SPA must then POST start with that token. The board must be enabled, "
+            "and a gate must be reachable from the caller's expandable holdings or a "
+            "won Minesweeper toll."
         ),
         parameters=[_NODE_CODE],
         request=None,
@@ -160,7 +167,8 @@ class StartPlayView(APIView):
         summary="Start or resume Minesweeper on a node",
         description=(
             "Consumes a map-entry token and resumes the caller's in-progress attempt "
-            "on this node, or generates a new board. One active attempt per team per node."
+            "on this node, or generates a new board and charges the node's entry cost. "
+            "One active attempt per team per node."
         ),
         parameters=[_NODE_CODE],
         request=StartPlaySerializer,

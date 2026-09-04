@@ -30,6 +30,9 @@ class HoldingSerializer(serializers.ModelSerializer):
 class TeamSerializer(serializers.ModelSerializer):
     holdings = HoldingSerializer(many=True, read_only=True)
     balance = serializers.SerializerMethodField()
+    # `main`'s names for the two lists; the toll-level filtering and the
+    # per-status split are this branch's. A gate is not a holding — nobody owns
+    # one and it has no capacity — so neither can travel in `holdings`.
     cleared_tolls = serializers.SerializerMethodField()
     active_tolls = serializers.SerializerMethodField()
 
@@ -46,29 +49,42 @@ class TeamSerializer(serializers.ModelSerializer):
         )
 
     def _toll_codes(self, team: Team, status: str) -> list[str]:
-        if hasattr(team, "_toll_attempts"):
-            return sorted(
-                {row.game.node.code for row in team._toll_attempts if row.status == status}
-            )
-        from minesweeper.models import MinesweeperAttempt
+        """Toll nodes where this team has an attempt in ``status``.
 
-        return sorted(
-            set(
-                MinesweeperAttempt.objects.filter(team=team, status=status).values_list(
-                    "game__node__code", flat=True
-                )
+        Reads the `_toll_attempts` prefetch that `Team.objects.with_holdings()`
+        sets up, so the whole board costs one query; the fallback keeps a lone
+        serializer (a test, a shell) honest. Non-toll boards are filtered out —
+        a board an organiser hangs on a house is side content, and must not
+        report as a crossing.
+        """
+        from game.models import Level
+
+        rows = getattr(team, "_toll_attempts", None)
+        if rows is not None:
+            return sorted(
+                {
+                    row.game.node.code
+                    for row in rows
+                    if row.status == status and row.game.node.level_id == Level.TOLL
+                }
             )
-        )
+        from minesweeper.crossings import cleared_node_codes, open_board_node_codes
+        from minesweeper.models import MinesweeperStatus
+
+        if status == MinesweeperStatus.WON:
+            return cleared_node_codes(team)
+        return open_board_node_codes(team)
 
     def get_cleared_tolls(self, team: Team) -> list[str]:
-        """Node codes this team has won Minesweeper on. Not holdings."""
+        """Gates this team has beaten. This is what opens the road past them."""
         from minesweeper.models import MinesweeperStatus
 
         return self._toll_codes(team, MinesweeperStatus.WON)
 
     def get_active_tolls(self, team: Team) -> list[str]:
-        """Nodes with a board still in progress, which the team may resume even
-        if the holding it reached them from has since been released."""
+        """Gates with a board still open — paid for, so the map offers to resume
+        it rather than quoting the toll again, and it reopens even if the holding
+        the team reached the gate from has since been released."""
         from minesweeper.models import MinesweeperStatus
 
         return self._toll_codes(team, MinesweeperStatus.IN_PROGRESS)
@@ -97,6 +113,7 @@ class LeaderboardRowSerializer(serializers.Serializer):
 REASON_LABELS: dict[str, str] = {
     BalanceReason.INITIAL: "موجودی اولیه",
     BalanceReason.ENTRY: "رزرو خانه",
+    BalanceReason.TOLL: "عوارضی",
     BalanceReason.GRADE: "نمره خانه",
 }
 

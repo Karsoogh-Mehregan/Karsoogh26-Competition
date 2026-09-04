@@ -18,9 +18,9 @@ from game.models import (
 )
 from game.services.mentor import Conflict
 from game.services.movement import (
-    _expandable_node_ids,
     claim_node,
     claim_spawn,
+    expandable_node_ids,
     is_reachable,
     team_can_access_node,
 )
@@ -140,7 +140,7 @@ class TestExpandableSources:
         _undirected(graph["home"], neighbour)
         _hold(alpha, graph["home"], grade=80)
 
-        held = _expandable_node_ids(alpha)
+        held = expandable_node_ids(alpha)
         assert graph["home"].pk in held
         assert is_reachable(neighbour, held)
         assert not is_reachable(graph["isolated"], held)
@@ -148,7 +148,7 @@ class TestExpandableSources:
     def test_won_attempt_makes_the_toll_expandable_without_occupancy(self, alpha, graph):
         _attempt(alpha, graph["toll"], status=MinesweeperStatus.WON)
 
-        held = _expandable_node_ids(alpha)
+        held = expandable_node_ids(alpha)
         assert graph["toll"].pk in held
         assert Occupancy.objects.filter(node=graph["toll"]).count() == 0
         assert team_can_access_node(alpha, graph["toll"])
@@ -159,7 +159,7 @@ class TestExpandableSources:
         _hold(alpha, graph["home"], grade=80)
         _attempt(alpha, graph["toll"], status=MinesweeperStatus.LOST)
 
-        held = _expandable_node_ids(alpha)
+        held = expandable_node_ids(alpha)
         assert graph["toll"].pk not in held
         assert team_can_access_node(alpha, graph["toll"])
         assert not team_can_access_node(alpha, graph["ahead"])
@@ -168,7 +168,7 @@ class TestExpandableSources:
         _hold(alpha, graph["home"], grade=80)
         _attempt(alpha, graph["toll"], status=MinesweeperStatus.IN_PROGRESS)
 
-        held = _expandable_node_ids(alpha)
+        held = expandable_node_ids(alpha)
         assert graph["toll"].pk not in held
         assert not team_can_access_node(alpha, graph["ahead"])
 
@@ -176,7 +176,7 @@ class TestExpandableSources:
         _hold(alpha, graph["home"], grade=80)
         _attempt(alpha, graph["toll"], status=MinesweeperStatus.WON)
 
-        assert graph["toll"].pk not in _expandable_node_ids(beta)
+        assert graph["toll"].pk not in expandable_node_ids(beta)
         assert not team_can_access_node(beta, graph["toll"])
         assert not team_can_access_node(beta, graph["ahead"])
 
@@ -184,8 +184,8 @@ class TestExpandableSources:
         _attempt(alpha, graph["toll"], status=MinesweeperStatus.WON)
         _attempt(beta, graph["toll"], status=MinesweeperStatus.WON)
 
-        assert graph["toll"].pk in _expandable_node_ids(alpha)
-        assert graph["toll"].pk in _expandable_node_ids(beta)
+        assert graph["toll"].pk in expandable_node_ids(alpha)
+        assert graph["toll"].pk in expandable_node_ids(beta)
         assert team_can_access_node(alpha, graph["ahead"])
         assert team_can_access_node(beta, graph["ahead"])
         assert Occupancy.objects.filter(node=graph["toll"]).count() == 0
@@ -195,7 +195,7 @@ class TestExpandableSources:
         _attempt(alpha, graph["toll"], status=MinesweeperStatus.LOST)
         _attempt(alpha, graph["toll"], status=MinesweeperStatus.WON)
 
-        held = _expandable_node_ids(alpha)
+        held = expandable_node_ids(alpha)
         assert held == {graph["toll"].pk}
         assert team_can_access_node(alpha, graph["ahead"])
         assert Occupancy.objects.filter(node=graph["toll"]).count() == 0
@@ -275,8 +275,18 @@ class TestExistingFlows:
         _hold(alpha, graph["home"])
 
         with pytest.raises(Conflict) as caught:
-            claim_node(alpha, graph["toll"])
+            claim_node(alpha, graph["ahead"])
         assert "نمره" in str(caught.value)
+
+    def test_a_toll_is_never_claimed_with_a_question(self, running_game, alpha, graph):
+        """Whatever the reach, a gate is played, not answered — so it is refused
+        before the reach rules are even consulted."""
+        _questions(graph["easy"])
+        _hold(alpha, graph["home"], grade=80)
+
+        with pytest.raises(Conflict) as caught:
+            claim_node(alpha, graph["toll"])
+        assert "مین‌روب" in str(caught.value)
 
 
 class TestMinesweeperEntryGate:
@@ -291,7 +301,7 @@ class TestMinesweeperEntryGate:
         self, running_game, alpha, alpha_client, graph
     ):
         MinesweeperSettings.objects.create(
-            node=graph["toll"], difficulty=MinesweeperDifficulty.EASY, enabled=True
+            node=graph["toll"], difficulty_id=MinesweeperDifficulty.EASY, enabled=True
         )
         _hold(alpha, graph["home"], grade=80)
 
@@ -304,7 +314,7 @@ class TestMinesweeperEntryGate:
 
     def test_unreachable_configured_toll_cannot_be_entered(self, running_game, alpha_client, graph):
         MinesweeperSettings.objects.create(
-            node=graph["toll"], difficulty=MinesweeperDifficulty.EASY, enabled=True
+            node=graph["toll"], difficulty_id=MinesweeperDifficulty.EASY, enabled=True
         )
 
         response = alpha_client.post(
@@ -317,7 +327,7 @@ class TestMinesweeperEntryGate:
         self, running_game, alpha_client, graph
     ):
         MinesweeperSettings.objects.create(
-            node=graph["toll"], difficulty=MinesweeperDifficulty.EASY, enabled=True
+            node=graph["toll"], difficulty_id=MinesweeperDifficulty.EASY, enabled=True
         )
 
         response = alpha_client.post(
@@ -333,7 +343,7 @@ class TestMinesweeperEntryGate:
         self, running_game, alpha, alpha_client, graph
     ):
         MinesweeperSettings.objects.create(
-            node=graph["toll"], difficulty=MinesweeperDifficulty.EASY, enabled=True
+            node=graph["toll"], difficulty_id=MinesweeperDifficulty.EASY, enabled=True
         )
         holding = _hold(alpha, graph["home"], grade=80)
         _attempt(alpha, graph["toll"], status=MinesweeperStatus.WON)
