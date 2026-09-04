@@ -2,12 +2,12 @@
  * Node type -> playable level, mirroring `TYPE_TO_LEVEL` in the backend's
  * `game/management/commands/import_graph.py`.
  *
- * The map JSON carries 11 `type` values; the game only has five levels, and
+ * The map JSON carries 11 `type` values; the game only has six levels, and
  * capacity is a property of the level, not of the drawing. Both halves of the
  * app read this table so a node's slot count can never disagree between the
  * SVG map and the house model beside it.
  */
-export type Level = 'spawn' | 'easy' | 'medium' | 'hard' | 'toll'
+export type Level = 'spawn' | 'easy' | 'medium' | 'hard' | 'center' | 'toll'
 
 export const TYPE_TO_LEVEL: Record<string, Level> = {
   start: 'spawn',
@@ -18,7 +18,7 @@ export const TYPE_TO_LEVEL: Record<string, Level> = {
   l4: 'medium',
   l5: 'hard',
   l6: 'hard',
-  center: 'hard',
+  center: 'center',
   c34: 'toll',
   c45: 'toll',
 }
@@ -29,6 +29,7 @@ export const LEVEL_CAPACITY: Record<Level, 1 | 2 | 3> = {
   easy: 1,
   medium: 2,
   hard: 3,
+  center: 3,
   toll: 1,
 }
 
@@ -37,6 +38,7 @@ export const LEVEL_LABEL: Record<Level, string> = {
   easy: 'آسان',
   medium: 'متوسط',
   hard: 'سخت',
+  center: 'مرکز شهر',
   toll: 'عوارضی',
 }
 

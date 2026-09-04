@@ -513,21 +513,26 @@ class SubmissionDetailView(generics.RetrieveAPIView):
 @extend_schema(
     tags=["game"],
     summary="Grade a submission",
-    description="Score 0–100. Pays points; grade 0 releases the holding.",
+    description=(
+        "Score 0–`max_grade` of the assigned question. Pays "
+        "`grade / max_grade` of the floor reward; anything below `max_grade` "
+        "keeps the money and releases the holding."
+    ),
     parameters=[_SUBMISSION_PK],
     request=GradeSubmissionSerializer,
     responses=GradeResultSerializer,
     examples=[
-        OpenApiExample("request", value={"grade": 50}, request_only=True),
+        OpenApiExample("request", value={"grade": 5}, request_only=True),
         OpenApiExample(
             "scored",
             value={
                 "occupancy_id": 1,
-                "grade": 50,
+                "grade": 5,
                 "grade_multiplier": "0.500",
-                "points": 50,
-                "released_at": None,
-                "release_reason": "",
+                "points": 0,
+                "awarded": 50,
+                "released_at": "2026-01-01T12:00:00Z",
+                "release_reason": "partial_grade",
             },
             response_only=True,
         ),
@@ -557,6 +562,7 @@ class SubmissionGradeView(APIView):
                 "grade": occupancy.grade,
                 "grade_multiplier": occupancy.grade_multiplier,
                 "points": occupancy.points,
+                "awarded": getattr(occupancy, "awarded", 0),
                 "released_at": occupancy.released_at,
                 "release_reason": occupancy.release_reason,
             }
@@ -711,7 +717,11 @@ class AssignQuestionView(APIView):
 @extend_schema(
     tags=["game"],
     summary="Grade the attempt",
-    description="Score 0–100. Places the team on a floor and pays points.",
+    description=(
+        "Score 0–`max_grade` of the assigned question (0–100 when the holding has none). "
+        "Places the team on a floor and pays `grade / max_grade` of the floor reward; "
+        "anything below `max_grade` keeps the money and releases the holding."
+    ),
     parameters=_HOLDING_PARAMS,
     request=GradeSerializer,
     responses=HoldingSerializer,

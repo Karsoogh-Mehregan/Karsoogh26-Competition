@@ -1,6 +1,7 @@
 """Question assignment, submission, and mentor grading API tests."""
 
 from datetime import timedelta
+from decimal import Decimal
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -12,7 +13,7 @@ from rest_framework.test import APIClient
 
 from game.exceptions import NoQuestionAvailable
 from game.models import AnswerType, GameSettings, GameStatus, LevelConfig, Node, Occupancy, Question
-from game.services import assign_question, grade_submission, submit_answer
+from game.services import assign_question, grade_attempt, grade_submission, submit_answer
 from teams.models import Team
 
 pytestmark = pytest.mark.django_db
@@ -204,7 +205,7 @@ class TestMentorGradingAPI:
     def test_pending_queue_and_grade(self, node, teams, questions, running_game):
         user = make_user(teams[0], "player")
         mentor = make_user(None, "mentor", staff=True)
-        occ = occupy(node, teams[0], floor=1)
+        occ = occupy(node, teams[0])
         assign_question(occ)
         occ.refresh_from_db()
         submission = submit_answer(occ, user, body="42")
@@ -221,12 +222,142 @@ class TestMentorGradingAPI:
         assert any(row["id"] == submission.pk for row in listing.data)
         assert detail.status_code == 200
         assert detail.data["question"]["answer_key"] == occ.question.answer_key
+        assert detail.data["question"]["max_grade"] == 100
         assert grade.status_code == 200
-        assert grade.data["points"] == 50
+        # 50 of 100 on the easy floor-1 reward of 100, then the slot goes back.
+        assert grade.data["awarded"] == 50
+        assert grade.data["points"] == 0
+        assert grade.data["release_reason"] == "partial_grade"
 
         occ.refresh_from_db()
         assert occ.grade == 50
-        assert occ.points == 50
+        assert occ.floor is None
+        assert occ.released_at is not None
+        assert Team.objects.get(pk=teams[0].pk).balance == 50
+
+    def test_full_marks_keep_the_floor(self, node, teams, questions, running_game):
+        user = make_user(teams[0], "player")
+        occ = occupy(node, teams[0])
+        assign_question(occ)
+        occ.refresh_from_db()
+        submission = submit_answer(occ, user, body="42")
+
+        grade_submission(submission, occ.question.max_grade)
+
+        occ.refresh_from_db()
+        assert occ.floor == 1
+        assert occ.released_at is None
+        assert Team.objects.get(pk=teams[0].pk).balance == 100
+
+    def test_partial_marks_pay_the_ratio_of_the_floor(self, node, teams, questions, running_game):
+        """5 of a max_grade of 10 is half the easy floor-1 reward of 100."""
+        Question.objects.filter(pk__in=[q.pk for q in questions]).update(max_grade=10)
+        user = make_user(teams[0], "player")
+        occ = occupy(node, teams[0])
+        assign_question(occ)
+        occ.refresh_from_db()
+        submission = submit_answer(occ, user, body="42")
+
+        occ = grade_submission(submission, 5)
+
+        assert occ.grade_multiplier == Decimal("0.500")
+        assert occ.awarded == 50
+        assert occ.release_reason == "partial_grade"
+        assert Team.objects.get(pk=teams[0].pk).balance == 50
+
+    def test_partial_marks_leave_the_tower_alone(self, hard, teams, running_game):
+        """A grade short of full marks pays but must not shuffle the floors above it.
+
+        Ranking it would push the floor-1 holder up to floor 2 and then leave
+        floor 1 empty when the partial holding is released.
+        """
+        hard_node = Node.objects.create(code="h3", name="Hard 3", level=hard)
+        hard_question = Question.objects.create(
+            level=hard,
+            code="hq3",
+            title="Hard Q",
+            body="Hard body",
+            answer_type=AnswerType.TEXT,
+            answer_key="key",
+            is_active=True,
+        )
+        assigned = timezone.now()
+        winner = occupy(
+            hard_node,
+            teams[0],
+            slot=1,
+            floor=1,
+            grade=100,
+            grade_multiplier=Decimal("1.000"),
+            question_assigned_at=assigned,
+        )
+        partial = occupy(
+            hard_node,
+            teams[1],
+            slot=2,
+            question=hard_question,
+            question_assigned_at=assigned + timedelta(seconds=1),
+        )
+
+        partial = grade_attempt(partial, 90)
+
+        winner.refresh_from_db()
+        assert winner.floor == 1
+        assert Team.objects.get(pk=teams[0].pk).balance == 0
+        assert partial.floor is None
+        assert partial.release_reason == "partial_grade"
+        # The floor it would have taken is 2, worth 450 at 0.9 of the ratio.
+        assert partial.awarded == 405
+        assert Team.objects.get(pk=teams[1].pk).balance == 405
+
+    def test_grade_above_the_question_scale_is_refused(self, node, teams, questions, running_game):
+        Question.objects.filter(pk__in=[q.pk for q in questions]).update(max_grade=10)
+        user = make_user(teams[0], "player")
+        mentor = make_user(None, "mentor", staff=True)
+        occ = occupy(node, teams[0])
+        assign_question(occ)
+        submission = submit_answer(Occupancy.objects.get(pk=occ.pk), user, body="42")
+
+        client = APIClient()
+        client.force_authenticate(user=mentor)
+        response = client.post(
+            f"/api/submissions/{submission.pk}/grade/", {"grade": 11}, format="json"
+        )
+
+        assert response.status_code == 422
+        assert Occupancy.objects.get(pk=occ.pk).grade is None
+
+    def test_the_better_ratio_takes_the_higher_floor(self, hard, teams, running_game):
+        """Raw grades across two scales are incomparable; the ratio is what ranks.
+
+        8 of 10 outranks 50 of 100 even though 8 < 50. The two are seeded as
+        already-graded rows and a third grade triggers the re-rank, because the
+        release rule would otherwise retire both before they ever share a tower.
+        """
+        hard_node = Node.objects.create(code="h2", name="Hard 2", level=hard)
+        assigned = timezone.now()
+        for slot, (team, grade, ratio) in enumerate(
+            ((teams[0], 8, "0.800"), (teams[1], 50, "0.500")), start=1
+        ):
+            occupy(
+                hard_node,
+                team,
+                slot=slot,
+                grade=grade,
+                grade_multiplier=Decimal(ratio),
+                question_assigned_at=assigned + timedelta(seconds=slot),
+            )
+        trigger = occupy(
+            hard_node, teams[2], slot=3, question_assigned_at=assigned + timedelta(seconds=3)
+        )
+
+        grade_attempt(trigger, 0)
+
+        floors = {
+            occ.team.code: occ.floor
+            for occ in Occupancy.objects.filter(node=hard_node).select_related("team")
+        }
+        assert floors == {teams[0].code: 2, teams[1].code: 1, teams[2].code: None}
 
     def test_grade_zero_releases_occupancy(self, hard, teams, questions, running_game):
         hard_node = Node.objects.create(code="h1", name="Hard 1", level=hard)

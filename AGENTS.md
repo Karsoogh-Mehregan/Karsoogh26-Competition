@@ -81,7 +81,9 @@ frontend-only; the backend takes just the topology, via
 `uv run manage.py import_graph` (`game/management/commands/import_graph.py`), so `game.Node.code`
 holds the same ids the SPA uses (`L1_0`, `CENTER`, …). Re-running upserts and never deletes,
 so `Occupancy`'s `PROTECT` FK is safe mid-game. `TYPE_TO_LEVEL` in that command maps the 11
-frontend `type` values onto the four playable levels plus `toll`; the `c34`/`c45` connectors are
+frontend `type` values onto the five playable levels plus `toll` — `center` is its own tier,
+one node (`CENTER`), priced like `hard` until an organiser tunes it, and its question pool
+starts empty; the `c34`/`c45` connectors are
 imported as `toll` nodes with no `FloorReward` rows, which is what keeps them out of floors,
 networth, duels and buyouts. They are **gates**, not buildings — see **Toll gates** below. The Vite dev server proxies `/api` to `:8000` so
 session cookies stay same-origin. The side panel lists teams from the API; the map
@@ -272,7 +274,10 @@ shadcn-vue is in use in the team picker.
 **A move is one call.** `POST teams/<code>/nodes/<code>/assign-question/` reserves the node
 *and* starts the attempt clock (`services.claim_node`): there is no separate "enter" endpoint,
 because reserving without a question is not a game state. Reserving is not owning — the floor
-is captured at grading. The target must be reachable from a holding that *expands* — a spawn,
+is captured at grading, and **kept only on full marks**: `grade_attempt` pays the proportional
+score and then releases anything under the question's `max_grade` (`zero_grade` at 0,
+`partial_grade` otherwise), so the team keeps the money and gives the seat back. Money is never
+clawed back. The target must be reachable from a holding that *expands* — a spawn,
 or a node the team has already been graded on. An ungraded reservation is a dead end until it
 is graded, and released rows never extend reach; reach follows `Edge.directed` one-way where
 set. A team with no active holdings may only take the start node matching its `Team.color`.
@@ -335,9 +340,15 @@ columns; `duel_cost` is a property over a **nullable column** — the doc prices
 hand-written table no single factor reproduces (easy floor 1 is 4.00x its points, hard floor 3
 is 3.52x), so `duel_cost_override` carries the number when an organiser has set one and
 `level.duel_factor` only supplies the default for a floor nobody has priced. `game/0024` writes
-the doc's table into rows that have no override, so re-running never clobbers admin tuning. `GradeMultiplier.factor_for()` raises unless a `grade=0` row is
-seeded; `game/migrations/0002_seed_economy.py` does that. The two ruff ignores in
-`pyproject.toml` are deliberate and documented — do not "fix" them.
+the doc's table into rows that have no override, so re-running never clobbers admin tuning;
+`center` arrived after it (`0026`) and is deliberately left unpriced, so it is the one tier
+still costing `duel_factor` x points. `GradeMultiplier` is **no longer read by the grading
+path** — its step curve paid a 99 and a 50 the same 0.5. The payout is now proportional:
+`Occupancy.grade_multiplier` is `grade / Question.max_grade` (`services.mentor.grade_ratio`),
+capped at 100 so a grade still fits `occ_grade_range`, falling back to a scale of 100 for a
+holding that carries no question row. The model and its seed stay put; nothing calls
+`factor_for()`. The two ruff ignores in `pyproject.toml` are deliberate and documented — do
+not "fix" them.
 
 **Frontend.** `useGraph()` is a module-level singleton, so all callers share one reactive
 `path` ref. Adjacency is built direction-agnostically, so the 102 `directed` edges draw

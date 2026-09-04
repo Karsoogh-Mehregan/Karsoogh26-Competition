@@ -48,7 +48,7 @@ def test_imports_nodes_at_their_mapped_level(graph_file):
         "L1_1": "easy",
         "L3_0": "medium",
         "C34_0": "toll",
-        "CENTER": "hard",
+        "CENTER": "center",
     }
 
 

@@ -172,7 +172,7 @@ class GameSettingsAdmin(admin.ModelAdmin):
 
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
-    list_display = ("code", "title", "level", "answer_type", "is_active", "created_at")
+    list_display = ("code", "title", "level", "answer_type", "max_grade", "is_active", "created_at")
     list_filter = ("level", "answer_type", "is_active")
     search_fields = ("code", "title")
     list_select_related = ("level",)
@@ -187,6 +187,7 @@ class QuestionAdmin(admin.ModelAdmin):
                     "body",
                     "attachment",
                     "answer_type",
+                    "max_grade",
                     "is_active",
                 )
             },

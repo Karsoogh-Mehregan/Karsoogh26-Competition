@@ -35,6 +35,7 @@ const actionError = ref('')
 
 const detail = computed(() => detailQuery.data.value ?? null)
 const alreadyGraded = computed(() => detail.value?.grade != null)
+const maxGrade = computed(() => detail.value?.question.max_grade ?? 100)
 
 watch(
   () => [props.submissionId, detail.value?.grade] as const,
@@ -97,8 +98,8 @@ async function submitGrade() {
   actionError.value = ''
   const raw = toAsciiDigits(gradeInput.value).trim()
   const parsed = Number(raw)
-  if (raw === '' || !Number.isInteger(parsed) || parsed < 0 || parsed > 100) {
-    actionError.value = 'نمره باید عدد صحیح بین ۰ و ۱۰۰ باشد.'
+  if (raw === '' || !Number.isInteger(parsed) || parsed < 0 || parsed > maxGrade.value) {
+    actionError.value = `نمره باید عدد صحیح بین ۰ و ${maxGrade.value} باشد.`
     toast.error(actionError.value)
     return
   }
@@ -194,13 +195,13 @@ async function submitGrade() {
 
           <form class="flex flex-col gap-3" @submit.prevent="submitGrade" @click.stop>
             <div class="flex flex-col gap-1.5">
-              <Label for="grade-input">نمره (۰ تا ۱۰۰)</Label>
+              <Label for="grade-input">نمره (۰ تا {{ maxGrade }})</Label>
               <Input
                 id="grade-input"
                 v-model="gradeInput"
                 type="number"
                 min="0"
-                max="100"
+                :max="maxGrade"
                 step="1"
                 :disabled="alreadyGraded || saving"
               />

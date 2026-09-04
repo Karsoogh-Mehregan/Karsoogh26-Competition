@@ -137,12 +137,11 @@ async function onSubmit() {
       />
     </span>
 
-    <CardHeader class="gap-2 pt-12">
-      <CardTitle class="text-base font-bold leading-7">{{ question.title }}</CardTitle>
-      <div class="flex flex-wrap items-center gap-2 text-sm">
-        <span class="text-muted-foreground">{{ attempt.node_name }}</span>
-        <Badge variant="outline" class="font-normal">{{ attempt.level }}</Badge>
-      </div>
+    <CardHeader class="flex flex-row items-baseline justify-between gap-3 pt-12">
+      <CardTitle class="min-w-0 text-base font-bold leading-7">{{ question.title }}</CardTitle>
+      <span class="text-muted-foreground shrink-0 text-sm font-medium" dir="ltr">
+        {{ attempt.node_code }}
+      </span>
     </CardHeader>
 
     <CardContent class="flex flex-col gap-4">
@@ -150,7 +149,7 @@ async function onSubmit() {
         {{ question.body }}
       </p>
 
-      <div v-if="question.attachment_url" class="flex flex-col gap-1.5">
+      <div v-if="canAnswer && question.attachment_url" class="flex flex-col gap-1.5">
         <p class="text-sm font-medium">فایل‌های مربوطه</p>
         <a
           :href="question.attachment_url"
@@ -159,7 +158,7 @@ async function onSubmit() {
           class="text-primary inline-flex items-center gap-1.5 text-sm underline-offset-4 hover:underline"
         >
           <PaperclipIcon class="size-4 shrink-0" />
-          {{ question.attachment_url }}
+          لینک فایل
         </a>
       </div>
 
@@ -174,7 +173,8 @@ async function onSubmit() {
         v-else-if="attempt.status === 'graded'"
         class="text-muted-foreground text-sm"
       >
-        نمره {{ attempt.grade }} ثبت شد.
+        نمره {{ attempt.grade }}<template v-if="question"> از {{ question.max_grade }}</template> ثبت
+        شد.
       </p>
 
       <p

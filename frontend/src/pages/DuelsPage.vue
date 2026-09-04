@@ -34,6 +34,9 @@ import { useActing } from '@/composables/useActing'
 import { useDuels } from '@/composables/useDuels'
 import { useMapDesign } from '@/composables/useMapDesign'
 import { formatBalance, formatRelativeTime } from '@/lib/format'
+// The shared table, not a local copy: it gained `center` when the centre-city
+// tier landed, and a duel page with its own map would have shown the raw key.
+import { LEVEL_LABEL } from '@/lib/mapLevels'
 import type { Duel, DuelTarget, DuelTeam } from '@/types/api'
 
 const { actingTeam } = useActing()
@@ -57,12 +60,6 @@ const {
 
 const { metaByCode } = useMapDesign()
 
-const LEVEL_LABEL: Record<string, string> = {
-  easy: 'آسان',
-  medium: 'متوسط',
-  hard: 'سخت',
-}
-
 /**
  * Where a building sits, not just what it is called.
  *
@@ -73,7 +70,7 @@ const LEVEL_LABEL: Record<string, string> = {
  */
 function categoryOf(nodeCode: string, name?: string): string {
   const meta = metaByCode(nodeCode)
-  const parts = [LEVEL_LABEL[meta?.level ?? ''] ?? meta?.level, meta?.neighborhoodName]
+  const parts = [meta ? LEVEL_LABEL[meta.level] : null, meta?.neighborhoodName]
   // Unnamed nodes already show their code as the title; repeating it reads as a
   // stutter — «L2_16 · آسان · محلهٔ آبی · L2_16».
   if (name && name !== nodeCode) parts.push(nodeCode)

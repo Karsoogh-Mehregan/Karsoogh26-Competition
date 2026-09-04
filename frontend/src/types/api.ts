@@ -66,6 +66,7 @@ export interface QuestionForTeam {
   title: string
   body: string
   answer_type: AnswerType
+  max_grade: number
   attachment_url: string | null
   expires_at: string | null
   remaining_seconds: number
@@ -118,6 +119,7 @@ export interface SubmissionRow {
   question_id: number
   question_code: string
   question_title: string
+  max_grade: number
   graded: boolean
 }
 
@@ -127,6 +129,7 @@ export interface SubmissionQuestion {
   body: string
   answer_type: AnswerType
   answer_key: string | null
+  max_grade: number
   attachment_url: string | null
 }
 
@@ -152,6 +155,7 @@ export interface GradeResult {
   grade: number | null
   grade_multiplier: string | null
   points: number
+  awarded: number
   released_at: string | null
   release_reason: string
 }
@@ -630,7 +634,7 @@ export type NeighborhoodTheme =
 
 export type RoadStyle = 'straight' | 'curved' | 'dashed'
 
-export type NodeLevel = 'spawn' | 'easy' | 'medium' | 'hard' | 'toll'
+export type NodeLevel = 'spawn' | 'easy' | 'medium' | 'hard' | 'center' | 'toll'
 
 export type ItemType = 'fake_document' | 'gel' | 'gilari_100'
 

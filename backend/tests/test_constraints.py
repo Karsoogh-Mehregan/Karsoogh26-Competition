@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from game.models import (
     AcquisitionSource,
+    AnswerType,
     Edge,
     FloorReward,
     GameSettings,
@@ -19,6 +20,7 @@ from game.models import (
     LevelConfig,
     Node,
     Occupancy,
+    Question,
     _round_half_up,
 )
 from teams.models import Team
@@ -110,6 +112,22 @@ class TestOccupancyIntegrity:
             occupy(node, teams[0], grade=50, question_assigned_at=timezone.now())
 
 
+class TestQuestionScale:
+    """max_grade is capped at 100 so a grade on it still fits occ_grade_range."""
+
+    @pytest.mark.parametrize("max_grade", [0, 101])
+    def test_out_of_range_max_grade_rejected(self, easy, max_grade):
+        with pytest.raises(IntegrityError), transaction.atomic():
+            Question.objects.create(
+                level=easy,
+                code=f"q{max_grade}",
+                title="Q",
+                body="B",
+                answer_type=AnswerType.TEXT,
+                max_grade=max_grade,
+            )
+
+
 class TestTeam:
     def test_negative_balance_rejected(self):
         with pytest.raises(IntegrityError), transaction.atomic():
@@ -158,6 +176,11 @@ class TestEconomy:
             ("medium", 2, 250, 125, 900, 1000),
             ("hard", 1, 400, 270, 1440, 1600),
             ("hard", 3, 500, 300, 1760, 2000),
+            # `center` arrived after that table (game/0026) and is deliberately
+            # left unpriced, so it is the one tier still falling back to
+            # level.duel_factor * points — 1.50 x 400 and 1.50 x 500.
+            ("center", 1, 400, 270, 600, 1600),
+            ("center", 3, 500, 300, 750, 2000),
         ],
     )
     def test_seeded_costs(self, level, floor, points, networth, duel, buyout):
@@ -168,6 +191,13 @@ class TestEconomy:
             duel,
             buyout,
         )
+
+    def test_center_is_its_own_tier_priced_like_hard(self):
+        """Split off so the centre can be tuned alone; it starts on hard's numbers."""
+        center = LevelConfig.objects.get(level="center")
+        hard = LevelConfig.objects.get(level="hard")
+        assert (center.capacity, center.entry_cost) == (hard.capacity, hard.entry_cost)
+        assert center.floor_rewards.count() == hard.floor_rewards.count()
 
     def test_rounding_is_half_up_not_bankers(self):
         """round() would send 262.5 down and 187.5 up — inconsistent in a currency."""

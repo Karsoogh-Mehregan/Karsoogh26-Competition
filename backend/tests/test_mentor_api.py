@@ -1,8 +1,10 @@
 """Mentor endpoints: authorization, state guards, and the tower/payout rule.
 
-The economy numbers here are not free-standing: they fall out of the seeded curve
-(GRADE_CURVE floors 90 and 70 to the 0.500 breakpoint, 100 to 1.000) and the seeded
-rewards (hard = 400/450/500), the same table pinned by TestEconomy.
+The economy numbers here are not free-standing: a grade pays `grade / max_grade` of
+the floor reward, and these holdings carry no question row, so they fall back to a
+max_grade of 100 against the seeded rewards (hard = 400/450/500) pinned by TestEconomy.
+No question also means the release-unless-perfect rule cannot fire, so the tower here
+stacks exactly as it always did.
 """
 
 from datetime import timedelta
@@ -239,24 +241,23 @@ class TestGrade:
     ):
         """The worked example: the tower fills from floor 1, best grade on top.
 
-        Every seeded grade here floors to the 0.500 multiplier except 100, which is
-        1.000 — so bravo's 90 on floor 1 is worth 200, not 400.
+        The payout is proportional, so bravo's 90 on floor 1 is worth 400*0.9 = 360.
         """
         client_mentor.post(action_url("grade", "bravo"), {"grade": 90}, format="json")
         assert floors(hard_node) == {"alpha": None, "bravo": 1, "charlie": None}
-        assert balances() == {"alpha": 0, "bravo": 200, "charlie": 0}
+        assert balances() == {"alpha": 0, "bravo": 360, "charlie": 0}
 
         # A weaker grade slides in underneath, pushing bravo up a floor and paying the
-        # difference: 450*0.5 - 400*0.5 = 25.
+        # difference: 450*0.9 - 400*0.9 = 45.
         client_mentor.post(action_url("grade", "alpha"), {"grade": 70}, format="json")
         assert floors(hard_node) == {"alpha": 1, "bravo": 2, "charlie": None}
-        assert balances() == {"alpha": 200, "bravo": 225, "charlie": 0}
+        assert balances() == {"alpha": 280, "bravo": 405, "charlie": 0}
 
         # The best grade takes the new top floor; nobody below it moves or is charged.
         response = client_mentor.post(action_url("grade", "charlie"), {"grade": 100}, format="json")
         assert response.status_code == 200
         assert floors(hard_node) == {"alpha": 1, "bravo": 2, "charlie": 3}
-        assert balances() == {"alpha": 200, "bravo": 225, "charlie": 500}
+        assert balances() == {"alpha": 280, "bravo": 405, "charlie": 500}
         assert response.data["points"] == 500
         assert response.data["team"]["balance"] == 500
 
@@ -266,7 +267,7 @@ class TestGrade:
             client_mentor.post(action_url("grade", code), {"grade": grade}, format="json")
 
         assert floors(hard_node) == {"alpha": 1, "bravo": 2, "charlie": 3}
-        assert balances() == {"alpha": 200, "bravo": 225, "charlie": 500}
+        assert balances() == {"alpha": 280, "bravo": 405, "charlie": 500}
 
     def test_zero_grade_claims_no_floor(self, client_mentor, running_game, hard_node, holdings):
         response = client_mentor.post(action_url("grade", "alpha"), {"grade": 0}, format="json")
