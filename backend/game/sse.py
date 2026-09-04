@@ -6,7 +6,9 @@ import re
 from typing import NamedTuple
 
 import redis
+from asgiref.sync import sync_to_async
 from django.conf import settings
+from django.db import connections
 from django.http import HttpResponse, StreamingHttpResponse
 from redis.asyncio import Redis
 
@@ -285,6 +287,8 @@ async def board_stream(request):
     except BaseException:
         hub.unsubscribe(queue)
         raise
+
+    await sync_to_async(connections.close_all)()
 
     return StreamingHttpResponse(
         _stream(
