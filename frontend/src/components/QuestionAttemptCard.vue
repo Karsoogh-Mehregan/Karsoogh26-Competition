@@ -137,9 +137,11 @@ async function onSubmit() {
       />
     </span>
 
-    <CardHeader class="gap-2 pt-12">
-      <CardTitle class="text-base font-bold leading-7">{{ question.title }}</CardTitle>
-      <p class="text-muted-foreground text-sm">{{ attempt.node_name }}</p>
+    <CardHeader class="flex flex-row items-baseline justify-between gap-3 pt-12">
+      <CardTitle class="min-w-0 text-base font-bold leading-7">{{ question.title }}</CardTitle>
+      <span class="text-muted-foreground shrink-0 text-sm font-medium" dir="ltr">
+        {{ attempt.node_code }}
+      </span>
     </CardHeader>
 
     <CardContent class="flex flex-col gap-4">
