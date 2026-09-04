@@ -11,6 +11,7 @@ import logging
 from django.db import transaction
 
 from game.models import EntryAttempt, GameSettings, GameStatus, Occupancy
+from notifications.models import Message, MessageStatus
 from teams.models import BalanceEvent, Team
 
 logger = logging.getLogger("karsoogh")
@@ -40,6 +41,11 @@ def restart_game(*, by=None) -> dict:
     # credits and charges would still show in the team panel.
     balance_events, _ = BalanceEvent.objects.all().delete()
 
+    # Sent mail is of this run; drafts are the announcer's unfinished work and
+    # survive. Notifications cascade off Message, so inboxes empty with the
+    # sent rows.
+    _total_mail, deleted_mail = Message.objects.filter(status=MessageStatus.SENT).delete()
+
     teams = Team.objects.update(
         balance=settings_row.initial_balance,
         color=None,
@@ -63,6 +69,7 @@ def restart_game(*, by=None) -> dict:
         "submissions": deleted.get("game.Submission", 0),
         "entry_attempts": entry_attempts,
         "balance_events": balance_events,
+        "sent_messages": deleted_mail.get("notifications.Message", 0),
         "teams": teams,
     }
     logger.warning("Game restarted by %s: %s", getattr(by, "username", "unknown"), summary)

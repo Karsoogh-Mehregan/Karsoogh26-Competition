@@ -861,7 +861,8 @@ class GameSettingsView(APIView):
         "Game god only, and only with `confirm: true` in the body. Deletes every "
         "occupancy — and the submissions and served-question records that hang off "
         "them — refunds every team to the starting balance, drops claimed colours and "
-        "draft order, wipes the balance-event log, and puts the status back to "
+        "draft order, wipes the balance-event log, deletes sent announcements "
+        "(drafts stay), and puts the status back to "
         "not_started. The map, the question bank and the economy tables are untouched, so "
         "the next run starts on the same board. `duration_minutes` is deliberately kept."
     ),
@@ -876,6 +877,7 @@ class GameSettingsView(APIView):
                 "submissions": 21,
                 "entry_attempts": 12,
                 "balance_events": 40,
+                "sent_messages": 9,
                 "teams": 8,
             },
             response_only=True,
