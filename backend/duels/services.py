@@ -72,10 +72,9 @@ _UNDUELLABLE_LEVELS = frozenset({Level.SPAWN, Level.TOLL})
 
 def duel_cost(occupancy: Occupancy) -> int:
     """What challenging this seat costs, from the floor's own price row."""
-    reward = FloorReward.objects.select_related("level").get(
+    return FloorReward.objects.get(
         level_id=occupancy.node.level_id, floor=occupancy.floor
-    )
-    return reward.duel_cost
+    ).duel_cost
 
 
 # ---- eligibility -----------------------------------------------------------
@@ -202,8 +201,7 @@ def _busy_team_ids() -> set[int]:
 def _price_table() -> dict[tuple[str, int], int]:
     """Every floor's duel price in one query, keyed by (level, floor)."""
     return {
-        (reward.level_id, reward.floor): reward.duel_cost
-        for reward in FloorReward.objects.select_related("level")
+        (reward.level_id, reward.floor): reward.duel_cost for reward in FloorReward.objects.all()
     }
 
 

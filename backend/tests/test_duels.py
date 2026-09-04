@@ -192,15 +192,14 @@ class TestEligibility:
 
 
 class TestPricing:
-    def test_the_price_comes_from_the_docs_table_not_the_factor(self, board, full_house):
+    def test_the_price_is_the_floors_own_column(self, board, full_house):
         """easy 400, medium 720/900, hard 1440/1600/1760 — no single factor fits."""
         assert duel_cost(full_house[1]) == HARD_FLOOR_2_COST
 
-    def test_an_override_cleared_in_admin_falls_back_to_the_level_factor(self, board, full_house):
+    def test_retuning_the_column_reprices_the_duel(self, board, full_house):
         from game.models import FloorReward
 
-        FloorReward.objects.filter(level_id="hard", floor=2).update(duel_cost_override=None)
-        # hard duel_factor is 1.50 and floor 2 is worth 450.
+        FloorReward.objects.filter(level_id="hard", floor=2).update(duel_cost=675)
         assert duel_cost(full_house[1]) == 675
 
 

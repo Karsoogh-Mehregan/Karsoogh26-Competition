@@ -381,14 +381,16 @@ rather than restating the rows. Never rely on being the first transactional test
 session — that green flips the moment a test file lands ahead of yours alphabetically.
 
 **Money is Decimal-from-string, rounded half-up** (`_round_half_up`, since Python defaults
-to banker's rounding). `FloorReward.networth` and `buyout_cost` are derived properties, not
-columns; `duel_cost` is a property over a **nullable column** — the doc prices duels from a
-hand-written table no single factor reproduces (easy floor 1 is 4.00x its points, hard floor 3
-is 3.52x), so `duel_cost_override` carries the number when an organiser has set one and
-`level.duel_factor` only supplies the default for a floor nobody has priced. `game/0024` writes
-the doc's table into rows that have no override, so re-running never clobbers admin tuning;
-`center` arrived after it (`0026`) and is deliberately left unpriced, so it is the one tier
-still costing `duel_factor` x points. `GradeMultiplier` is **no longer read by the grading
+to banker's rounding). **Every price is a column on `FloorReward`** — `points`, `networth`,
+`duel_cost`, `buyout_cost` — and nothing derives one from a factor. `LevelConfig` therefore
+carries no `networth_base`/`networth_factor`/`duel_factor`/`buyout_factor`; it is capacity,
+entry cost and the attempt clock. The doc prices duels from a hand-written table no single
+factor reproduces (easy floor 1 is 4.00x its points, hard floor 3 is 3.52x), which is why the
+number itself is stored and organisers retune it in admin. `game/0031` froze what the old
+properties returned into the new columns, and `game/0032` states the whole table once against
+the current schema — it is the seed `conftest._reseed_after_flush` re-runs, because the earlier
+seeds (`0002`/`0007`/`0024`/`0026`) write columns that no longer exist. Add a floor? Give it
+all four numbers; there is no fallback. `GradeMultiplier` is **no longer read by the grading
 path** — its step curve paid a 99 and a 50 the same 0.5. The payout is now proportional:
 `Occupancy.grade_multiplier` is `grade / Question.max_grade` (`services.mentor.grade_ratio`),
 capped at 100 so a grade still fits `occ_grade_range`, falling back to a scale of 100 for a
