@@ -4,6 +4,7 @@ import { ApiError } from '@/lib/http'
 import { useLoginMutation, useLogoutMutation, useMeQuery } from '@/queries/auth'
 import { useAssignQuestionMutation } from '@/queries/game'
 import { useClaimStartMutation, useTeamsQuery } from '@/queries/teams'
+import { router } from '@/router'
 import { useActingStore } from '@/stores/acting'
 import { useAttemptStore } from '@/stores/attempt'
 import type { AssignQuestionResult, Team } from '@/types/api'
@@ -98,6 +99,7 @@ export function useActing() {
       store.setActingCode(null)
       useAttemptStore().select(null)
       useGraph().reset()
+      await router.replace({ name: 'map' })
     } catch (err) {
       actionError.value = messageOf(err)
     }
