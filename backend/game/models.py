@@ -473,13 +473,15 @@ class Question(models.Model):
     )
     code = models.SlugField(max_length=32, unique=True)
     title = models.CharField(max_length=200)
-    body = models.TextField(help_text="Markdown")
+    body = models.TextField(blank=True, help_text="Markdown")
     attachment = models.FileField(
         upload_to="questions/",
         blank=True,
         validators=[validate_upload_extension, validate_upload_size],
     )
-    answer_type = models.CharField(max_length=8, choices=AnswerType.choices)
+    answer_type = models.CharField(
+        max_length=8, choices=AnswerType.choices, default=AnswerType.FILE
+    )
     answer_key = models.TextField(
         blank=True,
         help_text="Mentor reference only — never exposed to teams.",
@@ -492,6 +494,11 @@ class Question(models.Model):
         indexes = [
             models.Index(fields=["level", "is_active"], name="question_level_active_idx"),
         ]
+
+    def clean(self):
+        super().clean()
+        if not self.title and self.code:
+            self.title = self.code
 
     def __str__(self):
         return self.title or self.code
