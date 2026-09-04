@@ -3,6 +3,13 @@ from django.db import models
 from django.db.models import CheckConstraint, Prefetch, Q, UniqueConstraint
 
 
+class BalanceReason(models.TextChoices):
+    INITIAL = "initial", "موجودی اولیه"
+    ENTRY = "entry", "رزرو خانه"
+    GRADE = "grade", "نمره خانه"
+    EVENT = "event", "رویداد"
+
+
 def active_holdings():
     from game.models import Occupancy
 
@@ -65,3 +72,48 @@ class Team(models.Model):
         if hasattr(self, "_holdings"):
             return self._holdings
         return active_holdings().filter(team=self)
+
+
+class ItemType(models.TextChoices):
+    FAKE_DOCUMENT = "fake_document", "سند جعلی"
+    GEL = "gel", "گل"
+    GILARI_100 = "gilari_100", "۱۰۰ گیلاری"
+
+
+class TeamItem(models.Model):
+    """One stack of a given item type in a team's inventory."""
+
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="items")
+    item_type = models.CharField(max_length=16, choices=ItemType.choices)
+    quantity = models.PositiveIntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["team", "item_type"]
+        constraints = [
+            UniqueConstraint(fields=["team", "item_type"], name="teamitem_one_per_type"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.team} {self.get_item_type_display()} ×{self.quantity}"
+
+
+class BalanceEvent(models.Model):
+    """One row per wallet change so the team panel can replay the score log."""
+
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="balance_events")
+    delta = models.IntegerField()
+    balance_after = models.PositiveIntegerField()
+    reason = models.CharField(max_length=16, choices=BalanceReason.choices)
+    detail = models.CharField(max_length=128, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        indexes = [
+            models.Index(fields=["team", "created_at"], name="balance_event_team_time"),
+        ]
+
+    def __str__(self) -> str:
+        sign = "+" if self.delta >= 0 else ""
+        return f"{self.team_id} {sign}{self.delta} ({self.reason})"

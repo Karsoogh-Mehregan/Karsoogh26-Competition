@@ -36,6 +36,7 @@ from game.exceptions import (
 from game.models import (
     GameSettings,
     GameStatus,
+    LevelConfig,
     Node,
     Occupancy,
     Question,
@@ -57,6 +58,7 @@ from game.serializers import (
     GradeSerializer,
     GradeSubmissionSerializer,
     HoldingSerializer,
+    LevelConfigSerializer,
     OccupancyQuestionResponseSerializer,
     QuestionForTeamSerializer,
     ReleaseSerializer,
@@ -95,6 +97,7 @@ _HOLDING_ASSIGNED = {
     "entered_at": "2026-08-30T09:55:00Z",
     "released_at": None,
     "release_reason": "",
+    "source": "attempt",
 }
 _HOLDING_GRADED = {
     **_HOLDING_ASSIGNED,
@@ -788,6 +791,16 @@ def _game_state_payload(settings_row: GameSettings) -> dict:
         ),
     ],
 )
+class LevelListView(APIView):
+    """Return all LevelConfig rows (level, entry_cost, capacity)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        rows = LevelConfig.objects.order_by("level")
+        return Response(LevelConfigSerializer(rows, many=True).data)
+
+
 class GameStateView(APIView):
     permission_classes = [IsAuthenticated]
     serializer_class = GameStateSerializer

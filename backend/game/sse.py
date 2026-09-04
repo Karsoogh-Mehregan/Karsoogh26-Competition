@@ -23,6 +23,10 @@ class Frame(NamedTuple):
     event: str
     payload: bytes
     mentor_only: bool
+    # Empty means "everyone"; otherwise only these user ids see the frame.
+    # Notifications ride the one shared stream, so addressing happens here on
+    # the way out rather than in a per-user stream key.
+    recipients: frozenset = frozenset()
 
 
 def _text(value) -> str:
@@ -36,6 +40,19 @@ def _encode(event_type: str, data: str, entry_id: str | None = None) -> bytes:
     return f"{head}event: {event_type}\ndata: {data}\n\n".encode()
 
 
+def _recipients(raw: str) -> frozenset:
+    """Parse the `u` routing field. Junk addresses nobody rather than everybody."""
+    if not raw:
+        return frozenset()
+    ids = set()
+    for part in raw.split(","):
+        try:
+            ids.add(int(part))
+        except ValueError:
+            continue
+    return frozenset(ids)
+
+
 def build_frame(entry_id, fields: dict) -> Frame:
     event_type = _text(fields.get(b"t") or fields.get("t")) or events.RESYNC
     data = _text(fields.get(b"d") or fields.get("d")) or "{}"
@@ -45,6 +62,7 @@ def build_frame(entry_id, fields: dict) -> Frame:
         event=event_type,
         payload=_encode(event_type, data, stream_id),
         mentor_only=event_type in events.MENTOR_ONLY,
+        recipients=_recipients(_text(fields.get(b"u") or fields.get("u"))),
     )
 
 
@@ -178,7 +196,21 @@ class Hub:
 hub = Hub()
 
 
-async def _stream(queue: asyncio.Queue, *, is_mentor: bool, replayed: list[Frame]):
+def _visible_to(frame: Frame, *, is_mentor: bool, user_id: int | None) -> bool:
+    if frame.mentor_only and not is_mentor:
+        return False
+    # An addressed frame reaches only its recipients — a notification hint must
+    # not tell the whole hall that somebody got a message.
+    return not frame.recipients or user_id in frame.recipients
+
+
+async def _stream(
+    queue: asyncio.Queue,
+    *,
+    is_mentor: bool,
+    replayed: list[Frame],
+    user_id: int | None = None,
+):
     retry_ms = settings.SSE_RETRY_MS + random.randint(0, settings.SSE_RETRY_JITTER_MS)
     try:
         yield f"retry: {retry_ms}\n\n".encode()
@@ -186,7 +218,7 @@ async def _stream(queue: asyncio.Queue, *, is_mentor: bool, replayed: list[Frame
 
         high_water = None
         for frame in replayed:
-            if frame.mentor_only and not is_mentor:
+            if not _visible_to(frame, is_mentor=is_mentor, user_id=user_id):
                 continue
             high_water = frame.id or high_water
             yield frame.payload
@@ -197,7 +229,7 @@ async def _stream(queue: asyncio.Queue, *, is_mentor: bool, replayed: list[Frame
             except TimeoutError:
                 yield b": keepalive\n\n"
                 continue
-            if frame.mentor_only and not is_mentor:
+            if not _visible_to(frame, is_mentor=is_mentor, user_id=user_id):
                 continue
             if frame.id and high_water and _sort_key(frame.id) <= _sort_key(high_water):
                 continue
@@ -233,7 +265,7 @@ async def board_stream(request):
         raise
 
     return StreamingHttpResponse(
-        _stream(queue, is_mentor=is_mentor, replayed=replayed),
+        _stream(queue, is_mentor=is_mentor, replayed=replayed, user_id=user.pk),
         content_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",

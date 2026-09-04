@@ -129,6 +129,7 @@ class TestFirstMove:
         assert response.data["floor"] is None
         holding = Occupancy.objects.active().get(team=team)
         assert holding.is_spawn is True
+        assert holding.source == "attempt"
         assert holding.question_id is not None
 
     def test_a_team_with_no_holdings_cannot_start_elsewhere(

@@ -11,6 +11,7 @@ from django.contrib.auth.models import Group
 from django.test import Client
 
 from game.models import LevelConfig, MapDesign, Neighborhood, Node, Occupancy
+from minesweeper.models import MinesweeperDifficulty, MinesweeperSettings
 from teams.models import Team
 
 pytestmark = pytest.mark.django_db
@@ -83,8 +84,27 @@ def test_any_logged_in_user_can_read_the_design(player, nodes):
     assert body["tint_strength"] == 22
     assert len(body["neighborhoods"]) == 8
     by_code = {row["code"]: row for row in body["nodes"]}
-    assert by_code["L6_0"] == {"code": "L6_0", "level": "hard", "capacity": 3, "archetype": ""}
+    assert by_code["L6_0"] == {
+        "code": "L6_0",
+        "level": "hard",
+        "capacity": 3,
+        "archetype": "",
+        "minesweeper": False,
+    }
     assert by_code["L2_0"]["capacity"] == 1
+
+
+@pytest.mark.parametrize(
+    ("enabled", "expected"),
+    [(True, True), (False, False)],
+)
+def test_design_reports_where_minesweeper_is_playable(player, nodes, enabled, expected):
+    MinesweeperSettings.objects.create(
+        node=nodes["hard"], difficulty=MinesweeperDifficulty.EASY, enabled=enabled
+    )
+    by_code = {row["code"]: row for row in player.get(DESIGN_URL).json()["nodes"]}
+    assert by_code["L6_0"]["minesweeper"] is expected
+    assert by_code["L2_0"]["minesweeper"] is False
 
 
 def test_design_is_closed_to_anonymous_visitors(client):

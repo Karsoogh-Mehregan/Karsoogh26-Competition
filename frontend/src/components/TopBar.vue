@@ -2,6 +2,7 @@
 import { CheckIcon, PauseIcon, SettingsIcon } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import AdminDialog from '@/components/AdminDialog.vue'
+import NotificationBell from '@/components/NotificationBell.vue'
 import { Button } from '@/components/ui/button'
 import { useActing } from '@/composables/useActing'
 import { formatClock, useGameClock } from '@/composables/useGameClock'
@@ -88,6 +89,8 @@ function stepState(index: number): 'done' | 'current' | 'todo' {
         متوقف
       </span>
     </div>
+
+    <NotificationBell />
 
     <Button
       v-if="isGameGod"

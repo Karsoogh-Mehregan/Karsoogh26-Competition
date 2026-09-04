@@ -34,11 +34,14 @@ import { useEntry } from '@/composables/useEntry'
 import { useHouseSpec } from '@/composables/useHouseSpec'
 import { useMapDesign } from '@/composables/useMapDesign'
 import { formatBalance } from '@/lib/format'
+import { entryCostForLevel } from '@/lib/nodeLevels'
 import { ARCHETYPES } from '@/lib/house/archetypes'
 import type { FloorState } from '@/lib/house/spec'
 import { ApiError } from '@/lib/http'
 import { LEVEL_LABEL } from '@/lib/mapLevels'
 import { useUpdateNodeDesignMutation } from '@/queries/design'
+import { useLevelsQuery } from '@/queries/game'
+import { useEnterMinesweeperMutation } from '@/queries/minesweeper'
 import { useAttemptStore } from '@/stores/attempt'
 import { useInspectorStore } from '@/stores/inspector'
 import type { NodeLevel } from '@/types/api'
@@ -54,7 +57,9 @@ const { spec, inspection, holdings } = useHouseSpec()
 const { me, claimStart, assignQuestion } = useActing()
 const { open: openEntrySheet } = useEntry()
 const { pinOf } = useMapDesign()
+const { data: levelConfigs } = useLevelsQuery(() => !!me.value)
 const attemptStore = useAttemptStore()
+const enterMinesweeper = useEnterMinesweeperMutation()
 const router = useRouter()
 
 const collapsed = useLocalStorage('karsoogh.house-panel-collapsed', false)
@@ -78,11 +83,22 @@ const ACTION_LABEL: Record<string, string> = {
   claim_start: 'ورود به خانهٔ شروع',
   solve: 'رفتن به سؤال',
   entry_gate: 'پاسخ به سؤال‌های ورودی',
+  minesweeper: 'ورود به مین‌روب',
 }
+
+const reserveEntryCost = computed(() =>
+  entryCostForLevel(spec.value?.level, levelConfigs.value),
+)
 
 const actionLabel = computed(() => {
   const intent = inspection.value?.intent
-  return intent ? (ACTION_LABEL[intent] ?? '') : ''
+  if (!intent) return ''
+  if (intent === 'reserve') {
+    const cost = reserveEntryCost.value
+    if (cost == null) return ACTION_LABEL.reserve
+    return `${ACTION_LABEL.reserve} (${formatBalance(cost)})`
+  }
+  return ACTION_LABEL[intent] ?? ''
 })
 
 async function runAction() {
@@ -102,7 +118,14 @@ async function runAction() {
 
   busy.value = true
   try {
-    if (current.intent === 'claim_start') {
+    if (current.intent === 'minesweeper') {
+      const issued = await enterMinesweeper.mutateAsync(current.nodeCode)
+      await router.push({
+        name: 'minesweeper-node',
+        params: { id: current.nodeCode },
+        query: { entry: issued.entry },
+      })
+    } else if (current.intent === 'claim_start') {
       await claimStart(current.nodeCode)
       toast.success('خانهٔ شروع ثبت شد')
     } else if (current.intent === 'reserve') {
