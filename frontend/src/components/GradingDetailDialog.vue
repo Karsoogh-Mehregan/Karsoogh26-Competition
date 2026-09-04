@@ -115,10 +115,10 @@ async function submitGrade() {
 <template>
   <Dialog v-model:open="dialogOpen">
     <DialogContent
-      class="flex h-[92vh] max-h-[92vh] w-[min(96vw,72rem)] max-w-[min(96vw,72rem)] flex-col gap-4 overflow-hidden p-6 sm:max-w-[min(96vw,72rem)]"
+      class="flex h-[96vh] max-h-[96vh] w-[min(98vw,96rem)] max-w-[min(98vw,96rem)] flex-col gap-2 overflow-hidden p-4 sm:max-w-[min(98vw,96rem)]"
       dir="rtl"
     >
-      <DialogHeader class="shrink-0">
+      <DialogHeader class="shrink-0 space-y-1 pe-8">
         <DialogTitle>
           بررسی پاسخ {{ detail ? detail.id : submissionId }}
         </DialogTitle>
@@ -134,7 +134,7 @@ async function submitGrade() {
 
       <div v-if="loading" class="flex min-h-0 flex-1 flex-col gap-3 md:flex-row">
         <Skeleton class="min-h-0 w-full flex-1" />
-        <Skeleton class="h-40 w-full shrink-0 md:h-auto md:w-72" />
+        <Skeleton class="h-40 w-full shrink-0 md:h-auto md:w-64" />
       </div>
 
       <p v-else-if="loadError" class="text-destructive text-sm">
@@ -143,10 +143,10 @@ async function submitGrade() {
 
       <div
         v-else-if="detail"
-        class="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden md:flex-row"
+        class="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden md:flex-row"
       >
         <!-- In RTL, first column sits on the right: answer preview -->
-        <section class="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-hidden">
+        <section class="flex min-h-0 min-w-0 flex-1 flex-col gap-1.5 overflow-hidden">
           <div class="flex shrink-0 items-center justify-between gap-3">
             <h3 class="text-sm font-semibold">پاسخ تیم</h3>
             <a
@@ -160,10 +160,10 @@ async function submitGrade() {
               باز کردن فایل{{ detail.file_name ? ` (${detail.file_name})` : '' }}
             </a>
           </div>
-          <div class="min-h-0 flex-1 overflow-y-auto">
+          <div class="bg-muted/30 min-h-0 flex-1 overflow-y-auto rounded-md border">
             <p
               v-if="detail.body"
-              class="rounded-md border p-3 text-sm leading-7 whitespace-pre-wrap"
+              class="p-3 text-sm leading-7 whitespace-pre-wrap"
             >
               {{ detail.body }}
             </p>
@@ -171,20 +171,20 @@ async function submitGrade() {
               v-if="fileKind === 'image' && fileUrl"
               :src="fileUrl"
               :alt="detail.file_name ?? 'پاسخ تصویری'"
-              class="max-h-full w-full rounded-md border object-contain"
+              class="h-full max-h-full w-full object-contain"
             >
             <iframe
               v-else-if="fileKind === 'pdf' && fileUrl"
               :src="fileUrl"
               title="پیش‌نمایش PDF"
-              class="h-full min-h-[40vh] w-full rounded-md border bg-muted md:min-h-0"
+              class="h-full min-h-[50vh] w-full bg-muted md:min-h-full"
             />
           </div>
         </section>
 
         <!-- Left sidebar: question meta + grade -->
         <aside
-          class="border-border flex w-full shrink-0 flex-col gap-4 border-t pt-4 md:w-72 md:border-t-0 md:border-s md:ps-4 md:pt-0"
+          class="border-border flex w-full shrink-0 flex-col gap-4 border-t pt-3 md:w-64 md:border-t-0 md:border-s md:ps-3 md:pt-0"
         >
           <p class="text-muted-foreground text-sm">
             سؤال
