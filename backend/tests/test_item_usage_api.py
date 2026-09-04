@@ -6,6 +6,7 @@ from rest_framework.test import APIClient
 
 from game.models import (
     AcquisitionSource,
+    FloorReward,
     GameSettings,
     GameStatus,
     LevelConfig,
@@ -135,10 +136,15 @@ class TestGel:
         assert response.status_code == 200
         previous.refresh_from_db()
         assert previous.released_at is not None
-        holding = Occupancy.objects.active().get(node=node)
-        assert holding.team_id == alpha.pk
-        assert holding.source == AcquisitionSource.ITEM
-        assert holding.floor == 3
+        floors = list(
+            FloorReward.objects.filter(level_id=node.level_id)
+            .order_by("floor")
+            .values_list("floor", flat=True)
+        )
+        holdings = list(Occupancy.objects.active().filter(node=node).order_by("floor"))
+        assert [holding.floor for holding in holdings] == floors
+        assert {holding.team_id for holding in holdings} == {alpha.pk}
+        assert {holding.source for holding in holdings} == {AcquisitionSource.ITEM}
         assert not TeamItem.objects.filter(team=alpha, item_type=ItemType.GEL).exists()
 
 

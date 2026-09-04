@@ -111,16 +111,17 @@ def claim_node(team: Team, node: Node) -> Occupancy:
 
     release_expired_attempts()
 
-    holding = (
+    holdings = list(
         Occupancy.objects.active()
         .select_related("node__level", "team")
         .filter(team=team, node=node)
-        .first()
+        .order_by("pk")
     )
+    if any(row.source == AcquisitionSource.ITEM for row in holdings):
+        raise Conflict("این خانه از طریق آیتم در اختیار تیم است و سؤال نمی‌گیرد.")
+    holding = holdings[0] if holdings else None
     if holding is None:
         holding = _reserve(team, node)
-    elif holding.source == AcquisitionSource.ITEM:
-        raise Conflict("این خانه از طریق آیتم در اختیار تیم است و سؤال نمی‌گیرد.")
     elif holding.question_assigned_at is not None:
         raise Conflict("سؤال قبلاً به این تیم تخصیص داده شده است.")
 

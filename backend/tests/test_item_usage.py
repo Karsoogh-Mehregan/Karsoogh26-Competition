@@ -14,7 +14,14 @@ from game.models import (
     Occupancy,
     ReleaseReason,
 )
-from game.services import consume_item, is_reachable, use_fake_document, use_gel, use_gilari
+from game.services import (
+    claim_node,
+    consume_item,
+    is_reachable,
+    use_fake_document,
+    use_gel,
+    use_gilari,
+)
 from game.services.events import BOARD_NODE_CLAIMED, BOARD_RELEASED
 from game.services.mentor import Conflict
 from game.services.movement import _expandable_node_ids
@@ -53,6 +60,26 @@ def give(team, item_type, quantity=1) -> TeamItem:
 def occupy(node, team, **kwargs) -> Occupancy:
     kwargs.setdefault("slot", 1)
     return Occupancy.objects.create(node=node, team=team, **kwargs)
+
+
+def reward_floors(node) -> list[int]:
+    return list(
+        FloorReward.objects.filter(level_id=node.level_id)
+        .order_by("floor")
+        .values_list("floor", flat=True)
+    )
+
+
+def assert_gel_owns_every_reward(node, team, holdings=None) -> list[Occupancy]:
+    floors = reward_floors(node)
+    active = list(Occupancy.objects.active().filter(node=node).order_by("floor", "pk"))
+    if holdings is not None:
+        assert sorted(holding.floor for holding in holdings) == floors
+    assert [occupancy.floor for occupancy in active] == floors
+    assert {occupancy.team_id for occupancy in active} == {team.pk}
+    assert {occupancy.source for occupancy in active} == {AcquisitionSource.ITEM}
+    assert Occupancy.objects.active().exclude(team=team).filter(node=node).count() == 0
+    return active
 
 
 def test_consume_item_decrements_and_deletes_at_zero(team):
@@ -151,70 +178,109 @@ class TestFakeDocument:
 
 
 class TestGel:
-    def test_captures_an_empty_node_on_the_top_floor(self, running_game, hard, team):
+    @pytest.mark.parametrize("level_id", ["easy", "medium", "hard"])
+    def test_owns_every_floor_reward_on_an_empty_node(self, running_game, team, level_id):
+        level = LevelConfig.objects.get(level=level_id)
+        node = Node.objects.create(code=f"n-{level_id}", name=level_id, level=level)
+        give(team, ItemType.GEL, quantity=2)
+
+        holdings = use_gel(team, node)
+
+        assert_gel_owns_every_reward(node, team, holdings)
+        leftover = TeamItem.objects.get(team=team, item_type=ItemType.GEL)
+        assert leftover.quantity == 1
+
+    def test_does_not_invent_a_floor_missing_from_rewards(self, running_game, hard, team):
+        FloorReward.objects.filter(level_id=hard.level, floor=3).delete()
         node = Node.objects.create(code="h1", name="Hard 1", level=hard)
         give(team, ItemType.GEL)
-        top = FloorReward.objects.filter(level_id="hard").order_by("-floor").first().floor
 
-        holding = use_gel(team, node)
+        holdings = use_gel(team, node)
 
-        assert holding.source == AcquisitionSource.ITEM
-        assert holding.floor == top == 3
-        assert Occupancy.objects.active().filter(node=node).count() == 1
-        assert not TeamItem.objects.filter(team=team, item_type=ItemType.GEL).exists()
+        floors = reward_floors(node)
+        assert 3 not in floors
+        assert_gel_owns_every_reward(node, team, holdings)
+        assert Occupancy.objects.active().filter(node=node, floor=3).count() == 0
+
+    def test_picks_up_an_extra_floor_reward(self, running_game, easy, team):
+        FloorReward.objects.create(level_id=easy.level, floor=2, points=150)
+        node = Node.objects.create(code="e1", name="Easy 1", level=easy)
+        give(team, ItemType.GEL)
+
+        holdings = use_gel(team, node)
+
+        assert reward_floors(node) == [1, 2]
+        assert_gel_owns_every_reward(node, team, holdings)
 
     def test_clears_a_partly_occupied_node(self, running_game, hard, team):
         node = Node.objects.create(code="h1", name="Hard 1", level=hard)
         other = Team.objects.create(code="bravo", name="Bravo")
-        occupy(node, other, slot=1, floor=1)
+        occupy(node, other, slot=1, floor=1, source=AcquisitionSource.ITEM)
         previous = occupy(node, team, slot=2, floor=2)
         give(team, ItemType.GEL)
 
-        holding = use_gel(team, node)
+        holdings = use_gel(team, node)
 
-        assert Occupancy.objects.active().filter(node=node).count() == 1
-        assert holding.pk != previous.pk
+        assert_gel_owns_every_reward(node, team, holdings)
         previous.refresh_from_db()
         assert previous.released_at is not None
-        assert holding.team_id == team.pk
-        assert holding.floor == 3
-        assert Occupancy.objects.filter(node=node, released_at__isnull=False).count() == 2
-        assert set(
-            Occupancy.objects.filter(node=node, released_at__isnull=False).values_list(
-                "release_reason", flat=True
-            )
-        ) == {ReleaseReason.ITEM_TAKEOVER}
+        assert previous.release_reason == ReleaseReason.ITEM_TAKEOVER
+        assert previous.pk not in {holding.pk for holding in holdings}
 
     def test_clears_a_full_node(self, running_game, hard, team):
         node = Node.objects.create(code="h1", name="Hard 1", level=hard)
-        for slot, code in enumerate(("bravo", "charlie", "delta"), start=1):
+        previous = [
             occupy(
                 node,
                 Team.objects.create(code=code, name=code.title()),
                 slot=slot,
                 floor=slot,
+                source=AcquisitionSource.ATTEMPT,
             )
+            for slot, code in enumerate(("bravo", "charlie", "delta"), start=1)
+        ]
         give(team, ItemType.GEL)
 
-        holding = use_gel(team, node)
+        use_gel(team, node)
 
-        assert Occupancy.objects.active().filter(node=node).get() == holding
-        assert holding.floor == 3
-        assert Occupancy.objects.filter(node=node, released_at__isnull=False).count() == 3
+        assert_gel_owns_every_reward(node, team)
+        for occupancy in previous:
+            occupancy.refresh_from_db()
+            assert occupancy.released_at is not None
+            assert occupancy.release_reason == ReleaseReason.ITEM_TAKEOVER
 
-    def test_second_gel_does_not_duplicate_the_holding(self, running_game, easy, team):
-        node = Node.objects.create(code="e1", name="Easy 1", level=easy)
+    def test_second_gel_replaces_previous_ownership(self, running_game, team):
+        level = LevelConfig.objects.get(level="medium")
+        node = Node.objects.create(code="m1", name="Medium 1", level=level)
         give(team, ItemType.GEL, quantity=2)
 
         first = use_gel(team, node)
         second = use_gel(team, node)
 
-        first.refresh_from_db()
-        assert Occupancy.objects.active().filter(team=team, node=node).count() == 1
-        assert second.source == AcquisitionSource.ITEM
-        assert second.floor == 1
-        assert first.released_at is not None
-        assert first.pk != second.pk
+        assert_gel_owns_every_reward(node, team, second)
+        for occupancy in first:
+            occupancy.refresh_from_db()
+            assert occupancy.released_at is not None
+        assert {holding.pk for holding in first}.isdisjoint({holding.pk for holding in second})
+        assert not TeamItem.objects.filter(team=team, item_type=ItemType.GEL).exists()
+
+    def test_other_team_cannot_claim_a_gelled_node(self, running_game, easy, team):
+        level = LevelConfig.objects.get(level="medium")
+        house = Node.objects.create(code="m1", name="Medium 1", level=level)
+        neighbour = Node.objects.create(code="e1", name="Easy 1", level=easy)
+        lower, upper = sorted((house, neighbour), key=lambda node: node.pk)
+        Edge.objects.create(a=lower, b=upper, directed=False)
+        other = Team.objects.create(code="bravo", name="Bravo", balance=400)
+        occupy(neighbour, other, slot=1, floor=1, source=AcquisitionSource.ITEM)
+        give(team, ItemType.GEL)
+
+        use_gel(team, house)
+
+        with pytest.raises(Conflict):
+            claim_node(other, house)
+        with pytest.raises(Conflict):
+            claim_node(team, house)
+        assert_gel_owns_every_reward(house, team)
 
 
 class TestGilari:
