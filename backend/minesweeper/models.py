@@ -53,10 +53,10 @@ def empty_progress_board():
 class DifficultyConfig(models.Model):
     """An editable difficulty, the way `game.LevelConfig` is an editable level.
 
-    Board size, mine count and base score are rows, not constants, so organisers
-    can retune a difficulty from admin between rounds. A generated
-    `MinesweeperGame` copies the numbers it was built with, so retuning never
-    reshapes a board a team is already playing.
+    Board size and mine count are rows, not constants, so organisers can retune
+    a difficulty from admin between rounds. A generated `MinesweeperGame` copies
+    the numbers it was built with, so retuning never reshapes a board a team is
+    already playing.
     """
 
     key = models.SlugField(max_length=16, primary_key=True)
@@ -64,9 +64,6 @@ class DifficultyConfig(models.Model):
     width = models.PositiveSmallIntegerField()
     height = models.PositiveSmallIntegerField()
     mine_count = models.PositiveSmallIntegerField()
-    base_score = models.PositiveIntegerField(
-        help_text="Win pays this plus the same again minus the seconds taken.",
-    )
     sort_order = models.PositiveSmallIntegerField(
         default=0, help_text="Order in admin and in any difficulty picker; low first."
     )
@@ -101,7 +98,7 @@ class DifficultyConfig(models.Model):
 
 
 class MinesweeperSettings(models.Model):
-    """Per-node configuration. Does not store a board, team, or score."""
+    """Per-node configuration. Does not store a board, team, or result."""
 
     node = models.OneToOneField(
         "game.Node",
@@ -143,10 +140,6 @@ class MinesweeperGame(models.Model):
     width = models.PositiveSmallIntegerField()
     height = models.PositiveSmallIntegerField()
     mine_count = models.PositiveSmallIntegerField()
-    base_score = models.PositiveIntegerField(
-        default=0,
-        help_text="Snapshot of the difficulty's base score, so retuning cannot rescore a live board.",
-    )
     board = models.JSONField(
         default=empty_layout_board,
         help_text=(
@@ -196,7 +189,6 @@ class MinesweeperAttempt(models.Model):
             "Mine locations stay on the game layout."
         ),
     )
-    score = models.PositiveIntegerField(default=0)
     started_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

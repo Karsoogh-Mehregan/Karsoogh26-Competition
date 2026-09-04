@@ -367,7 +367,6 @@ def create_game(node: Node, difficulty: DifficultyConfig | str) -> MinesweeperGa
         width=difficulty.width,
         height=difficulty.height,
         mine_count=difficulty.mine_count,
-        base_score=difficulty.base_score,
         board=_generate_layout(difficulty.width, difficulty.height, difficulty.mine_count),
     )
 

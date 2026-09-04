@@ -488,7 +488,6 @@ def test_restart_clears_toll_crossings(game_god, team):
         width=difficulty.width,
         height=difficulty.height,
         mine_count=difficulty.mine_count,
-        base_score=difficulty.base_score,
     )
     MinesweeperAttempt.objects.create(
         game=board,
