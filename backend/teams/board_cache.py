@@ -9,6 +9,8 @@ SNAPSHOT_TTL_SECONDS = 60
 
 
 def _render(request) -> list[dict]:
+    # `with_holdings()` prefetches the toll attempts too, so the whole board's
+    # crossings cost one query rather than one per team.
     serializer = TeamSerializer(
         Team.objects.with_holdings(),
         many=True,
@@ -33,4 +35,9 @@ def snapshot(request) -> list[dict]:
 def mask(rows: list[dict], *, is_mentor: bool, viewer_team_code: str | None) -> list[dict]:
     if is_mentor:
         return rows
-    return [row if row["code"] == viewer_team_code else {**row, "balance": None} for row in rows]
+    return [
+        row
+        if row["code"] == viewer_team_code
+        else {**row, "balance": None, "cleared_tolls": [], "active_tolls": []}
+        for row in rows
+    ]

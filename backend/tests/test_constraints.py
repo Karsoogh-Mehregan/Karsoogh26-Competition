@@ -11,6 +11,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from game.models import (
+    AcquisitionSource,
     AnswerType,
     Edge,
     FloorReward,
@@ -82,6 +83,11 @@ class TestCapacity:
         occupy(node, teams[0], slot=1)
         with pytest.raises(IntegrityError), transaction.atomic():
             occupy(node, teams[0], slot=2)
+
+    def test_item_floors_may_stack_for_one_team(self, node, teams):
+        occupy(node, teams[0], slot=1, floor=1, source=AcquisitionSource.ITEM)
+        occupy(node, teams[0], slot=2, floor=2, source=AcquisitionSource.ITEM)
+        assert Occupancy.objects.active().filter(team=teams[0], node=node).count() == 2
 
 
 class TestOccupancyIntegrity:

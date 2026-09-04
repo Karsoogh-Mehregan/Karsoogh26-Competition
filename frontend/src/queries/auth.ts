@@ -37,6 +37,16 @@ export function useLoginMutation() {
         // The sheet is per-team and cached forever, so it must not outlive
         // the session that drew it.
         queryClient.invalidateQueries({ queryKey: queryKeys.entrySheet() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.balanceEventsRoot() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.territoryGames() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.charityBags() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.centipedeGames() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.olympicsMatches() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.auctionEvents() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.wheelEvents() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.pigEvents() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.eventCatalog() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.matchmaking() }),
       ])
     },
   })
@@ -55,6 +65,15 @@ export function useLogoutMutation() {
       queryClient.removeQueries({ queryKey: queryKeys.levels() })
       queryClient.removeQueries({ queryKey: queryKeys.balanceEventsRoot() })
       queryClient.removeQueries({ queryKey: queryKeys.minesweeperRoot() })
+      queryClient.removeQueries({ queryKey: queryKeys.territoryGames() })
+      queryClient.removeQueries({ queryKey: queryKeys.charityBags() })
+      queryClient.removeQueries({ queryKey: queryKeys.centipedeGames() })
+      queryClient.removeQueries({ queryKey: queryKeys.olympicsMatches() })
+      queryClient.removeQueries({ queryKey: queryKeys.auctionEvents() })
+      queryClient.removeQueries({ queryKey: queryKeys.wheelEvents() })
+      queryClient.removeQueries({ queryKey: queryKeys.pigEvents() })
+      queryClient.removeQueries({ queryKey: queryKeys.eventCatalog() })
+      queryClient.removeQueries({ queryKey: queryKeys.matchmaking() })
       await ensureCsrf()
     },
   })

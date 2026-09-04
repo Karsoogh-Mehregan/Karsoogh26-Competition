@@ -17,12 +17,23 @@ function createGraphState() {
 
   const nodeById = new Map(nodes.map((n) => [n.id, n]))
 
-  // adjacency list: nodeId -> Set of neighbor nodeIds (direction-agnostic for connectivity)
+  // Undirected connectivity for neighbourhood / building-type layout.
   const adjacency = new Map()
   for (const n of nodes) adjacency.set(n.id, new Set())
   for (const e of edges) {
     adjacency.get(e.source)?.add(e.target)
     adjacency.get(e.target)?.add(e.source)
+  }
+
+  // Outgoing neighbours matching backend Edge: directed source→target only;
+  // undirected edges are usable both ways.
+  const outAdjacency = new Map()
+  for (const n of nodes) outAdjacency.set(n.id, new Set())
+  for (const e of edges) {
+    outAdjacency.get(e.source)?.add(e.target)
+    if (!e.directed) {
+      outAdjacency.get(e.target)?.add(e.source)
+    }
   }
 
   // Only yellow diamond start nodes (outward-arrow entry points) can begin a traversal.
@@ -49,7 +60,7 @@ function createGraphState() {
     const selected = selectedSet.value
     const result = new Set()
     for (const id of selected) {
-      const neighbors = adjacency.get(id) ?? new Set()
+      const neighbors = outAdjacency.get(id) ?? new Set()
       for (const nb of neighbors) {
         if (!selected.has(nb)) result.add(nb)
       }
@@ -88,6 +99,7 @@ function createGraphState() {
     edges,
     nodeById,
     adjacency,
+    outAdjacency,
     startEligibleIds,
     path,
     currentNodeId,

@@ -25,6 +25,8 @@ const ROUTES: Record<string, () => QueryKey[]> = {
   'notification.created': () => [queryKeys.inbox()],
   // A Designer repainted something; every open map is stale.
   'map.design': () => [queryKeys.mapDesign()],
+  // A won Minesweeper toll expands reach; holdings themselves did not change.
+  'minesweeper.cleared': () => BOARD,
 }
 
 const RESYNC_KEYS: QueryKey[] = [

@@ -10,27 +10,32 @@ from datetime import datetime, timedelta
 from django.db import transaction
 from django.utils import timezone
 
-from game.models import Node
+from game.models import Level, Node
+from game.services.events import BOARD_TOLL_STARTED, MINESWEEPER_CLEARED, publish_on_commit
+from game.services.movement import team_can_access_node
+from minesweeper.crossings import is_toll
 from minesweeper.exceptions import (
     CannotFlagRevealed,
     CellAlreadyRevealed,
     CellFlagged,
+    EntryFeeUnaffordable,
     EntryUnauthorized,
     GameFinished,
     InvalidCell,
     InvalidDifficulty,
+    NodeUnreachable,
     SettingsDisabled,
     SettingsNotConfigured,
 )
 from minesweeper.models import (
-    DIFFICULTY_BASE_SCORES,
-    DIFFICULTY_LAYOUTS,
+    DifficultyConfig,
     MinesweeperAttempt,
     MinesweeperGame,
     MinesweeperSettings,
     MinesweeperStatus,
 )
-from teams.models import Team
+from teams.ledger import InsufficientFunds, apply_balance_change
+from teams.models import BalanceReason, Team
 
 _NEIGHBOR_OFFSETS = (
     (-1, -1),
@@ -47,6 +52,56 @@ _NEIGHBOR_OFFSETS = (
 ENTRY_SESSION_KEY = "minesweeper_entry"
 ENTRY_TTL = timedelta(seconds=60)
 
+# Which board a gate gets when one is provisioned for it. C34 joins ring 3 to
+# ring 4 and C45 joins 4 to 5, so the second gate is the harder sit; both are
+# only defaults, and organisers retune them per node in admin or in bulk with
+# `manage.py sync_toll_boards --difficulty <key>`.
+DEFAULT_TOLL_DIFFICULTIES = {"C34": "easy", "C45": "medium"}
+FALLBACK_TOLL_DIFFICULTY = "easy"
+
+
+def default_toll_difficulty(node_code: str) -> str:
+    prefix = node_code.split("_", 1)[0].upper()
+    return DEFAULT_TOLL_DIFFICULTIES.get(prefix, FALLBACK_TOLL_DIFFICULTY)
+
+
+@transaction.atomic
+def ensure_toll_boards(*, difficulty: str | None = None) -> dict[str, int]:
+    """Give every toll node a Minesweeper board, because a gate with no board is shut.
+
+    A toll takes no question and no occupancy, so its board is the only way
+    across it. Provisioning is therefore not optional dressing — it is what
+    makes rings 4 and up reachable at all.
+
+    Idempotent. Rows that already exist keep their difficulty and their
+    enabled flag unless ``difficulty`` is given, which retunes every gate.
+    """
+    configured = set(DifficultyConfig.objects.values_list("key", flat=True))
+    if difficulty is not None and difficulty not in configured:
+        raise InvalidDifficulty(f"Unknown Minesweeper difficulty: {difficulty!r}.")
+    if not configured:
+        raise InvalidDifficulty("No Minesweeper difficulties are configured.")
+
+    created = updated = unchanged = 0
+    for node in Node.objects.filter(level_id=Level.TOLL).order_by("code"):
+        wanted = difficulty or default_toll_difficulty(node.code)
+        # An organiser may have deleted the difficulty a default names; any
+        # configured board beats leaving the gate shut.
+        if wanted not in configured:
+            wanted = min(configured)
+        settings, was_created = MinesweeperSettings.objects.get_or_create(
+            node=node, defaults={"difficulty_id": wanted}
+        )
+        if was_created:
+            created += 1
+        elif difficulty is not None and settings.difficulty_id != difficulty:
+            settings.difficulty_id = difficulty
+            settings.save(update_fields=["difficulty", "updated_at"])
+            updated += 1
+        else:
+            unchanged += 1
+    return {"created": created, "updated": updated, "unchanged": unchanged}
+
 
 def _now():
     """Clock seam so tests can pin elapsed time without sleeping."""
@@ -60,7 +115,7 @@ def _mark_session_modified(session) -> None:
 
 def _require_enabled_settings(node: Node) -> MinesweeperSettings:
     try:
-        settings = MinesweeperSettings.objects.get(node=node)
+        settings = MinesweeperSettings.objects.select_related("difficulty").get(node=node)
     except MinesweeperSettings.DoesNotExist:
         raise SettingsNotConfigured("This node has no Minesweeper configuration.") from None
     if not settings.enabled:
@@ -68,14 +123,75 @@ def _require_enabled_settings(node: Node) -> MinesweeperSettings:
     return settings
 
 
-def issue_entry(session, *, user_id: int, node: Node) -> str:
+def _existing_attempt(team: Team, node: Node) -> MinesweeperAttempt | None:
+    """A board this team already owns here: unfinished, or already won.
+
+    Either one reopens free. The unfinished board is paid for, and the won one
+    is the crossing itself — handing back a fresh board would charge again for a
+    gate that is already open.
+    """
+    for status in (MinesweeperStatus.IN_PROGRESS, MinesweeperStatus.WON):
+        existing = _latest_attempt_for(team, node, status)
+        if existing is not None:
+            return existing
+    return None
+
+
+def require_graph_access(team: Team, node: Node) -> None:
+    """The team must already be able to stand next to this node, or be on it.
+
+    Reachability is computed from expandable occupancies plus won tolls — the
+    same set `_reserve` uses. A board the team already owns here reopens
+    regardless: it may have been paid for from a house that has since been
+    released.
+    """
+    if team_can_access_node(team, node) or _existing_attempt(team, node) is not None:
+        return
+    raise NodeUnreachable("این خانه از مسیر فعلی تیم در دسترس نیست.")
+
+
+def require_playable(node: Node, team: Team) -> None:
+    """Everything that must hold before this team may open a board on ``node``.
+
+    Every board is behind the map, not just the gates: a guessed URL must not
+    open one the team could not have walked to. On a toll node that rule *is*
+    the road — the team stands next to the gate, plays, and the win is the
+    crossing — and the fee in `_charge_entry` is the only part that is
+    toll-only.
+    """
+    _require_enabled_settings(node)
+    require_graph_access(team, node)
+
+
+def _charge_entry(team: Team, node: Node) -> None:
+    """Take the gate's entry cost for a newly generated board.
+
+    Charged per board, not per gate: a lost gate may be replayed, and the next
+    board costs again. Resuming an unfinished board is free — the team already
+    paid for it. Only tolls charge; the cost is the `toll` LevelConfig's, so
+    organisers tune it where they tune every other entry cost.
+    """
+    if not is_toll(node):
+        return
+    cost = node.level.entry_cost
+    if not cost:
+        return
+    try:
+        apply_balance_change(team, -cost, reason=BalanceReason.TOLL, detail=node.code)
+    except InsufficientFunds as exc:
+        raise EntryFeeUnaffordable("Balance is below this gate's entry cost.") from exc
+
+
+def issue_entry(session, *, user_id: int, team: Team, node: Node) -> str:
     """Issue a short-lived, one-time map-entry authorization for this session and node.
 
     Replaces any unused prior intent on the same session. Does not prove the
-    player clicked the SVG; it only proves this authenticated session requested
-    entry for an enabled Minesweeper node. Reachability is not checked here.
+    player clicked the SVG; it proves that this authenticated session asked to
+    enter a gate its team may actually play, so a guessed URL cannot issue a
+    ticket for a distant toll and the map reports the refusal on the click
+    rather than after the page has opened.
     """
-    _require_enabled_settings(node)
+    require_playable(node, team)
     token = secrets.token_urlsafe(32)
     session[ENTRY_SESSION_KEY] = {
         "token": token,
@@ -192,7 +308,9 @@ def _reveal_from(
 
 def _locked_in_progress_attempt(attempt_id: int) -> MinesweeperAttempt:
     attempt = (
-        MinesweeperAttempt.objects.select_for_update().select_related("game").get(pk=attempt_id)
+        MinesweeperAttempt.objects.select_for_update(of=("self",))
+        .select_related("game__node", "game__difficulty", "team")
+        .get(pk=attempt_id)
     )
     if attempt.status != MinesweeperStatus.IN_PROGRESS:
         raise GameFinished("This attempt is already finished.")
@@ -213,8 +331,12 @@ def _all_safe_cells_revealed(layout: dict, progress: dict) -> bool:
     )
 
 
-def _win_score(difficulty: str, started_at: datetime, finished_at: datetime) -> int:
-    base = DIFFICULTY_BASE_SCORES[difficulty]
+def _win_score(base: int, started_at: datetime, finished_at: datetime) -> int:
+    """Pay the base twice, less a second for every second taken.
+
+    ``base`` is the board's own snapshot, not today's config: retuning a
+    difficulty mid-round must not rescore a board already in play.
+    """
     elapsed_seconds = max(0, math.floor((finished_at - started_at).total_seconds()))
     return base + max(0, base - elapsed_seconds)
 
@@ -225,38 +347,44 @@ def _finish(attempt: MinesweeperAttempt, progress: dict, *, won: bool) -> None:
     attempt.finished_at = now
     if won:
         attempt.status = MinesweeperStatus.WON
-        attempt.score = _win_score(attempt.game.difficulty, attempt.started_at, now)
+        attempt.score = _win_score(attempt.game.base_score, attempt.started_at, now)
     else:
         attempt.status = MinesweeperStatus.LOST
         attempt.score = 0
     attempt.save(update_fields=["board", "status", "score", "finished_at"])
+    if won:
+        # A cleared gate opens a road, so the board everyone reads is stale: the
+        # frame bumps the snapshot version as well as nudging the SPA. No
+        # payload — the hint must not tell the whole hall who crossed where; the
+        # client refetches and sees only what it is allowed to.
+        publish_on_commit(MINESWEEPER_CLEARED)
 
 
 @transaction.atomic
-def create_game(node: Node, difficulty: str) -> MinesweeperGame:
+def create_game(node: Node, difficulty: DifficultyConfig | str) -> MinesweeperGame:
     """Create one runtime game with a newly generated mine layout.
 
-    ``difficulty`` must be a key of ``DIFFICULTY_LAYOUTS``. Width, height, and
-    mine count come from that mapping — they are not caller-supplied.
+    ``difficulty`` is a `DifficultyConfig` or its key. Width, height, mine count
+    and base score are copied off it here, so the board keeps playing and
+    scoring by the numbers it was built with even if the config is retuned.
 
     ``node`` is stored as association only. This service does not check who
     holds the node and does not change map occupancy.
     """
-    try:
-        layout = DIFFICULTY_LAYOUTS[difficulty]
-    except KeyError:
-        raise InvalidDifficulty(f"Unknown Minesweeper difficulty: {difficulty!r}.") from None
+    if not isinstance(difficulty, DifficultyConfig):
+        try:
+            difficulty = DifficultyConfig.objects.get(pk=difficulty)
+        except DifficultyConfig.DoesNotExist:
+            raise InvalidDifficulty(f"Unknown Minesweeper difficulty: {difficulty!r}.") from None
 
-    width = layout["width"]
-    height = layout["height"]
-    mine_count = layout["mine_count"]
     return MinesweeperGame.objects.create(
         node=node,
         difficulty=difficulty,
-        width=width,
-        height=height,
-        mine_count=mine_count,
-        board=_generate_layout(width, height, mine_count),
+        width=difficulty.width,
+        height=difficulty.height,
+        mine_count=difficulty.mine_count,
+        base_score=difficulty.base_score,
+        board=_generate_layout(difficulty.width, difficulty.height, difficulty.mine_count),
     )
 
 
@@ -280,14 +408,10 @@ def create_attempt(game: MinesweeperGame, team: Team) -> MinesweeperAttempt:
     )
 
 
-def _active_attempt_for(team: Team, node: Node) -> MinesweeperAttempt | None:
+def _latest_attempt_for(team: Team, node: Node, status: str) -> MinesweeperAttempt | None:
     return (
-        MinesweeperAttempt.objects.select_related("game__node")
-        .filter(
-            team=team,
-            game__node_id=node.pk,
-            status=MinesweeperStatus.IN_PROGRESS,
-        )
+        MinesweeperAttempt.objects.select_related("game__node", "game__difficulty")
+        .filter(team=team, game__node_id=node.pk, status=status)
         .order_by("-started_at")
         .first()
     )
@@ -295,17 +419,33 @@ def _active_attempt_for(team: Team, node: Node) -> MinesweeperAttempt | None:
 
 @transaction.atomic
 def start_play(node: Node, team: Team) -> MinesweeperAttempt:
-    """Resume this team's in-progress attempt on ``node``, or start a new game.
+    """Resume this team's attempt on ``node``, or start a new game.
 
-    Locks the node row so two concurrent starts cannot both insert. A finished
-    attempt is left as history; the next visit generates a new board.
+    Locks the node row so two concurrent starts cannot both insert. An
+    unfinished board resumes and a won one is handed back as-is: the toll is
+    cleared once, and a fresh board would both charge again and let a team
+    re-clear the same gate for another score row. A lost attempt is history; the
+    next visit pays again for a new board.
     """
-    locked_node = Node.objects.select_for_update().get(pk=node.pk)
-    active = _active_attempt_for(team, locked_node)
-    if active is not None:
-        return active
+    # `of=("self",)` so the join for the level config does not lock LevelConfig
+    # too; the fee reads that row on every start.
+    locked_node = (
+        Node.objects.select_for_update(of=("self",)).select_related("level").get(pk=node.pk)
+    )
+    existing = _existing_attempt(team, locked_node)
+    if existing is not None:
+        return existing
+    require_playable(locked_node, team)
     game = create_game_from_node(locked_node)
-    return create_attempt(game, team)
+    _charge_entry(team, locked_node)
+    attempt = create_attempt(game, team)
+    if is_toll(locked_node):
+        # The team's balance and its open boards both just changed, and both
+        # ride on the row `/api/teams/` caches — so the snapshot needs a new
+        # version or the map keeps quoting a toll that has already been paid.
+        # Payload-free for the same reason the cleared frame is.
+        publish_on_commit(BOARD_TOLL_STARTED)
+    return attempt
 
 
 @transaction.atomic

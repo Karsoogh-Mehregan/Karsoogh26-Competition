@@ -82,11 +82,38 @@ frontend-only; the backend takes just the topology, via
 holds the same ids the SPA uses (`L1_0`, `CENTER`, …). Re-running upserts and never deletes,
 so `Occupancy`'s `PROTECT` FK is safe mid-game. `TYPE_TO_LEVEL` in that command maps the 11
 frontend `type` values onto the four playable levels plus `toll`; the `c34`/`c45` connectors are
-imported as `toll` nodes with no `FloorReward` rows, which makes them inert — their real
-pass-through rules are not designed yet. The Vite dev server proxies `/api` to `:8000` so
+imported as `toll` nodes with no `FloorReward` rows, which is what keeps them out of floors,
+networth, duels and buyouts. They are **gates**, not buildings — see **Toll gates** below. The Vite dev server proxies `/api` to `:8000` so
 session cookies stay same-origin. The side panel lists teams from the API; the map
 is locked until the mentor is logged in (clicks do nothing, nodes stay disabled).
 The map itself is still a local adjacency demo, not a game move.
+
+**Toll gates are crossed by beating Minesweeper.** Every road into ring 4 runs through a
+`C34` node and every road into ring 5 through a `C45`, and those edges are `directed`, so
+the gates are the only way outward — with no `toll`-level `Question` rows, `claim_node` on
+one is refused outright (`game/services/movement.py`). Instead the gate charges
+`LevelConfig["toll"].entry_cost` per board and hands out a Minesweeper board; **every**
+board, gate or not, first needs `require_graph_access` — a guessed URL must not open one
+the team could not have walked to;
+**a win is the crossing**. There is no `Occupancy`: a gate seats nobody, has no capacity and
+is not owned, so the crossing record *is* the won `MinesweeperAttempt`, read through
+`minesweeper/crossings.py`. `movement.expandable_node_ids` unions those node ids with the
+team's holdings — a local import, because `minesweeper` depends on `game` — which is what
+opens the one-way roads out of the gate. Any number of teams may clear the same gate; a team
+that has cleared one gets its **won board handed back** rather than a new one, so the gate is
+never bought twice and never scores twice; a lost board may be replayed at full price. A
+board left **unfinished** is already paid for, so returning to it resumes free of charge.
+Neither reopening needs reachability — the team may since have lost the holding it came
+from. Cleared gates and open boards both ride to the SPA on the team row (`cleared_tolls`
+and `active_tolls` on `/api/teams/`, one query via the `_toll_attempts` prefetch in
+`Team.objects.with_holdings()`, and blanked for other teams by `board_cache.mask`), not on
+`holdings`; the map reads the second to offer «ادامه بازی» without a price. Gates are
+provisioned, never hand-configured: `ensure_toll_boards()` gives every toll node a board,
+called from `import_graph` and from `manage.py sync_toll_boards [--difficulty <key>]`, and
+backfilled onto existing databases by `minesweeper/migrations/0008`. Board size, mine count
+and payout are rows too (`minesweeper.DifficultyConfig`, admin-editable, seeded easy/medium/
+hard by `0007`); a generated `MinesweeperGame` snapshots the numbers it was built with, so
+retuning a difficulty never reshapes or rescores a board already in play.
 
 **Auth / acting-as.** The event is played online: each team logs in as itself, one shared
 account per team (`accounts.User.team`, username = `Team.code`), created by

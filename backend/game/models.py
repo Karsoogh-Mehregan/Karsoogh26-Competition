@@ -23,9 +23,9 @@ MAX_CAPACITY = 3
 def _round_half_up(value: Decimal) -> int:
     return int(Decimal(value).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
-# We handle it in `entry questions`
+
 class Level(models.TextChoices):
-    # SPAWN = "spawn", "شروع"
+    SPAWN = "spawn", "شروع"
     EASY = "easy", "آسان"
     MEDIUM = "medium", "متوسط"
     HARD = "hard", "سخت"
@@ -38,6 +38,12 @@ class ReleaseReason(models.TextChoices):
     EXPIRED = "expired", "منقضی شد"
     DUEL_LOST = "duel_lost", "باخت دوئل"
     BOUGHT_OUT = "bought_out", "خریداری شد"
+    ITEM_TAKEOVER = "item_takeover", "آیتم"
+
+
+class AcquisitionSource(models.TextChoices):
+    ATTEMPT = "attempt", "تلاش"
+    ITEM = "item", "آیتم"
 
 
 class GameStatus(models.TextChoices):
@@ -211,6 +217,11 @@ class Occupancy(models.Model):
     )
 
     is_spawn = models.BooleanField(default=False)
+    source = models.CharField(
+        max_length=16,
+        choices=AcquisitionSource.choices,
+        default=AcquisitionSource.ATTEMPT,
+    )
     expires_at = models.DateTimeField(null=True, blank=True)
 
     entered_at = models.DateTimeField(auto_now_add=True)
@@ -235,7 +246,7 @@ class Occupancy(models.Model):
             ),
             UniqueConstraint(
                 fields=["team", "node"],
-                condition=Q(released_at__isnull=True),
+                condition=Q(released_at__isnull=True, source=AcquisitionSource.ATTEMPT),
                 name="occ_one_unit_per_team",
             ),
             CheckConstraint(
@@ -463,13 +474,15 @@ class Question(models.Model):
     )
     code = models.SlugField(max_length=32, unique=True)
     title = models.CharField(max_length=200)
-    body = models.TextField(help_text="Markdown")
+    body = models.TextField(blank=True, help_text="Markdown")
     attachment = models.FileField(
         upload_to="questions/",
         blank=True,
         validators=[validate_upload_extension, validate_upload_size],
     )
-    answer_type = models.CharField(max_length=8, choices=AnswerType.choices)
+    answer_type = models.CharField(
+        max_length=8, choices=AnswerType.choices, default=AnswerType.FILE
+    )
     answer_key = models.TextField(
         blank=True,
         help_text="Mentor reference only — never exposed to teams.",
@@ -493,6 +506,11 @@ class Question(models.Model):
         indexes = [
             models.Index(fields=["level", "is_active"], name="question_level_active_idx"),
         ]
+
+    def clean(self):
+        super().clean()
+        if not self.title and self.code:
+            self.title = self.code
 
     def __str__(self):
         return self.title or self.code

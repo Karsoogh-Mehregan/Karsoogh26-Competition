@@ -1,5 +1,12 @@
 <script setup>
-import { CheckIcon, CoinsIcon, SearchIcon } from '@lucide/vue'
+import {
+  CheckIcon,
+
+  CoinsIcon,
+
+  SearchIcon,
+  Gamepad2Icon,
+} from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { Badge } from '@/components/ui/badge'
@@ -63,7 +70,7 @@ const showTeamPicker = computed(() => isMentor.value || isPlayer.value)
 </script>
 
 <template>
-  <aside class="flex h-full w-96 shrink-0 flex-col overflow-hidden border-e bg-card">
+  <aside class="flex h-full w-full shrink-0 flex-col overflow-hidden border-e bg-card">
     <header class="border-b px-5 py-4">
       <h1 class="text-lg font-bold">{{ isPlayer && !isMentor ? 'تیم شما' : 'تیم‌ها' }}</h1>
       <p v-if="actingTeam" class="text-muted-foreground mt-1 text-sm">
@@ -115,12 +122,31 @@ const showTeamPicker = computed(() => isMentor.value || isPlayer.value)
             حل سؤال
           </RouterLink>
         </Button>
+        <Button
+          v-if="isPlayer"
+          as-child
+          size="sm"
+          :variant="route.path === '/backpack' ? 'default' : 'outline'"
+        >
+          <RouterLink
+            to="/backpack"
+            :aria-current="route.path === '/backpack' ? 'page' : undefined"
+          >
+            کوله پشتی
+          </RouterLink>
+        </Button>
         <Button as-child size="sm" :variant="route.path === '/leaderboard' ? 'default' : 'outline'">
           <RouterLink
             to="/leaderboard"
             :aria-current="route.path === '/leaderboard' ? 'page' : undefined"
           >
             جدول امتیازات
+          </RouterLink>
+        </Button>
+        <Button as-child size="sm" :variant="route.path === '/events' ? 'default' : 'outline'">
+          <RouterLink to="/events" :aria-current="route.path === '/events' ? 'page' : undefined">
+            <Gamepad2Icon class="size-3.5" />
+            همه رویدادها
           </RouterLink>
         </Button>
         <Button as-child size="sm" :variant="route.path === '/inbox' ? 'default' : 'outline'">

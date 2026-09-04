@@ -57,7 +57,11 @@ class PublicGameSerializer(serializers.Serializer):
     game_id = serializers.IntegerField(read_only=True)
     attempt_id = serializers.IntegerField(source="pk", read_only=True)
     node = serializers.CharField(source="game.node.code", read_only=True)
-    difficulty = serializers.CharField(source="game.difficulty", read_only=True)
+    difficulty = serializers.CharField(source="game.difficulty_id", read_only=True)
+    # The label travels with the board because difficulties are rows now: a
+    # client that maps keys to Persian names goes stale the moment an organiser
+    # adds one.
+    difficulty_label = serializers.CharField(source="game.difficulty.label", read_only=True)
     width = serializers.IntegerField(source="game.width", read_only=True)
     height = serializers.IntegerField(source="game.height", read_only=True)
     mine_count = serializers.IntegerField(source="game.mine_count", read_only=True)

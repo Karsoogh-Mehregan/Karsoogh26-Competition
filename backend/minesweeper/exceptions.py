@@ -18,6 +18,14 @@ class EntryUnauthorized(MinesweeperServiceError):
     """No valid, unused, unexpired map-entry authorization for this node."""
 
 
+class NodeUnreachable(MinesweeperServiceError):
+    """The team cannot reach this Minesweeper node on the map.
+
+    For a toll gate that means it holds nothing adjacent to the gate, and has no
+    board of its own there to reopen.
+    """
+
+
 class GameFinished(MinesweeperServiceError):
     """The attempt is won or lost and no longer accepts moves."""
 
@@ -36,3 +44,7 @@ class CellFlagged(MinesweeperServiceError):
 
 class CannotFlagRevealed(MinesweeperServiceError):
     """A revealed cell cannot be flagged or unflagged."""
+
+
+class EntryFeeUnaffordable(MinesweeperServiceError):
+    """The team cannot afford this node's entry cost."""

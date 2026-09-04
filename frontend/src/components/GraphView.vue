@@ -14,7 +14,7 @@ const HOUSE_FILL = '#E2CFA6'
 const { me, teams, actingTeam, isPlayer } = useActing()
 const { canClaimStart } = useEntry()
 const inspector = useInspectorStore()
-const { nodes, edges, nodeById, adjacency, startEligibleIds } = useGraph()
+const { nodes, edges, nodeById, outAdjacency, startEligibleIds } = useGraph()
 const design = useMapDesign()
 const { neighborhoods, roadStyle, tintStrength, haloStrength } = design
 
@@ -92,16 +92,24 @@ const actingHeldIds = computed(() => {
 })
 
 function holdingUnlocksNeighbors(holding) {
-  return holding.is_spawn === true || holding.grade != null
+  return holding.is_spawn === true || holding.grade != null || holding.source === 'item'
 }
+
+// Gates the team has beaten. Not holdings — nobody owns a gate — but the roads
+// out of one are one-way, so a crossing is the only thing that opens the ring
+// beyond it. The server counts them the same way in `expandable_node_ids`.
+const crossedGateIds = computed(() => new Set(actingTeam.value?.cleared_tolls ?? []))
+
+// Gates with a board left unfinished. Paid for already, so the map goes on
+// offering them however the team's holdings have moved since.
+const openBoardGateIds = computed(() => new Set(actingTeam.value?.active_tolls ?? []))
 
 const expandableHeldIds = computed(() => {
   if (!actingTeam.value) return new Set()
-  return new Set(
-    actingTeam.value.holdings
-      .filter(holdingUnlocksNeighbors)
-      .map((holding) => holding.node_code),
-  )
+  return new Set([
+    ...actingTeam.value.holdings.filter(holdingUnlocksNeighbors).map((h) => h.node_code),
+    ...crossedGateIds.value,
+  ])
 })
 
 function isHeldByAnyone(id) {
@@ -120,21 +128,30 @@ function isEntryGate(n) {
 
 function isNodeSelectable(id) {
   if (!canAct.value) return false
+  // An unfinished board is bought and waiting: it outranks every reach rule,
+  // including the one that sends a team with no holdings to its start node.
+  if (openBoardGateIds.value.has(id)) return true
   const held = actingHeldIds.value
-  if (held.size === 0) {
+  const expandable = expandableHeldIds.value
+  if (held.size === 0 && expandable.size === 0) {
     return canClaimStart.value && isFreeStart(id)
   }
   if (held.has(id)) return false
-  const expandable = expandableHeldIds.value
+  // A gate is not a move to make twice: once crossed it stops being offered as
+  // a fresh one, though `inspectIntent` still opens its finished board.
+  const node = nodeById.get(id)
+  if (node && isGatewayNode(node) && (crossedGateIds.value.has(id) || !design.hasMinesweeper(id))) {
+    return false
+  }
   if (expandable.size === 0) return false
   for (const heldId of expandable) {
-    if (adjacency.get(heldId)?.has(id)) return true
+    if (outAdjacency.get(heldId)?.has(id)) return true
   }
   return false
 }
 
 function isNodeSelected(id) {
-  return actingHeldIds.value.has(id)
+  return actingHeldIds.value.has(id) || crossedGateIds.value.has(id)
 }
 
 function answerableHolding(id) {
@@ -303,7 +320,10 @@ function isNodeInspected(n) {
 
 function nodeLabel(n) {
   const state = nodeState(n)
+  if (isGatewayNode(n) && crossedGateIds.value.has(n.id)) return `${n.id} — عوارضی؛ عبور کرده‌اید`
+  if (isGatewayNode(n) && openBoardGateIds.value.has(n.id)) return `${n.id} — عوارضی؛ ادامه بازی`
   if (state === 'answerable') return `${n.id} — پاسخ به سؤال`
+  if (isGatewayNode(n) && state === 'selectable') return `${n.id} — عوارضی؛ بازی مین‌روب`
   if (state === 'selectable') return `${n.id} — قابل انتخاب`
   if (state === 'gated') return `${n.id} — ابتدا سؤال‌های ورودی را پاسخ دهید`
   return n.id
@@ -313,14 +333,27 @@ function isGatewayNode(n) {
   return design.levelOf(n.id, n.type) === 'toll'
 }
 
+// Which nodes are drawn as a gantry instead of a house. Deliberately the map
+// JSON's own type, not the server's level: the glyph is baked-in geometry, so a
+// node a Designer moves onto the `toll` tier keeps its building. One predicate
+// for both the glyph and the decorations it replaces, so they cannot disagree
+// about which nodes have a disc behind them.
+function isTollGlyph(n) {
+  return n.type === 'c34' || n.type === 'c45'
+}
+
 function inspectIntent(n) {
   const holding = answerableHolding(n.id)
   if (holding) return { intent: 'solve', occupancyId: holding.id }
   if (isEntryGate(n)) return { intent: 'entry_gate', occupancyId: null }
-  // A gateway is played, not answered: it never offers a question, and only
-  // offers a board where the server actually has one configured.
+  // A gateway is played, not answered: it never offers a question, and it only
+  // offers a board where the server has one and the team can actually open it —
+  // standing beside it, or owning a board there already, finished or not.
   if (isGatewayNode(n)) {
-    const playable = canAct.value && design.hasMinesweeper(n.id)
+    const playable =
+      canAct.value &&
+      design.hasMinesweeper(n.id) &&
+      (isNodeSelectable(n.id) || crossedGateIds.value.has(n.id) || openBoardGateIds.value.has(n.id))
     return { intent: playable ? 'minesweeper' : 'view', occupancyId: null }
   }
   if (isNodeSelectable(n.id)) {
@@ -591,10 +624,13 @@ function shapePath(n) {
         @blur="hoveredId = null"
       >
         <!-- An opaque plate under the node: the team colour must read against
-             neutral ground, not through the neighbourhood wash. -->
-        <circle class="node-plate" :r="visualRadius(n) + 1.5" />
+             neutral ground, not through the neighbourhood wash. A gate is drawn
+             as a gantry, not a filled disc, so it has no colour to lift off the
+             ground — the plate and halo would only be two circles the glyph
+             sticks out of. -->
+        <circle v-if="!isTollGlyph(n)" class="node-plate" :r="visualRadius(n) + 1.5" />
         <circle
-          v-if="haloStrength > 0"
+          v-if="haloStrength > 0 && !isTollGlyph(n)"
           class="node-halo"
           :r="visualRadius(n) + 6"
           :stroke="haloColor(n)"
@@ -618,7 +654,7 @@ function shapePath(n) {
             />
           </template>
         </template>
-        <template v-else-if="n.type === 'c34' || n.type === 'c45'">
+        <template v-else-if="isTollGlyph(n)">
           <!-- The gantry glyph has gaps; this disc is what actually takes the click. -->
           <circle :r="n.size * 1.4" fill="transparent" stroke="none" class="node-hit" />
           <use

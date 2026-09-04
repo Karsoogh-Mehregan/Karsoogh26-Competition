@@ -20,7 +20,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 env = environ.Env(
     DEBUG=(bool, False),
     ALLOWED_HOSTS=(list, []),
-    CSRF_TRUSTED_ORIGINS=(list, ["http://localhost:3000", "http://127.0.0.1:3000"]),
+    CSRF_TRUSTED_ORIGINS=(
+        list,
+        [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:3001",
+            "http://127.0.0.1:3001",
+        ],
+    ),
+    CHARITY_BAG_DURATION_SECONDS=(int, 300),
+    CHARITY_BAG_SCHEDULE_TIMES=(list, ["09:30", "12:30"]),
     S3_BUCKET_NAME=(str, ""),
     S3_ACCESS_KEY=(str, ""),
     S3_SECRET_KEY=(str, ""),
@@ -41,6 +51,11 @@ ALLOWED_HOSTS = env("ALLOWED_HOSTS")
 # SPA is on :3000; Vite proxies /api to :8000. CSRF Origin checks the browser
 # origin against this list when Host does not match Origin (e.g. changeOrigin).
 CSRF_TRUSTED_ORIGINS = env("CSRF_TRUSTED_ORIGINS")
+
+# The specification currently provides two of the intended three daily starts.
+# Add the third time through the environment without changing event logic.
+CHARITY_BAG_DURATION_SECONDS = env("CHARITY_BAG_DURATION_SECONDS")
+CHARITY_BAG_SCHEDULE_TIMES = env("CHARITY_BAG_SCHEDULE_TIMES")
 
 
 # Session/CSRF cookie hardening. The contest is played online by teams over the
@@ -73,6 +88,7 @@ INSTALLED_APPS = [
     "teams",
     "accounts",
     "game",
+    "events",
     "minesweeper",
     "notifications",
 ]

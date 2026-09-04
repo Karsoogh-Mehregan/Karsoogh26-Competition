@@ -6,7 +6,9 @@ from django.db.models import CheckConstraint, Prefetch, Q, UniqueConstraint
 class BalanceReason(models.TextChoices):
     INITIAL = "initial", "موجودی اولیه"
     ENTRY = "entry", "رزرو خانه"
+    TOLL = "toll", "عوارضی"
     GRADE = "grade", "نمره خانه"
+    EVENT = "event", "رویداد"
 
 
 def active_holdings():
@@ -18,8 +20,17 @@ def active_holdings():
 class TeamQuerySet(models.QuerySet):
     def with_holdings(self):
         """Prefetch each team's active occupancies so `.holdings` costs one query."""
+        from minesweeper.models import MinesweeperAttempt, MinesweeperStatus
+
         return self.prefetch_related(
-            Prefetch("occupancies", queryset=active_holdings(), to_attr="_holdings")
+            Prefetch("occupancies", queryset=active_holdings(), to_attr="_holdings"),
+            Prefetch(
+                "minesweeper_attempts",
+                queryset=MinesweeperAttempt.objects.filter(
+                    status__in=(MinesweeperStatus.WON, MinesweeperStatus.IN_PROGRESS)
+                ).select_related("game__node"),
+                to_attr="_toll_attempts",
+            ),
         )
 
 
@@ -71,6 +82,30 @@ class Team(models.Model):
         if hasattr(self, "_holdings"):
             return self._holdings
         return active_holdings().filter(team=self)
+
+
+class ItemType(models.TextChoices):
+    FAKE_DOCUMENT = "fake_document", "سند جعلی"
+    GEL = "gel", "گل"
+    GILARI_100 = "gilari_100", "۱۰۰ گیلاری"
+
+
+class TeamItem(models.Model):
+    """One stack of a given item type in a team's inventory."""
+
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="items")
+    item_type = models.CharField(max_length=16, choices=ItemType.choices)
+    quantity = models.PositiveIntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["team", "item_type"]
+        constraints = [
+            UniqueConstraint(fields=["team", "item_type"], name="teamitem_one_per_type"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.team} {self.get_item_type_display()} ×{self.quantity}"
 
 
 class BalanceEvent(models.Model):

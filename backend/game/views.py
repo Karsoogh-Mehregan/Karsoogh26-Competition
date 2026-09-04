@@ -1,3 +1,5 @@
+from pathlib import PurePosixPath
+
 from django.conf import settings
 from django.db.models import Q
 from django.http import FileResponse, Http404, HttpResponseRedirect
@@ -9,7 +11,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.permissions import GameIsRunning, IsGameGod, IsMentor
+from accounts.permissions import MENTOR_PERM, GameIsRunning, IsGameGod, IsMentor
 from core.openapi import OpenApiExample, OpenApiParameter, OpenApiTypes, extend_schema
 from game import services
 from game.api_exceptions import Conflict, Unprocessable
@@ -67,7 +69,10 @@ from game.serializers import (
     occupancy_for_user,
 )
 from game.services import grade_submission, release_expired_attempts, submit_answer
+from game.validators import ALLOWED_UPLOAD_EXTENSIONS
 from teams.models import Team
+
+_INLINE_SAFE_SUFFIXES = frozenset(f".{ext}" for ext in ALLOWED_UPLOAD_EXTENSIONS)
 
 _OCCUPANCY_PK = OpenApiParameter("pk", int, OpenApiParameter.PATH, description="Occupancy id")
 _SUBMISSION_PK = OpenApiParameter("pk", int, OpenApiParameter.PATH, description="Submission id")
@@ -92,6 +97,7 @@ _HOLDING_ASSIGNED = {
     "entered_at": "2026-08-30T09:55:00Z",
     "released_at": None,
     "release_reason": "",
+    "source": "attempt",
 }
 _HOLDING_GRADED = {
     **_HOLDING_ASSIGNED,
@@ -140,6 +146,7 @@ _SUBMISSION_DETAIL = {
     "submitted_by": 3,
     "body": "42",
     "file_url": None,
+    "file_name": None,
     "team_code": "alpha",
     "team_name": "Alpha",
     "node_code": "e1",
@@ -562,16 +569,34 @@ class SubmissionGradeView(APIView):
         )
 
 
+def _is_mentor(user) -> bool:
+    return bool(user and user.is_authenticated and user.has_perm(MENTOR_PERM))
+
+
 def _serve_upload(fieldfile):
     if settings.USE_S3_MEDIA:
         return HttpResponseRedirect(fieldfile.url)
-    return FileResponse(fieldfile.open("rb"), as_attachment=True, filename=fieldfile.name)
+
+    name = PurePosixPath(fieldfile.name)
+    # Uploads bypass the model validators, so only a known-safe extension may
+    # render inline — anything else would run as script on our own origin.
+    inline = name.suffix.lower() in _INLINE_SAFE_SUFFIXES
+    response = FileResponse(
+        fieldfile.open("rb"),
+        as_attachment=not inline,
+        filename=name.name,
+    )
+    response["X-Content-Type-Options"] = "nosniff"
+    if inline:
+        # Clickjacking middleware defaults to DENY; the grading iframe needs same-origin.
+        response["X-Frame-Options"] = "SAMEORIGIN"
+    return response
 
 
 @extend_schema(
     tags=["game"],
     summary="Download submission file",
-    description="Owning team or staff.",
+    description="Owning team, mentor or staff.",
     parameters=[_SUBMISSION_PK],
     responses={200: OpenApiTypes.BINARY},
 )
@@ -585,7 +610,8 @@ class SubmissionMediaView(APIView):
         )
         if not submission.file:
             raise Http404("No file attached.")
-        if not request.user.is_staff and submission.occupancy.team_id != request.user.team_id:
+        owns_file = submission.occupancy.team_id == request.user.team_id
+        if not (_is_mentor(request.user) or request.user.is_staff or owns_file):
             raise PermissionDenied("You cannot access this file.")
         return _serve_upload(submission.file)
 
@@ -593,7 +619,7 @@ class SubmissionMediaView(APIView):
 @extend_schema(
     tags=["game"],
     summary="Download question attachment",
-    description="Staff, or a team that was served this question.",
+    description="Mentor, staff, or a team that was served this question.",
     parameters=[_QUESTION_PK],
     responses={200: OpenApiTypes.BINARY},
 )
@@ -604,7 +630,7 @@ class QuestionMediaView(APIView):
         question = get_object_or_404(Question, pk=pk)
         if not question.attachment:
             raise Http404("No attachment.")
-        if request.user.is_staff:
+        if _is_mentor(request.user) or request.user.is_staff:
             return _serve_upload(question.attachment)
         if request.user.team_id is None:
             raise PermissionDenied("You cannot access this file.")

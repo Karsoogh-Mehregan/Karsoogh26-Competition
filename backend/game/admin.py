@@ -184,6 +184,9 @@ class QuestionAdmin(admin.ModelAdmin):
         ("Mentor reference", {"fields": ("answer_key",), "classes": ("collapse",)}),
     )
 
+    class Media:
+        js = ("game/admin/question_code_title.js",)
+
 
 @admin.register(TeamQuestion)
 class TeamQuestionAdmin(admin.ModelAdmin):
