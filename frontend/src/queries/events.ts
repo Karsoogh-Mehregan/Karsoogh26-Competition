@@ -57,6 +57,7 @@ import type {
   EventCode,
   EventConfiguration,
 } from '@/types/api'
+import { detach } from './invalidate'
 import { queryKeys } from './keys'
 
 export function useTerritoryGamesQuery(enabled: () => boolean) {
@@ -87,7 +88,7 @@ export function useCreateTerritoryGameMutation() {
     mutationFn: (input: CreateTerritoryGameInput) => createTerritoryGame(input),
     onSuccess: (game) => {
       queryClient.setQueryData(queryKeys.territoryGame(game.id), game)
-      return queryClient.invalidateQueries({ queryKey: queryKeys.territoryGames() })
+      detach(queryClient.invalidateQueries({ queryKey: queryKeys.territoryGames() }))
     },
   })
 }
@@ -142,7 +143,7 @@ export function useEnterCharityBagMutation() {
       queryClient.setQueryData(queryKeys.charityBag(event.id), event)
       queryClient.invalidateQueries({ queryKey: queryKeys.balanceEventsRoot() })
       queryClient.invalidateQueries({ queryKey: queryKeys.teamsRoot() })
-      return queryClient.invalidateQueries({ queryKey: queryKeys.charityBagsRoot() })
+      detach(queryClient.invalidateQueries({ queryKey: queryKeys.charityBagsRoot() }))
     },
   })
 }
@@ -153,7 +154,7 @@ export function useCreateCharityBagMutation() {
     mutationFn: (input: CreateCharityBagInput) => createCharityBag(input),
     onSuccess: (event) => {
       queryClient.setQueryData(queryKeys.charityBag(event.id), event)
-      return queryClient.invalidateQueries({ queryKey: queryKeys.charityBagsRoot() })
+      detach(queryClient.invalidateQueries({ queryKey: queryKeys.charityBagsRoot() }))
     },
   })
 }
@@ -193,7 +194,7 @@ export function usePlayCentipedeActionMutation() {
       queryClient.setQueryData(queryKeys.centipedeGame(game.id), game)
       queryClient.invalidateQueries({ queryKey: queryKeys.balanceEventsRoot() })
       queryClient.invalidateQueries({ queryKey: queryKeys.teamsRoot() })
-      return queryClient.invalidateQueries({ queryKey: queryKeys.centipedeGames() })
+      detach(queryClient.invalidateQueries({ queryKey: queryKeys.centipedeGames() }))
     },
   })
 }
@@ -206,7 +207,7 @@ export function useCreateCentipedeGameMutation() {
       queryClient.invalidateQueries({ queryKey: queryKeys.balanceEventsRoot() })
       queryClient.invalidateQueries({ queryKey: queryKeys.teamsRoot() })
       queryClient.setQueryData(queryKeys.centipedeGame(game.id), game)
-      return queryClient.invalidateQueries({ queryKey: queryKeys.centipedeGames() })
+      detach(queryClient.invalidateQueries({ queryKey: queryKeys.centipedeGames() }))
     },
   })
 }
@@ -239,7 +240,7 @@ export function useCreateOlympicsMatchMutation() {
     mutationFn: (input: CreateOlympicsMatchInput) => createOlympicsMatch(input),
     onSuccess: (match) => {
       queryClient.setQueryData(queryKeys.olympicsMatch(match.id), match)
-      return queryClient.invalidateQueries({ queryKey: queryKeys.olympicsMatches() })
+      detach(queryClient.invalidateQueries({ queryKey: queryKeys.olympicsMatches() }))
     },
   })
 }
@@ -250,7 +251,7 @@ export function useStartOlympicsMatchMutation() {
     mutationFn: (matchId: number) => startOlympicsMatch(matchId),
     onSuccess: (match) => {
       queryClient.setQueryData(queryKeys.olympicsMatch(match.id), match)
-      return queryClient.invalidateQueries({ queryKey: queryKeys.olympicsMatches() })
+      detach(queryClient.invalidateQueries({ queryKey: queryKeys.olympicsMatches() }))
     },
   })
 }
@@ -266,7 +267,7 @@ export function useRecordOlympicsResultMutation() {
       recordOlympicsResult(matchId, input),
     onSuccess: (match) => {
       queryClient.setQueryData(queryKeys.olympicsMatch(match.id), match)
-      return queryClient.invalidateQueries({ queryKey: queryKeys.olympicsMatches() })
+      detach(queryClient.invalidateQueries({ queryKey: queryKeys.olympicsMatches() }))
     },
   })
 }
@@ -278,7 +279,7 @@ export function useSubmitOlympicsPlayerRunMutation() {
       submitOlympicsPlayerRun(matchId, { round_number: roundNumber, attempts, best_distance: bestDistance }),
     onSuccess: (match) => {
       queryClient.setQueryData(queryKeys.olympicsMatch(match.id), match)
-      return refresh(queryClient, queryKeys.olympicsMatches())
+      detach(refresh(queryClient, queryKeys.olympicsMatches()))
     },
   })
 }
@@ -302,7 +303,7 @@ export function useCreateAuctionMutation() {
   const { board } = useBoard()
   return useMutation({
     mutationFn: (duration: number) => createAuctionEvent(board.value, duration),
-    onSuccess: () => Promise.all([
+    onSuccess: () => detach([
       refresh(queryClient, queryKeys.auctionEventsRoot()),
       refresh(queryClient, queryKeys.teamsRoot()),
       refresh(queryClient, queryKeys.balanceEventsRoot()),
@@ -315,7 +316,7 @@ export function useAuctionBidMutation() {
   return useMutation({
     mutationFn: ({ pairId, amount, requestId }: { pairId: number; amount: number; requestId: string }) =>
       placeAuctionBid(pairId, amount, requestId),
-    onSuccess: () => Promise.all([
+    onSuccess: () => detach([
       refresh(queryClient, queryKeys.auctionEventsRoot()),
       refresh(queryClient, queryKeys.teamsRoot()),
       refresh(queryClient, queryKeys.balanceEventsRoot()),
@@ -327,7 +328,7 @@ export function useResolveAuctionMutation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (eventId: number) => resolveAuctionEvent(eventId),
-    onSuccess: () => Promise.all([
+    onSuccess: () => detach([
       refresh(queryClient, queryKeys.auctionEventsRoot()),
       refresh(queryClient, queryKeys.teamsRoot()),
       refresh(queryClient, queryKeys.balanceEventsRoot()),
@@ -352,7 +353,7 @@ export function useCreateWheelMutation() {
   return useMutation({
     mutationFn: ({ spinCost, prizes }: { spinCost: number; prizes: WheelPrizeInput[] }) =>
       createWheelEvent(board.value, spinCost, prizes),
-    onSuccess: () => refresh(queryClient, queryKeys.wheelEventsRoot()),
+    onSuccess: () => detach(refresh(queryClient, queryKeys.wheelEventsRoot())),
   })
 }
 
@@ -361,7 +362,7 @@ export function useWheelStateMutation() {
   return useMutation({
     mutationFn: ({ eventId, action }: { eventId: number; action: 'start' | 'stop' }) =>
       action === 'start' ? startWheelEvent(eventId) : stopWheelEvent(eventId),
-    onSuccess: () => refresh(queryClient, queryKeys.wheelEventsRoot()),
+    onSuccess: () => detach(refresh(queryClient, queryKeys.wheelEventsRoot())),
   })
 }
 
@@ -370,7 +371,7 @@ export function useWheelSpinMutation() {
   return useMutation({
     mutationFn: ({ eventId, requestId }: { eventId: number; requestId: string }) =>
       spinWheel(eventId, requestId),
-    onSuccess: () => Promise.all([
+    onSuccess: () => detach([
       refresh(queryClient, queryKeys.wheelEventsRoot()),
       refresh(queryClient, queryKeys.teamsRoot()),
       refresh(queryClient, queryKeys.balanceEventsRoot()),
@@ -382,7 +383,7 @@ export function useWheelDeliveryMutation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (spinId: number) => deliverWheelSpin(spinId),
-    onSuccess: () => refresh(queryClient, queryKeys.wheelEventsRoot()),
+    onSuccess: () => detach(refresh(queryClient, queryKeys.wheelEventsRoot())),
   })
 }
 
@@ -404,7 +405,7 @@ export function useCreatePigMutation() {
   const { board } = useBoard()
   return useMutation({
     mutationFn: (maxPot: number) => createPigEvent(board.value, maxPot),
-    onSuccess: () => refresh(queryClient, queryKeys.pigEventsRoot()),
+    onSuccess: () => detach(refresh(queryClient, queryKeys.pigEventsRoot())),
   })
 }
 
@@ -412,7 +413,7 @@ export function useFinishPigMutation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (eventId: number) => finishPigEvent(eventId),
-    onSuccess: () => refresh(queryClient, queryKeys.pigEventsRoot()),
+    onSuccess: () => detach(refresh(queryClient, queryKeys.pigEventsRoot())),
   })
 }
 
@@ -420,7 +421,7 @@ export function useStartPigGameMutation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (eventId: number) => startPigGame(eventId),
-    onSuccess: () => Promise.all([
+    onSuccess: () => detach([
       refresh(queryClient, queryKeys.pigEventsRoot()),
       refresh(queryClient, queryKeys.teamsRoot()),
       refresh(queryClient, queryKeys.balanceEventsRoot()),
@@ -433,7 +434,7 @@ export function usePigActionMutation() {
   return useMutation({
     mutationFn: ({ gameId, action, requestId }: { gameId: number; action: 'roll' | 'cash_out'; requestId: string }) =>
       playPigAction(gameId, action, requestId),
-    onSuccess: () => Promise.all([
+    onSuccess: () => detach([
       refresh(queryClient, queryKeys.pigEventsRoot()),
       refresh(queryClient, queryKeys.teamsRoot()),
       refresh(queryClient, queryKeys.balanceEventsRoot()),
@@ -459,7 +460,7 @@ export function useUpdateEventConfigurationMutation() {
   return useMutation({
     mutationFn: ({ code, input }: { code: EventCode; input: Partial<Pick<EventConfiguration, 'enabled' | 'duration_seconds' | 'settings'>> }) =>
       updateEventConfiguration(code, input),
-    onSuccess: () => refresh(queryClient, queryKeys.eventCatalog()),
+    onSuccess: () => detach(refresh(queryClient, queryKeys.eventCatalog())),
   })
 }
 
@@ -482,7 +483,7 @@ export function useMatchmakingMutation() {
       if (ticketId == null) throw new Error('شناسه مسابقه موجود نیست.')
       return dismissMatchmaking(ticketId)
     },
-    onSuccess: () => Promise.all([
+    onSuccess: () => detach([
       refresh(queryClient, queryKeys.matchmaking()),
       refresh(queryClient, queryKeys.teamsRoot()),
       refresh(queryClient, queryKeys.balanceEventsRoot()),

@@ -23,6 +23,7 @@ import type {
   ReadResult,
   SendResult,
 } from '@/types/api'
+import { detach } from './invalidate'
 import { queryKeys } from './keys'
 
 // The stream is the live path; this only covers the window where it is down.
@@ -128,7 +129,7 @@ export function useAudienceOptionsQuery(enabled: () => boolean) {
 }
 
 function invalidateBoxes(queryClient: ReturnType<typeof useQueryClient>) {
-  return Promise.all([
+  detach([
     queryClient.invalidateQueries({ queryKey: queryKeys.messagesRoot() }),
     // The author is not a recipient, but a send changes what everyone else
     // sees — and an announcer reading their own inbox in another tab counts.

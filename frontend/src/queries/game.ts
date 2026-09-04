@@ -8,6 +8,7 @@ import {
   listSubmissions,
 } from '@/services/game'
 import type { AssignQuestionResult, GradeResult } from '@/types/api'
+import { detach } from './invalidate'
 import { queryKeys } from './keys'
 
 export interface AssignQuestionVariables {
@@ -21,7 +22,7 @@ export function useAssignQuestionMutation() {
     mutationFn: ({ teamCode, nodeCode }: AssignQuestionVariables) =>
       assignQuestion(teamCode, nodeCode),
     onSuccess: (_result: AssignQuestionResult) => {
-      return Promise.all([
+      detach([
         queryClient.invalidateQueries({ queryKey: queryKeys.teamsRoot() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.attemptsRoot() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.submissions() }),
@@ -58,7 +59,7 @@ export function useGradeSubmissionMutation() {
     mutationFn: ({ submissionId, grade }: GradeSubmissionVariables) =>
       gradeSubmission(submissionId, grade),
     onSuccess: (_result: GradeResult) => {
-      return Promise.all([
+      detach([
         queryClient.invalidateQueries({ queryKey: queryKeys.submissions() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.teamsRoot() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.attemptsRoot() }),

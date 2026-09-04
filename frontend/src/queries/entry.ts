@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { answerEntryQuestion, getEntrySheet, retryEntryQuestion } from '@/services/entry'
 import type { EntryAnswerResult, EntrySheet } from '@/types/api'
+import { detach } from './invalidate'
 import { queryKeys } from './keys'
 
 export function useEntrySheetQuery(enabled: () => boolean) {
@@ -27,7 +28,7 @@ export function useAnswerEntryMutation() {
     onSuccess: (result: EntryAnswerResult) => {
       queryClient.setQueryData(queryKeys.entrySheet(), result)
       // Qualifying stamps draft_order on the team row.
-      return queryClient.invalidateQueries({ queryKey: queryKeys.teamsRoot() })
+      detach(queryClient.invalidateQueries({ queryKey: queryKeys.teamsRoot() }))
     },
   })
 }

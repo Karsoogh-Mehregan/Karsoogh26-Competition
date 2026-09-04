@@ -8,6 +8,7 @@ import {
   resolveDuel,
 } from '@/services/duels'
 import type { Duel, DuelBoard, DuelTarget } from '@/types/api'
+import { detach } from './invalidate'
 import { queryKeys } from './keys'
 
 /**
@@ -47,7 +48,7 @@ export function useDuelTargetsQuery(enabled: () => boolean) {
 }
 
 function invalidateDuels(queryClient: ReturnType<typeof useQueryClient>) {
-  return Promise.all([
+  detach([
     queryClient.invalidateQueries({ queryKey: queryKeys.duelsRoot() }),
     // A duel moves money now and a floor when it closes, so the board and the
     // wallet log are both stale.
