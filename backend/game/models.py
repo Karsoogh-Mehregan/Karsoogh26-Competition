@@ -245,7 +245,7 @@ class Occupancy(models.Model):
             ),
             UniqueConstraint(
                 fields=["team", "node"],
-                condition=Q(released_at__isnull=True),
+                condition=Q(released_at__isnull=True, source=AcquisitionSource.ATTEMPT),
                 name="occ_one_unit_per_team",
             ),
             CheckConstraint(

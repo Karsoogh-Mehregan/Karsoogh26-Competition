@@ -195,22 +195,25 @@ def use_fake_document(team: Team, node: Node) -> Occupancy:
 
 
 @transaction.atomic
-def use_gel(team: Team, node: Node) -> Occupancy:
-    """Clear the node and seat this team on its highest floor."""
+def use_gel(team: Team, node: Node) -> list[Occupancy]:
+    """Clear the node and grant this team every FloorReward on its level."""
     _require_running()
     _reject_unplayable(node)
     consume_item(team, ItemType.GEL)
 
     locked = _lock_occupancies(node)
-    top = _playable_floors(node)[-1]
+    floors = _playable_floors(node)
     released = False
     for occupancy in locked:
         _soft_release(occupancy)
         released = True
 
-    holding = _create_item_holding(team, node, floor=top, slot=1)
+    holdings = [
+        _create_item_holding(team, node, floor=floor, slot=slot)
+        for slot, floor in enumerate(floors, start=1)
+    ]
     _publish_takeover(team, node, released=released)
-    return holding
+    return holdings
 
 
 @transaction.atomic
