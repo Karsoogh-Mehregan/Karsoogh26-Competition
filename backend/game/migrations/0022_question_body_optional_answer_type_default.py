@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("game", "0018_stronger_neighbourhood_defaults"),
+        ("game", "0021_item_floors_may_stack"),
     ]
 
     operations = [
