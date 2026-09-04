@@ -365,6 +365,7 @@ class GameStateSerializer(serializers.Serializer):
     elapsed_seconds = serializers.IntegerField(read_only=True, allow_null=True)
     remaining_seconds = serializers.IntegerField(read_only=True, allow_null=True)
     leaderboard_public = serializers.BooleanField(read_only=True)
+    leaderboard_frozen = serializers.BooleanField(read_only=True)
     design_locked = serializers.BooleanField(read_only=True)
 
 
@@ -376,6 +377,7 @@ class GameSettingsSerializer(serializers.ModelSerializer):
         fields = (
             "status",
             "leaderboard_public",
+            "leaderboard_frozen",
             "design_locked",
             "duration_minutes",
             "initial_balance",

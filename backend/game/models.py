@@ -363,6 +363,18 @@ class GameSettings(models.Model):
         max_length=12, choices=GameStatus.choices, default=GameStatus.NOT_STARTED
     )
     leaderboard_public = models.BooleanField(default=False)
+    leaderboard_frozen = models.BooleanField(
+        default=False,
+        help_text=(
+            "When on, competing teams see a snapshot of the rankings taken at "
+            "the freeze; organisers keep seeing live numbers."
+        ),
+    )
+    leaderboard_snapshot = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Per-board rankings captured when the freeze is turned on.",
+    )
     design_locked = models.BooleanField(
         default=False,
         help_text=(
@@ -434,15 +446,35 @@ class GameSettings(models.Model):
         API all keep the same books.
         """
         previous_status = None
+        previous_frozen = None
         if not self._state.adding:
-            previous_status = (
-                type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
+            previous = (
+                type(self).objects.filter(pk=self.pk).values("status", "leaderboard_frozen").first()
             )
+            if previous is not None:
+                previous_status = previous["status"]
+                previous_frozen = previous["leaderboard_frozen"]
+        freeze_fields = self._roll_leaderboard_freeze(previous_frozen)
         touched = self._roll_clock(previous_status)
         update_fields = kwargs.get("update_fields")
-        if touched and update_fields is not None:
-            kwargs["update_fields"] = {*update_fields, *touched}
+        extra = set(freeze_fields) | set(touched)
+        if extra and update_fields is not None:
+            kwargs["update_fields"] = {*update_fields, *extra}
         super().save(*args, **kwargs)
+
+    def _roll_leaderboard_freeze(self, previous_frozen) -> tuple[str, ...]:
+        """Capture both boards when freeze turns on; drop the snapshot when it turns off."""
+        if previous_frozen is None:
+            return ()
+        if self.leaderboard_frozen and not previous_frozen:
+            from teams.leaderboard import snapshot_all_boards
+
+            self.leaderboard_snapshot = snapshot_all_boards()
+            return ("leaderboard_snapshot",)
+        if not self.leaderboard_frozen and previous_frozen:
+            self.leaderboard_snapshot = None
+            return ("leaderboard_snapshot",)
+        return ()
 
     def _roll_clock(self, previous_status) -> tuple:
         """Bank the stretch that just ended, and open a new one if now running."""

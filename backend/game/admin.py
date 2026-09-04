@@ -160,9 +160,15 @@ class GameSettingsAdmin(admin.ModelAdmin):
         "entry_grace_minutes",
         "entry_max_retries",
         "leaderboard_public",
+        "leaderboard_frozen",
         "design_locked",
     )
-    readonly_fields = ("started_at", "accumulated_seconds", "running_since")
+    readonly_fields = (
+        "started_at",
+        "accumulated_seconds",
+        "running_since",
+        "leaderboard_snapshot",
+    )
 
     def has_add_permission(self, request):
         return not GameSettings.objects.exists()

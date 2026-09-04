@@ -3,6 +3,8 @@ import { computed, type Ref } from 'vue'
 import { useBoard } from '@/composables/useBoard'
 import { streamConnected } from '@/lib/boardStreamState'
 import { claimStart, getLeaderboard, listBalanceEvents, listTeams } from '@/services/teams'
+import { useMeQuery } from './auth'
+import { useGameStateQuery } from './gameState'
 import type { Team } from '@/types/api'
 import { queryKeys } from './keys'
 
@@ -19,10 +21,17 @@ export function useTeamsQuery(enabled: () => boolean) {
 
 export function useLeaderboardQuery(enabled: () => boolean) {
   const { board } = useBoard()
+  const meQuery = useMeQuery()
+  const stateQuery = useGameStateQuery(() => meQuery.data.value != null)
+  const frozenPlayer = computed(
+    () => meQuery.data.value?.team != null && stateQuery.data.value?.leaderboard_frozen === true,
+  )
   return useQuery({
     queryKey: computed(() => queryKeys.leaderboard(board.value)),
     queryFn: ({ signal }) => getLeaderboard(board.value, signal),
     enabled,
+    staleTime: computed(() => (frozenPlayer.value ? Infinity : 0)),
+    refetchOnWindowFocus: computed(() => !frozenPlayer.value),
   })
 }
 

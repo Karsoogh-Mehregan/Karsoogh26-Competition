@@ -17,14 +17,18 @@ import {
 import { useActing } from '@/composables/useActing'
 import { formatBalance } from '@/lib/format'
 import { ApiError } from '@/lib/http'
+import { useGameStateQuery } from '@/queries/gameState'
 import { useLeaderboardQuery } from '@/queries/teams'
 import type { LeaderboardRow } from '@/types/api'
 
-const { me, actingTeam } = useActing()
+const { me, actingTeam, isPlayer } = useActing()
 const isAuthenticated = () => me.value != null
 const { data, isPending, error, refetch, isFetching } = useLeaderboardQuery(isAuthenticated)
+const { data: gameState } = useGameStateQuery(isAuthenticated)
 
 const rows = computed(() => data.value ?? [])
+const leaderboardFrozen = computed(() => gameState.value?.leaderboard_frozen === true)
+const frozenForPlayer = computed(() => leaderboardFrozen.value && isPlayer.value)
 const errorMessage = computed(() => {
   if (!error.value) return ''
   return error.value instanceof ApiError ? error.value.detail : 'خطا در دریافت جدول امتیازات.'
@@ -48,12 +52,13 @@ function isOwnRow(row: LeaderboardRow): boolean {
         <div class="flex items-center gap-2">
           <TrophyIcon class="text-muted-foreground size-5 shrink-0" />
           <h1 class="text-lg font-bold">جدول امتیازات</h1>
+          <Badge v-if="leaderboardFrozen" variant="secondary">فریز شده</Badge>
           <Badge v-if="rows.length" variant="secondary" class="tabular-nums">
             {{ formatBalance(rows.length) }} تیم
           </Badge>
         </div>
         <Button
-          v-if="me"
+          v-if="me && !frozenForPlayer"
           variant="ghost"
           size="sm"
           :disabled="isFetching"
@@ -70,23 +75,32 @@ function isOwnRow(row: LeaderboardRow): boolean {
         برای دیدن جدول امتیازات وارد شوید.
       </p>
 
-      <div
-        v-else-if="errorMessage"
-        class="border-destructive/30 bg-destructive/5 flex flex-col items-start gap-3 rounded-lg border p-4"
-        role="alert"
-      >
-        <p class="text-destructive flex items-start gap-2 text-sm">
-          <CircleAlertIcon class="mt-0.5 size-4 shrink-0" />
-          {{ errorMessage }}
+      <template v-else>
+        <p v-if="leaderboardFrozen" class="text-muted-foreground text-sm">
+          {{
+            frozenForPlayer
+              ? 'رتبه‌ها در لحظهٔ فریز ثابت شده‌اند و دیگر به‌روز نمی‌شوند.'
+              : 'تیم‌ها جدول ثابت می‌بینند؛ این صفحه زنده است.'
+          }}
         </p>
-        <Button variant="outline" size="sm" :disabled="isFetching" @click="refetch()">
-          <RefreshCwIcon class="size-4" :class="isFetching && 'animate-spin'" />
-          تلاش دوباره
-        </Button>
-      </div>
 
-      <Card v-else class="overflow-hidden p-0">
-        <Table>
+        <div
+          v-if="errorMessage"
+          class="border-destructive/30 bg-destructive/5 flex flex-col items-start gap-3 rounded-lg border p-4"
+          role="alert"
+        >
+          <p class="text-destructive flex items-start gap-2 text-sm">
+            <CircleAlertIcon class="mt-0.5 size-4 shrink-0" />
+            {{ errorMessage }}
+          </p>
+          <Button variant="outline" size="sm" :disabled="isFetching" @click="refetch()">
+            <RefreshCwIcon class="size-4" :class="isFetching && 'animate-spin'" />
+            تلاش دوباره
+          </Button>
+        </div>
+
+        <Card v-else class="overflow-hidden p-0">
+          <Table>
           <TableHeader>
             <TableRow class="hover:bg-transparent">
               <TableHead class="w-16 border-e text-center">رتبه</TableHead>
@@ -149,8 +163,9 @@ function isOwnRow(row: LeaderboardRow): boolean {
               </TableRow>
             </template>
           </TableBody>
-        </Table>
-      </Card>
+          </Table>
+        </Card>
+      </template>
     </div>
   </div>
 </template>

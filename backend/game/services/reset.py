@@ -107,6 +107,20 @@ def restart_game(*, by=None, board: str | None = None) -> dict:
         last_duel_at=None,
     )
 
+    # Freeze is an organiser switch and stays, but the snapshot is a copy of
+    # team state. After a refund it would still show last run's ranks, so
+    # recapture the boards that this restart actually touched.
+    if settings_row.leaderboard_frozen:
+        from teams.leaderboard import ranked_rows, snapshot_all_boards
+
+        if board is None:
+            settings_row.leaderboard_snapshot = snapshot_all_boards()
+        else:
+            snap = dict(settings_row.leaderboard_snapshot or {})
+            snap[board] = ranked_rows(board)
+            settings_row.leaderboard_snapshot = snap
+        settings_row.save(update_fields=["leaderboard_snapshot"])
+
     # Zero the run ledger so both timers start over. `duration_minutes` is left
     # alone: an organiser set it deliberately, and it is the length of the game,
     # not a fact about the run that just ended.
