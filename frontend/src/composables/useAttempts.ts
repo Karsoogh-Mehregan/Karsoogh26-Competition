@@ -1,4 +1,5 @@
 import { computed, watch } from 'vue'
+import { compareAttemptsForSolve } from '@/lib/attemptStatus'
 import { ApiError } from '@/lib/http'
 import { useAttemptsQuery } from '@/queries/attempts'
 import { useAttemptStore } from '@/stores/attempt'
@@ -25,7 +26,10 @@ export function useAttempts() {
   const attemptsQuery = useAttemptsQuery(teamCode, enabled)
 
   const questionAttempts = computed<ActiveAttempt[]>(() =>
-    (attemptsQuery.data.value ?? []).filter((attempt) => attempt.status !== 'no_question'),
+    (attemptsQuery.data.value ?? [])
+      .filter((attempt) => attempt.status !== 'no_question')
+      .slice()
+      .sort(compareAttemptsForSolve),
   )
 
   const selected = computed<ActiveAttempt | null>(() => {
