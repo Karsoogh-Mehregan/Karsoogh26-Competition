@@ -778,6 +778,7 @@ def _game_state_payload(settings_row: GameSettings) -> dict:
         "leaderboard_public": settings_row.leaderboard_public,
         "leaderboard_frozen": settings_row.leaderboard_frozen,
         "design_locked": settings_row.design_locked,
+        "max_open_attempts": settings_row.max_open_attempts,
     }
 
 
@@ -807,6 +808,7 @@ def _game_state_payload(settings_row: GameSettings) -> dict:
                 "leaderboard_public": False,
                 "leaderboard_frozen": False,
                 "design_locked": False,
+                "max_open_attempts": 2,
             },
             response_only=True,
         ),
@@ -835,7 +837,7 @@ class GameStateView(APIView):
     summary="Read or change game settings",
     description=(
         "Game-god only. PATCH one or more of status, leaderboard_frozen, design_locked, "
-        "duration_minutes, initial_balance. Any change publishes a `game.state` "
+        "duration_minutes, initial_balance, max_open_attempts. Any change publishes a `game.state` "
         "event so every open client re-reads the state without a refresh."
     ),
     request=GameSettingsSerializer,

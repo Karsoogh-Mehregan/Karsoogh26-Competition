@@ -53,6 +53,19 @@ def team_can_access_node(team: Team, node: Node) -> bool:
     return node.pk in expandable or is_reachable(node, expandable)
 
 
+def open_attempt_count(team: Team) -> int:
+    """Reservations the team is still sitting on: a question drawn, no answer sent.
+
+    A submitted answer stops counting the moment it is sent, graded or not, so
+    the cap limits how much a team can hoard — never how much it can have solved.
+    """
+    return (
+        Occupancy.objects.active()
+        .filter(team=team, question__isnull=False, grade__isnull=True, submission__isnull=True)
+        .count()
+    )
+
+
 def _reserve(team: Team, node: Node) -> Occupancy:
     if node.level_id == Level.TOLL:
         raise Conflict("عبور از عوارضی با بازی مین‌روب انجام می‌شود، نه با سؤال.")
@@ -128,7 +141,8 @@ def claim_node(team: Team, node: Node) -> Occupancy:
     A node already reserved by this team is topped up with a question instead of
     being charged again.
     """
-    if not GameSettings.load().is_running:
+    settings = GameSettings.load()
+    if not settings.is_running:
         raise Conflict("بازی در حال اجرا نیست.")
 
     release_expired_attempts()
@@ -146,6 +160,13 @@ def claim_node(team: Team, node: Node) -> Occupancy:
         holding = _reserve(team, node)
     elif holding.question_assigned_at is not None:
         raise Conflict("سؤال قبلاً به این تیم تخصیص داده شده است.")
+
+    Team.objects.select_for_update().get(pk=team.pk)
+    if settings.max_open_attempts and open_attempt_count(team) >= settings.max_open_attempts:
+        raise Conflict(
+            f"تیم شما {settings.max_open_attempts} سؤال بی‌پاسخ دارد؛ "
+            "تا به آن‌ها جواب ندهید نمی‌توانید خانهٔ تازه‌ای بگیرید."
+        )
 
     assign_question(holding)
     holding.refresh_from_db()

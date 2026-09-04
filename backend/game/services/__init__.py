@@ -31,7 +31,13 @@ from .mentor import (
     grade_attempt,
     release_attempt,
 )
-from .movement import claim_node, claim_spawn, is_reachable, team_can_access_node
+from .movement import (
+    claim_node,
+    claim_spawn,
+    is_reachable,
+    open_attempt_count,
+    team_can_access_node,
+)
 from .questions import (
     assign_question,
     grade_submission,
@@ -67,6 +73,7 @@ __all__ = [
     "grade_attempt",
     "grade_submission",
     "is_reachable",
+    "open_attempt_count",
     "publish",
     "publish_on_commit",
     "release_attempt",

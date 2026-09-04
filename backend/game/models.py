@@ -383,6 +383,13 @@ class GameSettings(models.Model):
             "the whole sheet. Raise it to be more forgiving; 0 makes every answer final."
         ),
     )
+    max_open_attempts = models.PositiveSmallIntegerField(
+        default=2,
+        help_text=(
+            "How many reserved-but-unanswered questions a team may hold at once. "
+            "A question the team has answered no longer counts, graded or not; 0 turns the cap off."
+        ),
+    )
     started_at = models.DateTimeField(
         null=True,
         blank=True,
