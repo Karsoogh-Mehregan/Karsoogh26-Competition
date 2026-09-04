@@ -28,7 +28,7 @@ export interface AssignmentInput {
 
 /** The special plots never take part: they have their own fixed look. */
 function isAssignable(node: AssignableNode): boolean {
-  return node.level !== 'spawn' && node.level !== 'toll'
+  return node.level !== 'spawn' && node.level !== 'toll' && node.level !== 'center'
 }
 
 export function assignArchetypes(input: AssignmentInput): Map<string, string> {

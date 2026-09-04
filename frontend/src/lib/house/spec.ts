@@ -41,6 +41,8 @@ export interface HouseSpec {
   archetype: Archetype
   theme: Theme
   neighborhoodName: string
+  /** The eight neighbourhoods' colours by sector index; the centre's columns wear them. */
+  neighborhoodColors: string[]
   floors: FloorState[]
   /** Seats with nobody in them, reserved or owned. */
   freeSlots: number
@@ -68,6 +70,7 @@ export interface NodeMeta {
   archetype: Archetype
   theme: Theme
   neighborhoodName: string
+  neighborhoodColors: string[]
 }
 
 function emptyFloor(floor: number): FloorState {
@@ -149,6 +152,7 @@ export function buildSpec(
     archetype,
     theme,
     neighborhoodName: meta.neighborhoodName,
+    neighborhoodColors: meta.neighborhoodColors,
     floors,
     freeSlots: floors.filter((slot) => slot.status === 'empty').length,
     // Only what changes *geometry*: the building worn, the theme dressing it,

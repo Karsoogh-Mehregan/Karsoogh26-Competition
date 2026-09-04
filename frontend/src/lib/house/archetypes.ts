@@ -1,5 +1,5 @@
 /**
- * The twenty-six buildings of Gil Behesht, plus the two special plots.
+ * The twenty-six buildings of Gil Behesht, plus the three special plots.
  *
  * A building is a shared chassis wearing a type's hat: the storeys and windows
  * are identical everywhere, and the type decides the roof, the foundation it
@@ -83,7 +83,7 @@ export const ARCHETYPES: Archetype[] = [
   { key: 'library', label: 'کتابخانه', roof: 'hip', foundation: 'stepped', props: ['books'], awning: false },
 ]
 
-/** Keys the assignment may hand out; the two special plots are excluded. */
+/** Keys the assignment may hand out; the three special plots are excluded. */
 export const ASSIGNABLE_KEYS: readonly string[] = ARCHETYPES.map((archetype) => archetype.key)
 
 export const ARCHETYPE_BY_KEY: ReadonlyMap<string, Archetype> = new Map(
@@ -108,6 +108,21 @@ export const TOLL_ARCHETYPE: Archetype = {
   awning: false,
 }
 
+/**
+ * مرکز شهر — the one `CENTER` node. A city hall of three storeys over two open
+ * colonnades, eight columns to each: one per neighbourhood, standing at that
+ * neighbourhood's bearing on the map and wearing its colour. Fixed to the
+ * level like spawn and toll, so a Designer's pin never replaces it.
+ */
+export const CENTER_ARCHETYPE: Archetype = {
+  key: 'center',
+  label: 'شهرداری گیل‌بهشت',
+  roof: 'flat',
+  foundation: 'stepped',
+  props: ['columns'],
+  awning: false,
+}
+
 /** FNV-1a, so the same node code always lands on the same building. */
 export function hashCode(value: string): number {
   let h = 0x811c9dc5
@@ -122,12 +137,14 @@ export function hashCode(value: string): number {
 export function fallbackArchetypeFor(nodeCode: string, level: Level): Archetype {
   if (level === 'spawn') return SPAWN_ARCHETYPE
   if (level === 'toll') return TOLL_ARCHETYPE
+  if (level === 'center') return CENTER_ARCHETYPE
   return ARCHETYPES[hashCode(nodeCode) % ARCHETYPES.length]
 }
 
 export function archetypeByKey(key: string, level: Level): Archetype {
   if (level === 'spawn') return SPAWN_ARCHETYPE
   if (level === 'toll') return TOLL_ARCHETYPE
+  if (level === 'center') return CENTER_ARCHETYPE
   return ARCHETYPE_BY_KEY.get(key) ?? ARCHETYPES[0]
 }
 

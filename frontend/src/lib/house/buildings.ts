@@ -15,22 +15,27 @@
  * 2. **Everything is the eight pooled geometries, scaled.** Cows, cranes, and
  *    windmills included. Nothing here allocates a `BufferGeometry`.
  */
-import { Mesh, Object3D, type Material } from 'three'
+import { Mesh, Object3D, type InstancedMesh, type Material } from 'three'
 
 import type { Archetype } from './archetypes'
 import type { FoundationKind, RoofKind } from './archetypes'
 import type { GeometryKey } from './geometry'
-import { buildEmblem, buildFoundation, mesh, roofOn, type Footprint, type Paint, type RoofInfo } from './props'
+import { glass as glassMaterial, solid } from './materials'
+import {
+  buildEmblem,
+  buildFoundation,
+  instancedMesh,
+  mesh,
+  roofOn,
+  type Footprint,
+  type Paint,
+  type Placement,
+  type RoofInfo,
+} from './props'
 import type { Theme } from './themes'
 
 export type Face = 'n' | 's' | 'e' | 'w'
-
-export interface Placement {
-  x: number
-  y: number
-  z: number
-  rotY: number
-}
+export type { Placement } from './props'
 
 export interface FloorBounds {
   x: number
@@ -51,10 +56,18 @@ export interface Built {
   parts: Object3D[]
   floors: FloorRecord[]
   windows: Placement[]
+  /** Meshes that wear a neighbourhood's colour, by sector index 0..7. */
+  sectorParts: Mesh[][]
+  /** What an unclaimed storey wears when the type does not use the theme's wall. */
+  emptyWall: Material | null
+  /** Whether the neighbourhood motif dresses the plot. */
+  dressing: boolean
   top: number
   groundY: number
   plot: Footprint
 }
+
+export const SECTOR_COUNT = 8
 
 const STOREY_H = 0.88
 const TRIM_H = 0.12
@@ -84,6 +97,9 @@ class Ctx {
   readonly parts: Object3D[] = []
   readonly floors: FloorRecord[] = []
   readonly windows: Placement[] = []
+  readonly sectorParts: Mesh[][] = Array.from({ length: SECTOR_COUNT }, () => [])
+  emptyWall: Material | null = null
+  dressing = true
   top = 0
   groundY = -0.44
   plot: Footprint = { x: 0, z: 0, w: 2, d: 2 }
@@ -116,6 +132,25 @@ class Ctx {
 
   cyl(material: Material, pos: Vec3, scale: Vec3, rot?: Vec3): Mesh {
     return this.m('cylinder', material, pos, scale, rot)
+  }
+
+  /** One draw call for every copy; the placement's `rotY` turns each onto its face. */
+  instances(
+    key: GeometryKey,
+    material: Material,
+    scale: { x: number; y: number; z: number },
+    placements: Placement[],
+  ): InstancedMesh | null {
+    const item = instancedMesh(key, material, placements, scale)
+    if (item === null) return null
+    this.parts.push(item)
+    for (const p of placements) this.top = Math.max(this.top, p.y + scale.y / 2)
+    return item
+  }
+
+  /** Hand a mesh to a neighbourhood: `paint()` keeps it in that sector's colour. */
+  sectorMesh(sector: number, item: Mesh) {
+    this.sectorParts[sector]?.push(item)
   }
 
   // ---- the plot ------------------------------------------------------------------
@@ -349,6 +384,9 @@ class Ctx {
       parts: this.parts,
       floors: this.floors,
       windows: this.windows,
+      sectorParts: this.sectorParts,
+      emptyWall: this.emptyWall,
+      dressing: this.dressing,
       top: this.top,
       groundY: this.groundY,
       plot: this.plot,
@@ -969,6 +1007,190 @@ const BUILDERS: Record<string, Builder> = {
     c.box(c.paint.glass, { y: 1.55, z: -0.66 }, { x: 0.9, y: 0.22, z: 0.02 })
     c.lantern(-0.85, 0.35, 0.7)
     c.lantern(-1.25, 1.1, 0.7)
+  },
+
+  /**
+   * مرکز شهر: the city hall at the heart of the map.
+   *
+   * A square stone building read straight off the brief — one storey on the
+   * ground, then a colonnade of eight columns, another storey, another
+   * colonnade, and a third storey under a flat roof. The three storeys are the
+   * three seats. The eight columns are the eight neighbourhoods: each stands at
+   * the bearing its neighbourhood has on the map (sector k is centred on
+   * 22.5° + 45°·k, which puts two on every side, each pair facing the pair
+   * across the floor) and wears that neighbourhood's colour, so the building is
+   * a compass of the city. Walls, cornices and capitals are fixed ivory stone
+   * rather than the sector-0 theme it technically sits in, because the centre
+   * belongs to everyone.
+   */
+  center(c) {
+    const ivory = solid(0xfbf6ec)
+    const stone = solid(0xe3d8c4)
+    const dark = solid(0x3b332c)
+    const pane = glassMaterial(0xffe6ad)
+
+    const S = 3.4 // ground plan
+    const U = 3.0 // upper storeys
+    const GH = 1.3 // ground storey height
+    const UH = 0.95 // upper storey height
+    const SHAFT = 0.96
+
+    c.emptyWall = ivory
+    c.dressing = false
+    c.foundation('stepped', { w: S, d: S })
+
+    // Every face of a square, as (unit normal, yaw that turns a +z piece onto it).
+    interface FaceInfo {
+      nx: number
+      nz: number
+      rotY: number
+    }
+    const FACES: FaceInfo[] = [
+      { nx: 0, nz: 1, rotY: 0 },
+      { nx: 0, nz: -1, rotY: Math.PI },
+      { nx: 1, nz: 0, rotY: Math.PI / 2 },
+      { nx: -1, nz: 0, rotY: -Math.PI / 2 },
+    ]
+    /** A point on a face: `along` runs across the face, `out` is proud of the wall. */
+    const onFace = (f: FaceInfo, half: number, along: number, y: number, out: number): Placement => ({
+      x: f.nx * (half + out) + (f.nz !== 0 ? along * f.nz : 0),
+      y,
+      z: f.nz * (half + out) + (f.nx !== 0 ? -along * f.nx : 0),
+      rotY: f.rotY,
+    })
+    const shift = (list: Placement[], out: number, dy: number): Placement[] =>
+      list.map((p) => ({
+        x: p.x + Math.sin(p.rotY) * out,
+        y: p.y + dy,
+        z: p.z + Math.cos(p.rotY) * out,
+        rotY: p.rotY,
+      }))
+
+    /**
+     * A pointed-arch window kit, instanced: a proud stone frame, a dark recess
+     * and a lit pane, each a box with a four-sided cone squashed flat on top —
+     * viewed square-on that cone is a triangle, which is the arch.
+     */
+    const archWindows = (anchors: Placement[], w: number, h: number) => {
+      const layers: Array<[Material, number, number, number, number]> = [
+        [stone, 0.03, w + 0.16, h + 0.06, 0.06],
+        [dark, 0.07, w, h, 0.05],
+        [pane, 0.09, w - 0.12, h - 0.1, 0.03],
+      ]
+      for (const [material, out, lw, lh, depth] of layers) {
+        const tip = lw * 0.55
+        c.instances('box', material, { x: lw, y: lh, z: depth }, shift(anchors, out, 0))
+        c.instances('pyramid', material, { x: lw, y: tip, z: depth }, shift(anchors, out, lh / 2 + tip / 2))
+      }
+    }
+
+    /** Two-step cornice capping a storey of side `side` whose top is `y`. */
+    const cornice = (side: number, y: number): number => {
+      c.box(stone, { y: y + 0.07 }, { x: side + 0.24, y: 0.14, z: side + 0.24 })
+      c.box(stone, { y: y + 0.18 }, { x: side + 0.42, y: 0.08, z: side + 0.42 })
+      return y + 0.22
+    }
+
+    /** Corner piers and, on the upper storeys, pilasters between the window bays. */
+    const piers = (side: number, y0: number, h: number, width: number, pilasters: boolean) => {
+      const at = side / 2 - width / 2 + 0.03
+      const corners: Placement[] = []
+      for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) corners.push({ x: sx * at, y: y0 + h / 2, z: sz * at, rotY: 0 })
+      }
+      c.instances('box', stone, { x: width, y: h, z: width }, corners)
+      if (!pilasters) return
+      const list: Placement[] = []
+      for (const f of FACES) {
+        for (const along of [-0.45, 0.45]) list.push(onFace(f, side / 2, along, y0 + h / 2, 0.03))
+      }
+      c.instances('box', stone, { x: 0.12, y: h, z: 0.06 }, list)
+    }
+
+    /**
+     * An open colonnade over a slab at `y`: eight columns, one per neighbourhood.
+     * Plinths, rings and capitals are one instanced draw each; only the shafts
+     * are individual meshes, because each wears its own neighbourhood's paint.
+     */
+    const colonnade = (y: number): number => {
+      c.box(stone, { y: y + 0.07 }, { x: U + 0.36, y: 0.14, z: U + 0.36 })
+      c.box(stone, { y: y + 0.17 }, { x: U + 0.2, y: 0.06, z: U + 0.2 })
+      const base = y + 0.2
+      const half = U / 2 - 0.1
+      const feet: Placement[] = []
+      for (let k = 0; k < SECTOR_COUNT; k += 1) {
+        // Sector k's bisector in map terms (theta counter-clockwise, y down),
+        // mapped onto the model's ground plane: x east, -z north.
+        const a = ((k * 45 + 22.5) * Math.PI) / 180
+        const dx = Math.cos(a)
+        const dz = -Math.sin(a)
+        const m = Math.max(Math.abs(dx), Math.abs(dz))
+        const x = (dx / m) * half
+        const z = (dz / m) * half
+        feet.push({ x, y: base, z, rotY: 0 })
+        const shaft = c.cyl(stone, { x, y: base + 0.14 + SHAFT / 2, z }, { x: 0.22, y: SHAFT, z: 0.22 })
+        c.sectorMesh(k, shaft)
+      }
+      const lift = (dy: number) => feet.map((p) => ({ ...p, y: p.y + dy }))
+      c.instances('box', stone, { x: 0.34, y: 0.1, z: 0.34 }, lift(0.05))
+      c.instances('cylinder', stone, { x: 0.28, y: 0.05, z: 0.28 }, lift(0.12))
+      c.instances('cylinder', stone, { x: 0.28, y: 0.05, z: 0.28 }, lift(0.14 + SHAFT + 0.02))
+      c.instances('box', stone, { x: 0.36, y: 0.12, z: 0.36 }, lift(0.14 + SHAFT + 0.11))
+      const top = base + 0.14 + SHAFT + 0.17
+      c.box(stone, { y: top + 0.08 }, { x: U + 0.36, y: 0.16, z: U + 0.36 })
+      return top + 0.16
+    }
+
+    /** An upper storey: the seat itself, its bays of windows, its piers, its cornice. */
+    const upper = (floor: number, y0: number): number => {
+      const y1 = c.storey({ floor, w: U, d: U, y0, h: UH, trim: false, material: ivory })
+      piers(U, y0, UH, 0.26, true)
+      const list: Placement[] = []
+      for (const f of FACES) {
+        for (const along of [-0.9, 0, 0.9]) list.push(onFace(f, U / 2, along, y0 + 0.44, 0))
+      }
+      archWindows(list, 0.3, 0.46)
+      return cornice(U, y1)
+    }
+
+    // ---- ground storey: the portal, tall windows, heavy corners ----
+    let y = c.storey({ floor: 1, w: S, d: S, y0: 0, h: GH, trim: false, material: ivory })
+    c.box(stone, { y: 0.08 }, { x: S + 0.16, y: 0.16, z: S + 0.16 })
+    piers(S, 0, GH + 0.04, 0.4, false)
+    {
+      const list: Placement[] = []
+      for (const f of FACES) {
+        const bays = f.rotY === 0 ? [-1.1, 1.1] : [-1.1, 0, 1.1]
+        for (const along of bays) list.push(onFace(f, S / 2, along, 0.64, 0))
+      }
+      archWindows(list, 0.36, 0.56)
+    }
+    // The portal: a proud stone frame around a dark pointed arch, on the south face.
+    const front = S / 2
+    c.box(stone, { y: 0.45, z: front + 0.07 }, { x: 1.0, y: 0.9, z: 0.14 })
+    c.m('pyramid', stone, { y: 0.9 + 0.19, z: front + 0.07 }, { x: 1.0, y: 0.38, z: 0.14 })
+    c.box(dark, { y: 0.42, z: front + 0.15 }, { x: 0.72, y: 0.84, z: 0.06 })
+    c.m('pyramid', dark, { y: 0.84 + 0.14, z: front + 0.15 }, { x: 0.72, y: 0.28, z: 0.06 })
+    c.box(pane, { y: 0.7, z: front + 0.19 }, { x: 0.44, y: 0.04, z: 0.02 })
+    y = cornice(S, y)
+
+    // ---- colonnade, storey, colonnade, storey ----
+    y = colonnade(y)
+    y = upper(2, y)
+    y = colonnade(y)
+    y = upper(3, y)
+
+    // ---- the flat roof: a slab and a low parapet ----
+    c.box(stone, { y: y + 0.04 }, { x: U + 0.1, y: 0.08, z: U + 0.1 })
+    for (const f of FACES) {
+      const p = onFace(f, U / 2 + 0.16, 0, y + 0.13, 0)
+      const long = f.nz !== 0
+      c.box(stone, { x: p.x, y: p.y, z: p.z }, { x: long ? U + 0.42 : 0.1, y: 0.1, z: long ? 0.1 : U + 0.42 })
+    }
+
+    // ---- the approach: steps to the portal, lanterns beside them ----
+    c.steps(0, front + 0.24, 1.6, 3)
+    for (const s of [-1, 1]) c.lantern(s * 1.2, front + 0.55, 0.8)
   },
 
   /** The team's home: a pavilion whose base and banner wear the team colour. */
