@@ -74,6 +74,30 @@ class Team(models.Model):
         return active_holdings().filter(team=self)
 
 
+class ItemType(models.TextChoices):
+    FAKE_DOCUMENT = "fake_document", "سند جعلی"
+    GEL = "gel", "گل"
+    GILARI_100 = "gilari_100", "۱۰۰ گیلاری"
+
+
+class TeamItem(models.Model):
+    """One stack of a given item type in a team's inventory."""
+
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="items")
+    item_type = models.CharField(max_length=16, choices=ItemType.choices)
+    quantity = models.PositiveIntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["team", "item_type"]
+        constraints = [
+            UniqueConstraint(fields=["team", "item_type"], name="teamitem_one_per_type"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.team} {self.get_item_type_display()} ×{self.quantity}"
+
+
 class BalanceEvent(models.Model):
     """One row per wallet change so the team panel can replay the score log."""
 

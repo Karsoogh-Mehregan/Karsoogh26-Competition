@@ -9,6 +9,7 @@ import LeaderboardPage from '@/pages/LeaderboardPage.vue'
 import MessagePage from '@/pages/MessagePage.vue'
 import MessagesPage from '@/pages/MessagesPage.vue'
 import SentMessagePage from '@/pages/SentMessagePage.vue'
+import BackpackPage from '@/pages/BackpackPage.vue'
 import MapPage from '@/pages/MapPage.vue'
 import TerritoryEventPage from '@/pages/TerritoryEventPage.vue'
 import CharityBagPage from '@/pages/CharityBagPage.vue'
@@ -64,6 +65,7 @@ export const router = createRouter({
     { path: '/events/pig', name: 'pig', component: SpecialGamesPage, meta: { requiresAuth: true, eventCode: 'pig' } },
     { path: '/grading', name: 'grading', component: GradingPage, meta: { requiresMentor: true } },
     { path: '/solve', name: 'solve', component: SolvePage, meta: { requiresPlayer: true } },
+    { path: '/backpack', name: 'backpack', component: BackpackPage, meta: { requiresPlayer: true } },
     {
       path: '/minesweeper/node/:id',
       name: 'minesweeper-node',

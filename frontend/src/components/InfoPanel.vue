@@ -122,6 +122,19 @@ const showTeamPicker = computed(() => isMentor.value || isPlayer.value)
             حل سؤال
           </RouterLink>
         </Button>
+        <Button
+          v-if="isPlayer"
+          as-child
+          size="sm"
+          :variant="route.path === '/backpack' ? 'default' : 'outline'"
+        >
+          <RouterLink
+            to="/backpack"
+            :aria-current="route.path === '/backpack' ? 'page' : undefined"
+          >
+            کوله پشتی
+          </RouterLink>
+        </Button>
         <Button as-child size="sm" :variant="route.path === '/leaderboard' ? 'default' : 'outline'">
           <RouterLink
             to="/leaderboard"

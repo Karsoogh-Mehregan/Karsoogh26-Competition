@@ -37,6 +37,12 @@ class ReleaseReason(models.TextChoices):
     EXPIRED = "expired", "منقضی شد"
     DUEL_LOST = "duel_lost", "باخت دوئل"
     BOUGHT_OUT = "bought_out", "خریداری شد"
+    ITEM_TAKEOVER = "item_takeover", "آیتم"
+
+
+class AcquisitionSource(models.TextChoices):
+    ATTEMPT = "attempt", "تلاش"
+    ITEM = "item", "آیتم"
 
 
 class GameStatus(models.TextChoices):
@@ -210,6 +216,11 @@ class Occupancy(models.Model):
     )
 
     is_spawn = models.BooleanField(default=False)
+    source = models.CharField(
+        max_length=16,
+        choices=AcquisitionSource.choices,
+        default=AcquisitionSource.ATTEMPT,
+    )
     expires_at = models.DateTimeField(null=True, blank=True)
 
     entered_at = models.DateTimeField(auto_now_add=True)
@@ -234,7 +245,7 @@ class Occupancy(models.Model):
             ),
             UniqueConstraint(
                 fields=["team", "node"],
-                condition=Q(released_at__isnull=True),
+                condition=Q(released_at__isnull=True, source=AcquisitionSource.ATTEMPT),
                 name="occ_one_unit_per_team",
             ),
             CheckConstraint(

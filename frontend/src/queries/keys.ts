@@ -36,6 +36,7 @@ export const queryKeys = {
   audienceOptions: () => ['audience-options'] as const,
   audiencePreview: (key: string) => ['audience-preview', key] as const,
   messageRecipients: (id: number) => ['message-recipients', id] as const,
+  items: () => ['items'] as const,
   minesweeperRoot: () => ['minesweeper'] as const,
   minesweeperAttempt: (attemptId: number) => ['minesweeper', 'attempt', attemptId] as const,
 }

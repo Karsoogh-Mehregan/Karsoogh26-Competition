@@ -21,6 +21,7 @@ from .events import (
     publish,
     publish_on_commit,
 )
+from .items import consume_item, use_fake_document, use_gel, use_gilari
 from .mentor import (
     MENTOR_RELEASE_REASONS,
     Conflict,
@@ -54,6 +55,7 @@ __all__ = [
     "can_claim_start",
     "claim_node",
     "claim_spawn",
+    "consume_item",
     "correct_count",
     "current_version",
     "entry_status",
@@ -70,4 +72,7 @@ __all__ = [
     "retries_used",
     "retry_entry_question",
     "submit_answer",
+    "use_fake_document",
+    "use_gel",
+    "use_gilari",
 ]

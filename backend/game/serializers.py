@@ -310,6 +310,7 @@ class HoldingSerializer(serializers.ModelSerializer):
             "entered_at",
             "released_at",
             "release_reason",
+            "source",
         )
         read_only_fields = fields
 

@@ -3,7 +3,7 @@ from rest_framework import serializers
 from accounts.permissions import MENTOR_PERM
 from game.models import Occupancy
 
-from .models import BalanceEvent, BalanceReason, Team
+from .models import BalanceEvent, BalanceReason, ItemType, Team, TeamItem
 from .start_colors import color_for_start
 
 
@@ -14,7 +14,17 @@ class HoldingSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Occupancy
-        fields = ("id", "node_code", "node_name", "level", "slot", "floor", "grade", "is_spawn")
+        fields = (
+            "id",
+            "node_code",
+            "node_name",
+            "level",
+            "slot",
+            "floor",
+            "grade",
+            "is_spawn",
+            "source",
+        )
 
 
 class TeamSerializer(serializers.ModelSerializer):
@@ -62,6 +72,35 @@ class BalanceEventSerializer(serializers.ModelSerializer):
 
     def get_reason_label(self, obj: BalanceEvent) -> str:
         return REASON_LABELS.get(obj.reason, obj.reason)
+
+
+class TeamItemSerializer(serializers.ModelSerializer):
+    display_name = serializers.CharField(source="get_item_type_display", read_only=True)
+
+    class Meta:
+        model = TeamItem
+        fields = ("item_type", "quantity", "display_name")
+
+
+_NODE_ITEMS = frozenset({ItemType.FAKE_DOCUMENT, ItemType.GEL})
+
+
+class UseItemSerializer(serializers.Serializer):
+    item_type = serializers.ChoiceField(choices=ItemType.choices)
+    node_code = serializers.SlugField(required=False, allow_blank=True, allow_null=True)
+
+    def validate(self, attrs):
+        item_type = attrs["item_type"]
+        node_code = attrs.get("node_code") or None
+        if item_type in _NODE_ITEMS:
+            if not node_code:
+                raise serializers.ValidationError(
+                    {"node_code": "برای این آیتم باید خانه مشخص شود."}
+                )
+            attrs["node_code"] = node_code
+        else:
+            attrs["node_code"] = None
+        return attrs
 
 
 class ClaimStartSerializer(serializers.Serializer):
