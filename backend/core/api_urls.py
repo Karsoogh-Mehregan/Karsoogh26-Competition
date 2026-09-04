@@ -15,6 +15,7 @@ urlpatterns = [
     # nothing above claims.
     path("", include("notifications.urls")),
     path("minesweeper/", include("minesweeper.urls")),
+    path("duels/", include("duels.urls")),
 ]
 
 if settings.DEBUG:

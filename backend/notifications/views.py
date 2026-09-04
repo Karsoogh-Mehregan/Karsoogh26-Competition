@@ -267,10 +267,15 @@ class MessageViewBase(APIView):
 
         Two people editing one half-written announcement is a worse failure
         than not seeing a colleague's draft.
+
+        Senderless messages are excluded: `duels.notices` writes those, several
+        per duel, and they would bury the announcements this list exists to
+        show. They are still delivered — this is the composer's record of what
+        *people* wrote, not of every row in the table.
         """
         return (
             Message.objects.filter(
-                Q(status=MessageStatus.SENT) | Q(sender=request.user),
+                Q(status=MessageStatus.SENT, sender__isnull=False) | Q(sender=request.user),
             )
             .select_related("sender")
             .prefetch_related("teams", "users")

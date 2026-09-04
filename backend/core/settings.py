@@ -91,6 +91,7 @@ INSTALLED_APPS = [
     "events",
     "minesweeper",
     "notifications",
+    "duels",
 ]
 
 AUTH_USER_MODEL = "accounts.User"

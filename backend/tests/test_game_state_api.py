@@ -335,6 +335,10 @@ def test_restart_clears_the_board(game_god, played_board):
         "entry_attempts": 0,
         "balance_events": 0,
         "sent_messages": 0,
+        "duels": 0,
+        "rooms_requeued": 0,
+        "minesweeper_attempts": 0,
+        "minesweeper_boards": 0,
         "teams": 1,
     }
     assert Occupancy.objects.count() == 0
@@ -383,6 +387,104 @@ def test_restart_deletes_sent_messages_and_keeps_drafts(game_god):
     assert draft.body == "نگه دار"
     assert draft.status == MessageStatus.DRAFT
     assert draft.sent_at is None
+
+
+@pytest.fixture
+def played_duel(played_board):
+    """A closed duel pointing at one of the board's occupancies."""
+    from django.contrib.auth.models import Permission
+
+    from duels.models import Duel, DuelStatus, Room
+    from game.models import Occupancy
+    from teams.models import Team
+
+    judge = User.objects.create_user("duel-judge", password="secret")
+    judge.user_permissions.add(Permission.objects.get(codename="judge_duel"))
+    room = Room.objects.create(
+        name="Room 1",
+        link="https://skyroom.test/reset-1",
+        mentor=judge,
+        last_assigned_at=timezone.now(),
+    )
+    defender = Team.objects.create(code="defender", name="Defender", balance=100)
+    target = Occupancy.objects.filter(team=played_board).order_by("pk").last()
+
+    return Duel.objects.create(
+        attacker=played_board,
+        attacked=defender,
+        node=target.node,
+        target=target,
+        floor=1,
+        stake=400,
+        room=room,
+        mentor=judge,
+        status=DuelStatus.CLOSED,
+        winner=played_board,
+        loser=defender,
+        resolved_at=timezone.now(),
+    )
+
+
+def test_restart_survives_a_played_duel(game_god, played_duel):
+    """`Duel.target` PROTECTs Occupancy, so one duel used to abort the whole restart."""
+    from duels.models import Duel
+    from game.models import Occupancy
+
+    response = _restart(game_god)
+
+    assert response.status_code == 200, response.content
+    assert response.json()["duels"] == 1
+    assert Duel.objects.count() == 0
+    assert Occupancy.objects.count() == 0
+
+
+def test_restart_keeps_the_rooms_but_clears_their_place_in_the_queue(game_god, played_duel):
+    """An organiser typed the Skyroom link and picked the judge; that is content."""
+    from duels.models import Room
+
+    assert _restart(game_god).json()["rooms_requeued"] == 1
+
+    room = Room.objects.get()
+    assert room.is_active is True
+    assert room.link == "https://skyroom.test/reset-1"
+    # Cleared, so the rotation starts fresh rather than carrying last run's order.
+    assert room.last_assigned_at is None
+
+
+def test_restart_clears_toll_crossings(game_god, team):
+    """A crossing opens the one-way road past a gate; keeping it hands out the
+    outer rings for free on the next run."""
+    from game.models import LevelConfig, Node
+    from minesweeper.crossings import cleared_node_codes
+    from minesweeper.models import (
+        DifficultyConfig,
+        MinesweeperAttempt,
+        MinesweeperGame,
+        MinesweeperStatus,
+    )
+
+    toll = LevelConfig.objects.get(level="toll")
+    gate = Node.objects.create(code="C34_9", name="Gate", level=toll)
+    difficulty = DifficultyConfig.objects.first()
+    board = MinesweeperGame.objects.create(
+        node=gate,
+        difficulty=difficulty,
+        width=difficulty.width,
+        height=difficulty.height,
+        mine_count=difficulty.mine_count,
+        base_score=difficulty.base_score,
+    )
+    MinesweeperAttempt.objects.create(
+        game=board,
+        team=team,
+        status=MinesweeperStatus.WON,
+        finished_at=timezone.now(),
+    )
+
+    assert cleared_node_codes(team) == ["C34_9"]
+
+    assert _restart(game_god).json()["minesweeper_attempts"] == 1
+    assert cleared_node_codes(team) == []
 
 
 def test_restart_clears_the_entry_sheets(game_god, team):

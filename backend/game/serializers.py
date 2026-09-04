@@ -395,11 +395,22 @@ class GameRestartSerializer(serializers.Serializer):
 
 
 class GameRestartResultSerializer(serializers.Serializer):
+    """What a restart threw away, reported per model.
+
+    Every kind of run state gets its own number rather than one total: a game
+    god wiping a contest should be able to see that the duels and the toll
+    crossings went too, not just that "something" did.
+    """
+
     occupancies = serializers.IntegerField(read_only=True)
     submissions = serializers.IntegerField(read_only=True)
     entry_attempts = serializers.IntegerField(read_only=True)
     balance_events = serializers.IntegerField(read_only=True)
     sent_messages = serializers.IntegerField(read_only=True)
+    duels = serializers.IntegerField(read_only=True)
+    rooms_requeued = serializers.IntegerField(read_only=True)
+    minesweeper_attempts = serializers.IntegerField(read_only=True)
+    minesweeper_boards = serializers.IntegerField(read_only=True)
     teams = serializers.IntegerField(read_only=True)
 
 

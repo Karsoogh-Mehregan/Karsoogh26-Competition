@@ -7,7 +7,7 @@ export interface Holding {
   floor: number | null
   grade: number | null
   is_spawn: boolean
-  source: 'attempt' | 'item'
+  source: 'attempt' | 'item' | 'duel'
 }
 
 export interface Team {
@@ -38,6 +38,7 @@ export interface Me {
   is_game_god: boolean
   is_announcer: boolean
   is_designer: boolean
+  is_duel_mentor: boolean
   team: { code: string; name: string } | null
 }
 
@@ -470,6 +471,11 @@ export interface GameRestartResult {
   entry_attempts: number
   balance_events: number
   sent_messages: number
+  duels: number
+  /** Rooms kept, with their place in the judge rotation cleared. */
+  rooms_requeued: number
+  minesweeper_attempts: number
+  minesweeper_boards: number
   teams: number
 }
 
@@ -776,4 +782,61 @@ export interface MinesweeperEntry {
 export interface MinesweeperCellActionRequest {
   row: number
   col: number
+}
+
+// ---- duels -----------------------------------------------------------------
+
+export type DuelStatus = 'open' | 'closed'
+/** Where the viewer stands in a duel. `null` for everyone who is not in it. */
+export type DuelRole = 'attacker' | 'attacked' | 'judge'
+
+export interface DuelTeam {
+  code: string
+  name: string
+  color: string | null
+}
+
+export interface Duel {
+  id: number
+  attacker: DuelTeam
+  attacked: DuelTeam
+  node_code: string
+  node_name: string
+  level: string
+  floor: number
+  /** Paid up front; refunded on a win, handed to the defender on a loss. */
+  stake: number
+  status: DuelStatus
+  winner: DuelTeam | null
+  loser: DuelTeam | null
+  mentor: string
+  room_name: string
+  /** The Skyroom URL, and null for anyone who is not one of the three people in it. */
+  room_link: string | null
+  my_role: DuelRole | null
+  created_at: string
+  resolved_at: string | null
+}
+
+/** One row of the table of floors this team may challenge. */
+export interface DuelTarget {
+  occupancy_id: number
+  node_code: string
+  node_name: string
+  level: string
+  floor: number
+  team: DuelTeam
+  cost: number
+}
+
+/** The whole duel page in one response — see `duels/views.py`. */
+export interface DuelBoard {
+  active: Duel | null
+  history: Duel[]
+  judging: Duel | null
+  judged: Duel[]
+  cooldown_until: string | null
+  can_request: boolean
+  /** Persian sentence explaining `can_request: false`; empty when it is true. */
+  blocked_reason: string
 }

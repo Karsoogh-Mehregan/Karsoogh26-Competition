@@ -23,6 +23,7 @@ _ME = {
     "is_game_god": False,
     "is_announcer": False,
     "is_designer": False,
+    "is_duel_mentor": False,
     "team": None,
 }
 
