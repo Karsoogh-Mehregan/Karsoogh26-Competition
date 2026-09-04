@@ -71,21 +71,26 @@ This app does **not** check node occupancy, capture the node, or change `Team.ba
 | Creates | an `Occupancy` | nothing |
 | Capacity | 1–3 seats | none; every team may cross |
 | Opens neighbours | once graded | once **won** |
+| Reopening | — | an owned board (open or won) reopens free |
 | Recorded as | `Occupancy` row | the won `MinesweeperAttempt` |
 
 `minesweeper/crossings.py` is the whole record: a won attempt on a toll node. `game.services.movement.expandable_node_ids` unions those node ids into the team's reach (a local import — `minesweeper` depends on `game`), which is what opens the one-way roads out of a gate. Nothing else moves: no `Occupancy`, no floor, no networth, no duel or buyout.
 
-`services.require_playable` gates entry, and only on tolls — a board an organiser hangs on any other node stays the free side content it has always been:
+`services.require_playable` gates entry on **every** board, not only the gates — a guessed URL must not open one the team could not have walked to:
 
 - the settings row must exist and be enabled;
-- the team must hold something that expands, adjacent to the gate (`NodeUnreachable` → 409);
-- a gate the team has already cleared is closed to it (`AlreadyCleared` → 409), because paying to replay a permanent crossing only burns money.
+- `require_graph_access`: the node must be an expandable holding of the team's, a neighbour of one, or a cleared gate (`NodeUnreachable` → 409).
 
-None of those apply to a board the team already has **open**: it is paid for, so returning to it resumes rather than buys, and it stays resumable even if the holding the team reached the gate from has since been released. `crossings.open_board_node_codes` is that list, and it rides to the SPA on the team row as `open_boards`, so the map offers «ادامه بازی» instead of quoting the toll a second time.
+A board the team already owns here is exempt from the reach rule and from the fee, because it is already bought. `_existing_attempt` returns it:
+
+- **unfinished** → resumes, so the map offers «ادامه بازی» instead of quoting the toll again;
+- **won** → handed back as-is, so the finished grid can be looked at, the gate is never bought twice, and it never scores twice.
+
+Either one reopens even if the holding the team reached the gate from has since been released. The two lists ride to the SPA on the team row as `cleared_tolls` and `active_tolls`.
 
 `services._charge_entry` takes the fee whenever a **new** board is generated. Resuming an unfinished board is free; a lost board may be replayed at full price; an unaffordable one raises `EntryFeeUnaffordable` (409) before any board exists. The debit is a `BalanceEvent` with `reason=toll` and the node code as its detail.
 
-Starting a board publishes `board.toll.started` and a win publishes `board.toll.cleared`; both bump the board snapshot version so `/api/teams/` stops serving a cached row that predates the payment or the crossing. The SPA reads both off the team row (`crossings`, `open_boards`), never off `holdings`.
+Starting a board on a gate publishes `board.toll.started` and any win publishes `minesweeper.cleared`; both bump the board snapshot version so `/api/teams/` stops serving a cached row that predates the payment or the crossing. Both frames are **payload-free** — a hint must not tell the hall who crossed where, and the client refetches and sees only what it is allowed to. The SPA reads both lists off the team row (`cleared_tolls`, `active_tolls`), never off `holdings`.
 
 ### Provisioning
 
@@ -325,8 +330,7 @@ Paths are `/api/minesweeper/attempts/<pk>/…`. GET without that attempt, or an 
 | Condition | HTTP | `detail` / body |
 | --------- | ---: | --------------- |
 | Missing node / missing settings / missing or foreign attempt | 404 | `بازی پیدا نشد.` |
-| Gate not adjacent to the team (`NodeUnreachable`) | 409 | `این عوارضی به هیچ‌کدام از خانه‌های فعلی تیم متصل نیست.` |
-| Gate already cleared (`AlreadyCleared`) | 409 | `تیم شما قبلاً از این عوارضی عبور کرده است.` |
+| Node out of the team's reach (`NodeUnreachable`) | 409 | `این خانه از مسیر فعلی تیم در دسترس نیست.` |
 | Cannot pay the toll (`EntryFeeUnaffordable`) | 409 | `موجودی تیم برای ورود به این عوارضی کافی نیست.` |
 | Contest not running (enter / start / reveal / flag) | 403 | `The game is not running.` |
 | Anonymous / no team / mentor | 403 | DRF permission denied |

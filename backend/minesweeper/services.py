@@ -11,11 +11,10 @@ from django.db import transaction
 from django.utils import timezone
 
 from game.models import Level, Node
-from game.services.events import BOARD_TOLL_CLEARED, BOARD_TOLL_STARTED, publish_on_commit
-from game.services.movement import expandable_node_ids, is_reachable
-from minesweeper.crossings import has_cleared, is_toll
+from game.services.events import BOARD_TOLL_STARTED, MINESWEEPER_CLEARED, publish_on_commit
+from game.services.movement import team_can_access_node
+from minesweeper.crossings import is_toll
 from minesweeper.exceptions import (
-    AlreadyCleared,
     CannotFlagRevealed,
     CellAlreadyRevealed,
     CellFlagged,
@@ -124,31 +123,44 @@ def _require_enabled_settings(node: Node) -> MinesweeperSettings:
     return settings
 
 
+def _existing_attempt(team: Team, node: Node) -> MinesweeperAttempt | None:
+    """A board this team already owns here: unfinished, or already won.
+
+    Either one reopens free. The unfinished board is paid for, and the won one
+    is the crossing itself — handing back a fresh board would charge again for a
+    gate that is already open.
+    """
+    for status in (MinesweeperStatus.IN_PROGRESS, MinesweeperStatus.WON):
+        existing = _latest_attempt_for(team, node, status)
+        if existing is not None:
+            return existing
+    return None
+
+
+def require_graph_access(team: Team, node: Node) -> None:
+    """The team must already be able to stand next to this node, or be on it.
+
+    Reachability is computed from expandable occupancies plus won tolls — the
+    same set `_reserve` uses. A board the team already owns here reopens
+    regardless: it may have been paid for from a house that has since been
+    released.
+    """
+    if team_can_access_node(team, node) or _existing_attempt(team, node) is not None:
+        return
+    raise NodeUnreachable("این خانه از مسیر فعلی تیم در دسترس نیست.")
+
+
 def require_playable(node: Node, team: Team) -> None:
     """Everything that must hold before this team may open a board on ``node``.
 
-    The gate rules belong to the gates. A board on a toll node *is* the road
-    through it, so the team must stand next to it — a holding that already
-    expands (a spawn, a graded node, or a gate it has cleared) — and a gate it
-    has already beaten is closed to it, because the crossing is permanent and
-    paying to replay it would only burn the team's money.
-
-    A board an organiser hangs on any other node stays what it has always been:
-    side content, free, playable by anyone with a session.
-
-    None of it applies to a board the team already has open: that one is paid
-    for, so going back to it is resuming, not entering, and it stays resumable
-    even if the holding the team reached the gate from has since been released.
+    Every board is behind the map, not just the gates: a guessed URL must not
+    open one the team could not have walked to. On a toll node that rule *is*
+    the road — the team stands next to the gate, plays, and the win is the
+    crossing — and the fee in `_charge_entry` is the only part that is
+    toll-only.
     """
     _require_enabled_settings(node)
-    if not is_toll(node):
-        return
-    if _active_attempt_for(team, node) is not None:
-        return
-    if has_cleared(team, node):
-        raise AlreadyCleared("This team has already cleared this gate.")
-    if not is_reachable(node, expandable_node_ids(team)):
-        raise NodeUnreachable("This gate is not adjacent to anything the team holds.")
+    require_graph_access(team, node)
 
 
 def _charge_entry(team: Team, node: Node) -> None:
@@ -170,13 +182,14 @@ def _charge_entry(team: Team, node: Node) -> None:
         raise EntryFeeUnaffordable("Balance is below this gate's entry cost.") from exc
 
 
-def issue_entry(session, *, user_id: int, node: Node, team: Team) -> str:
+def issue_entry(session, *, user_id: int, team: Team, node: Node) -> str:
     """Issue a short-lived, one-time map-entry authorization for this session and node.
 
     Replaces any unused prior intent on the same session. Does not prove the
     player clicked the SVG; it proves that this authenticated session asked to
-    enter a gate its team may actually play, so the map reports the refusal on
-    the click rather than after the page has opened.
+    enter a gate its team may actually play, so a guessed URL cannot issue a
+    ticket for a distant toll and the map reports the refusal on the click
+    rather than after the page has opened.
     """
     require_playable(node, team)
     token = secrets.token_urlsafe(32)
@@ -296,7 +309,7 @@ def _reveal_from(
 def _locked_in_progress_attempt(attempt_id: int) -> MinesweeperAttempt:
     attempt = (
         MinesweeperAttempt.objects.select_for_update(of=("self",))
-        .select_related("game__node", "game__difficulty")
+        .select_related("game__node", "game__difficulty", "team")
         .get(pk=attempt_id)
     )
     if attempt.status != MinesweeperStatus.IN_PROGRESS:
@@ -339,13 +352,12 @@ def _finish(attempt: MinesweeperAttempt, progress: dict, *, won: bool) -> None:
         attempt.status = MinesweeperStatus.LOST
         attempt.score = 0
     attempt.save(update_fields=["board", "status", "score", "finished_at"])
-    if won and is_toll(attempt.game.node):
-        # The gate just opened for this team, so the board everyone reads is
-        # stale: the frame bumps the snapshot version as well as nudging the SPA.
-        publish_on_commit(
-            BOARD_TOLL_CLEARED,
-            {"team": attempt.team.code, "node": attempt.game.node.code},
-        )
+    if won:
+        # A cleared gate opens a road, so the board everyone reads is stale: the
+        # frame bumps the snapshot version as well as nudging the SPA. No
+        # payload — the hint must not tell the whole hall who crossed where; the
+        # client refetches and sees only what it is allowed to.
+        publish_on_commit(MINESWEEPER_CLEARED)
 
 
 @transaction.atomic
@@ -396,14 +408,10 @@ def create_attempt(game: MinesweeperGame, team: Team) -> MinesweeperAttempt:
     )
 
 
-def _active_attempt_for(team: Team, node: Node) -> MinesweeperAttempt | None:
+def _latest_attempt_for(team: Team, node: Node, status: str) -> MinesweeperAttempt | None:
     return (
         MinesweeperAttempt.objects.select_related("game__node", "game__difficulty")
-        .filter(
-            team=team,
-            game__node_id=node.pk,
-            status=MinesweeperStatus.IN_PROGRESS,
-        )
+        .filter(team=team, game__node_id=node.pk, status=status)
         .order_by("-started_at")
         .first()
     )
@@ -411,19 +419,22 @@ def _active_attempt_for(team: Team, node: Node) -> MinesweeperAttempt | None:
 
 @transaction.atomic
 def start_play(node: Node, team: Team) -> MinesweeperAttempt:
-    """Resume this team's in-progress attempt on ``node``, or start a new game.
+    """Resume this team's attempt on ``node``, or start a new game.
 
-    Locks the node row so two concurrent starts cannot both insert. A finished
-    attempt is left as history; the next visit pays again for a new board.
+    Locks the node row so two concurrent starts cannot both insert. An
+    unfinished board resumes and a won one is handed back as-is: the toll is
+    cleared once, and a fresh board would both charge again and let a team
+    re-clear the same gate for another score row. A lost attempt is history; the
+    next visit pays again for a new board.
     """
     # `of=("self",)` so the join for the level config does not lock LevelConfig
     # too; the fee reads that row on every start.
     locked_node = (
         Node.objects.select_for_update(of=("self",)).select_related("level").get(pk=node.pk)
     )
-    active = _active_attempt_for(team, locked_node)
-    if active is not None:
-        return active
+    existing = _existing_attempt(team, locked_node)
+    if existing is not None:
+        return existing
     require_playable(locked_node, team)
     game = create_game_from_node(locked_node)
     _charge_entry(team, locked_node)
@@ -432,10 +443,8 @@ def start_play(node: Node, team: Team) -> MinesweeperAttempt:
         # The team's balance and its open boards both just changed, and both
         # ride on the row `/api/teams/` caches — so the snapshot needs a new
         # version or the map keeps quoting a toll that has already been paid.
-        publish_on_commit(
-            BOARD_TOLL_STARTED,
-            {"team": team.code, "node": locked_node.code},
-        )
+        # Payload-free for the same reason the cleared frame is.
+        publish_on_commit(BOARD_TOLL_STARTED)
     return attempt
 
 

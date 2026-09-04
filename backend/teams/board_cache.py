@@ -9,19 +9,12 @@ SNAPSHOT_TTL_SECONDS = 60
 
 
 def _render(request) -> list[dict]:
-    # Resolved once for the whole board rather than per team: a crossing lives
-    # in `minesweeper`, and asking it team by team is one query per row.
-    from minesweeper.crossings import cleared_codes_by_team, open_boards_by_team
-
+    # `with_holdings()` prefetches the toll attempts too, so the whole board's
+    # crossings cost one query rather than one per team.
     serializer = TeamSerializer(
         Team.objects.with_holdings(),
         many=True,
-        context={
-            "request": request,
-            "unmasked": True,
-            "crossings": cleared_codes_by_team(),
-            "open_boards": open_boards_by_team(),
-        },
+        context={"request": request, "unmasked": True},
     )
     return [dict(row) for row in serializer.data]
 
@@ -42,4 +35,9 @@ def snapshot(request) -> list[dict]:
 def mask(rows: list[dict], *, is_mentor: bool, viewer_team_code: str | None) -> list[dict]:
     if is_mentor:
         return rows
-    return [row if row["code"] == viewer_team_code else {**row, "balance": None} for row in rows]
+    return [
+        row
+        if row["code"] == viewer_team_code
+        else {**row, "balance": None, "cleared_tolls": [], "active_tolls": []}
+        for row in rows
+    ]

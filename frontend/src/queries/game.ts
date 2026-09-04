@@ -1,5 +1,12 @@
+import { computed } from 'vue'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
-import { assignQuestion, gradeSubmission, listLevels, listSubmissions } from '@/services/game'
+import {
+  assignQuestion,
+  getSubmission,
+  gradeSubmission,
+  listLevels,
+  listSubmissions,
+} from '@/services/game'
 import type { AssignQuestionResult, GradeResult } from '@/types/api'
 import { queryKeys } from './keys'
 
@@ -29,6 +36,14 @@ export function useSubmissionsQuery(enabled: () => boolean) {
     queryKey: queryKeys.submissions(),
     queryFn: ({ signal }) => listSubmissions(signal),
     enabled,
+  })
+}
+
+export function useSubmissionQuery(id: () => number | null) {
+  return useQuery({
+    queryKey: computed(() => queryKeys.submission(id() ?? 0)),
+    queryFn: ({ signal }) => getSubmission(id() as number, signal),
+    enabled: () => id() != null,
   })
 }
 

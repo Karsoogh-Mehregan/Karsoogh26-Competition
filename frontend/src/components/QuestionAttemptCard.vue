@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { useCountdown } from '@/composables/useCountdown'
+import { attemptDisplayGroup } from '@/lib/attemptStatus'
 import { formatDuration } from '@/lib/format'
 import { ApiError } from '@/lib/http'
 import { queryKeys } from '@/queries/keys'
@@ -51,21 +52,16 @@ const canAnswer = computed(
 const answerText = computed(() => String(body.value ?? '').trim())
 
 const statusIcon = computed(() => {
-  if (props.attempt.status === 'graded') {
-    if ((props.attempt.grade ?? 0) === 0) {
-      return { name: 'fail' as const, label: 'نمره صفر' }
+  const group = attemptDisplayGroup(props.attempt, timedOut.value)
+  if (group === 'passed') return { name: 'pass' as const, label: 'نمره‌دهی شد' }
+  if (group === 'failed') {
+    return {
+      name: 'fail' as const,
+      label: props.attempt.status === 'graded' ? 'نمره صفر' : 'زمان تمام شد',
     }
-    return { name: 'pass' as const, label: 'نمره‌دهی شد' }
   }
-  if (timedOut.value) {
-    return { name: 'fail' as const, label: 'زمان تمام شد' }
-  }
-  if (props.attempt.status === 'answered') {
-    return { name: 'hourglass' as const, label: 'منتظر نمره' }
-  }
-  if (props.attempt.status === 'open') {
-    return { name: 'timer' as const, label: 'در حال پاسخ' }
-  }
+  if (group === 'pending') return { name: 'hourglass' as const, label: 'منتظر نمره' }
+  if (group === 'open') return { name: 'timer' as const, label: 'در حال پاسخ' }
   return null
 })
 

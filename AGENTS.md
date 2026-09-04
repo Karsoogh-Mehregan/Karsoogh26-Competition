@@ -92,19 +92,22 @@ The map itself is still a local adjacency demo, not a game move.
 `C34` node and every road into ring 5 through a `C45`, and those edges are `directed`, so
 the gates are the only way outward — with no `toll`-level `Question` rows, `claim_node` on
 one is refused outright (`game/services/movement.py`). Instead the gate charges
-`LevelConfig["toll"].entry_cost` per board and hands out a Minesweeper board;
+`LevelConfig["toll"].entry_cost` per board and hands out a Minesweeper board; **every**
+board, gate or not, first needs `require_graph_access` — a guessed URL must not open one
+the team could not have walked to;
 **a win is the crossing**. There is no `Occupancy`: a gate seats nobody, has no capacity and
 is not owned, so the crossing record *is* the won `MinesweeperAttempt`, read through
 `minesweeper/crossings.py`. `movement.expandable_node_ids` unions those node ids with the
 team's holdings — a local import, because `minesweeper` depends on `game` — which is what
 opens the one-way roads out of the gate. Any number of teams may clear the same gate; a team
-that has cleared one may not pay to replay it (409), and a lost board may be replayed at full
-price. A board left **unfinished** is already paid for, so returning to it resumes free of
-charge — no reachability check either, since the team may since have lost the holding it came
-from. Crossings and open boards both ride to the SPA on the team row (`crossings` and
-`open_boards` on `/api/teams/`, resolved for the whole board in one query by
-`teams.board_cache`), not on `holdings`; the map reads the second to offer «ادامه بازی»
-without a price. Gates are
+that has cleared one gets its **won board handed back** rather than a new one, so the gate is
+never bought twice and never scores twice; a lost board may be replayed at full price. A
+board left **unfinished** is already paid for, so returning to it resumes free of charge.
+Neither reopening needs reachability — the team may since have lost the holding it came
+from. Cleared gates and open boards both ride to the SPA on the team row (`cleared_tolls`
+and `active_tolls` on `/api/teams/`, one query via the `_toll_attempts` prefetch in
+`Team.objects.with_holdings()`, and blanked for other teams by `board_cache.mask`), not on
+`holdings`; the map reads the second to offer «ادامه بازی» without a price. Gates are
 provisioned, never hand-configured: `ensure_toll_boards()` gives every toll node a board,
 called from `import_graph` and from `manage.py sync_toll_boards [--difficulty <key>]`, and
 backfilled onto existing databases by `minesweeper/migrations/0008`. Board size, mine count

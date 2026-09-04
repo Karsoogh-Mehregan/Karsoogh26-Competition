@@ -54,20 +54,3 @@ def open_board_node_codes(team: Team) -> list[str]:
     """Gates where this team has an unfinished board — paid for, resumable."""
     codes = _open_toll_attempts().filter(team=team).values_list("game__node__code", flat=True)
     return sorted(set(codes))
-
-
-def _codes_by_team(queryset) -> dict[int, list[str]]:
-    by_team: dict[int, set[str]] = {}
-    for team_id, code in queryset.values_list("team_id", "game__node__code"):
-        by_team.setdefault(team_id, set()).add(code)
-    return {team_id: sorted(codes) for team_id, codes in by_team.items()}
-
-
-def cleared_codes_by_team() -> dict[int, list[str]]:
-    """Every team's cleared gates in one query, for the board snapshot."""
-    return _codes_by_team(_won_toll_attempts())
-
-
-def open_boards_by_team() -> dict[int, list[str]]:
-    """Every team's unfinished boards in one query, for the board snapshot."""
-    return _codes_by_team(_open_toll_attempts())

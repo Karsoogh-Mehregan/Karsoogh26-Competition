@@ -18,7 +18,7 @@ export function useMinesweeperAttemptQuery(
 function cacheAttempt(queryClient: QueryClient, game: MinesweeperGame): void {
   queryClient.setQueryData(queryKeys.minesweeperAttempt(game.attempt_id), game)
   // A win on a toll gate opens the road past it, and that reach travels on the
-  // team row (`crossings`), not on this response — so the board has to be
+  // team row (`cleared_tolls`), not on this response — so the board has to be
   // refetched or the map keeps the far side greyed out until the next poll.
   if (game.status === 'won') {
     queryClient.invalidateQueries({ queryKey: queryKeys.teams() })
@@ -61,6 +61,9 @@ export function useRevealMinesweeperCellMutation() {
       revealCell(attemptId, row, col),
     onSuccess: (game: MinesweeperGame) => {
       cacheAttempt(queryClient, game)
+      if (game.status === 'won') {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.teams() })
+      }
     },
   })
 }

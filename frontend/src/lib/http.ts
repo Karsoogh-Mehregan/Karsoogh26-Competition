@@ -150,12 +150,12 @@ export function post<T>(path: string, json?: unknown, signal?: AbortSignal): Pro
   return request<T>(path, { method: 'POST', json, signal })
 }
 
-export function postForm<T>(path: string, form: FormData, signal?: AbortSignal): Promise<T> {
-  return request<T>(path, { method: 'POST', form, signal })
-}
-
 export function patch<T>(path: string, json?: unknown, signal?: AbortSignal): Promise<T> {
   return request<T>(path, { method: 'PATCH', json, signal })
+}
+
+export function postForm<T>(path: string, form: FormData, signal?: AbortSignal): Promise<T> {
+  return request<T>(path, { method: 'POST', form, signal })
 }
 
 export function del<T>(path: string, signal?: AbortSignal): Promise<T> {

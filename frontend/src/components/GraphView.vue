@@ -14,7 +14,7 @@ const HOUSE_FILL = '#E2CFA6'
 const { me, teams, actingTeam, isPlayer } = useActing()
 const { canClaimStart } = useEntry()
 const inspector = useInspectorStore()
-const { nodes, edges, nodeById, adjacency, startEligibleIds } = useGraph()
+const { nodes, edges, nodeById, outAdjacency, startEligibleIds } = useGraph()
 const design = useMapDesign()
 const { neighborhoods, roadStyle, tintStrength, haloStrength } = design
 
@@ -92,17 +92,17 @@ const actingHeldIds = computed(() => {
 })
 
 function holdingUnlocksNeighbors(holding) {
-  return holding.is_spawn === true || holding.grade != null
+  return holding.is_spawn === true || holding.grade != null || holding.source === 'item'
 }
 
 // Gates the team has beaten. Not holdings — nobody owns a gate — but the roads
 // out of one are one-way, so a crossing is the only thing that opens the ring
 // beyond it. The server counts them the same way in `expandable_node_ids`.
-const crossedGateIds = computed(() => new Set(actingTeam.value?.crossings ?? []))
+const crossedGateIds = computed(() => new Set(actingTeam.value?.cleared_tolls ?? []))
 
 // Gates with a board left unfinished. Paid for already, so the map goes on
 // offering them however the team's holdings have moved since.
-const openBoardGateIds = computed(() => new Set(actingTeam.value?.open_boards ?? []))
+const openBoardGateIds = computed(() => new Set(actingTeam.value?.active_tolls ?? []))
 
 const expandableHeldIds = computed(() => {
   if (!actingTeam.value) return new Set()
@@ -132,20 +132,20 @@ function isNodeSelectable(id) {
   // including the one that sends a team with no holdings to its start node.
   if (openBoardGateIds.value.has(id)) return true
   const held = actingHeldIds.value
-  if (held.size === 0) {
+  const expandable = expandableHeldIds.value
+  if (held.size === 0 && expandable.size === 0) {
     return canClaimStart.value && isFreeStart(id)
   }
   if (held.has(id)) return false
-  // A gate is offered only while there is something to play: it needs a board,
-  // and a crossing already won is not for sale a second time.
+  // A gate is not a move to make twice: once crossed it stops being offered as
+  // a fresh one, though `inspectIntent` still opens its finished board.
   const node = nodeById.get(id)
   if (node && isGatewayNode(node) && (crossedGateIds.value.has(id) || !design.hasMinesweeper(id))) {
     return false
   }
-  const expandable = expandableHeldIds.value
   if (expandable.size === 0) return false
   for (const heldId of expandable) {
-    if (adjacency.get(heldId)?.has(id)) return true
+    if (outAdjacency.get(heldId)?.has(id)) return true
   }
   return false
 }
@@ -347,10 +347,14 @@ function inspectIntent(n) {
   if (holding) return { intent: 'solve', occupancyId: holding.id }
   if (isEntryGate(n)) return { intent: 'entry_gate', occupancyId: null }
   // A gateway is played, not answered: it never offers a question, and it only
-  // offers a board where the server has one, the team stands beside it, and the
-  // crossing has not already been won.
+  // offers a board where the server has one and the team can actually open it —
+  // standing beside it, or owning a board there already, finished or not.
   if (isGatewayNode(n)) {
-    return { intent: isNodeSelectable(n.id) ? 'minesweeper' : 'view', occupancyId: null }
+    const playable =
+      canAct.value &&
+      design.hasMinesweeper(n.id) &&
+      (isNodeSelectable(n.id) || crossedGateIds.value.has(n.id) || openBoardGateIds.value.has(n.id))
+    return { intent: playable ? 'minesweeper' : 'view', occupancyId: null }
   }
   if (isNodeSelectable(n.id)) {
     const claimingStart = isStartNode(n) && actingHeldIds.value.size === 0

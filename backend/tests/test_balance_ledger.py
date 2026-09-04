@@ -41,6 +41,20 @@ def test_a_debit_that_exceeds_the_wallet_is_refused():
     assert BalanceEvent.objects.count() == 0
 
 
+def test_history_failure_rolls_back_wallet_even_without_outer_transaction(monkeypatch):
+    team = Team.objects.create(code="rollback", name="Rollback", balance=100)
+
+    def fail(**kwargs):
+        raise RuntimeError("history unavailable")
+
+    monkeypatch.setattr(BalanceEvent.objects, "create", fail)
+    with pytest.raises(RuntimeError, match="history unavailable"):
+        apply_balance_change(team, -20, reason=BalanceReason.EVENT)
+    team.refresh_from_db()
+    assert team.balance == 100
+    assert not BalanceEvent.objects.exists()
+
+
 def test_seed_copies_existing_balances_without_touching_the_wallet():
     kept = Team.objects.create(code="kept", name="Kept", balance=400)
     empty = Team.objects.create(code="empty", name="Empty", balance=0)

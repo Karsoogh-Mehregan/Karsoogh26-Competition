@@ -42,15 +42,25 @@ def expandable_node_ids(team: Team) -> set[int]:
     return held | cleared_node_ids(team)
 
 
+def team_can_access_node(team: Team, node: Node) -> bool:
+    """True if `node` is an expandable source or a neighbour of one.
+
+    A cleared gate is in the set itself, which is what lets a team walk back
+    onto one it has already beaten.
+    """
+    expandable = expandable_node_ids(team)
+    return node.pk in expandable or is_reachable(node, expandable)
+
+
 def _reserve(team: Team, node: Node) -> Occupancy:
     if node.level_id == Level.TOLL:
         raise Conflict("عبور از عوارضی با بازی مین‌روب انجام می‌شود، نه با سؤال.")
-    if Occupancy.objects.active().filter(team=team).exists():
-        held_ids = expandable_node_ids(team)
-        if not held_ids:
-            raise Conflict("تا وقتی این خانه نمره نداشته باشد نمی‌توان همسایه را رزرو کرد.")
+    held_ids = expandable_node_ids(team)
+    if held_ids:
         if not is_reachable(node, held_ids):
             raise Conflict("این خانه به هیچ‌کدام از خانه‌های فعلی تیم متصل نیست.")
+    elif Occupancy.objects.active().filter(team=team).exists():
+        raise Conflict("تا وقتی این خانه نمره نداشته باشد نمی‌توان همسایه را رزرو کرد.")
     elif team.color is None or color_for_start(node.code) != team.color:
         raise Conflict("اولین حرکت تیم باید روی خانهٔ شروع خودش باشد.")
 
@@ -122,16 +132,17 @@ def claim_node(team: Team, node: Node) -> Occupancy:
 
     release_expired_attempts()
 
-    holding = (
+    holdings = list(
         Occupancy.objects.active()
         .select_related("node__level", "team")
         .filter(team=team, node=node)
-        .first()
+        .order_by("pk")
     )
+    if any(row.source == AcquisitionSource.ITEM for row in holdings):
+        raise Conflict("این خانه از طریق آیتم در اختیار تیم است و سؤال نمی‌گیرد.")
+    holding = holdings[0] if holdings else None
     if holding is None:
         holding = _reserve(team, node)
-    elif holding.source == AcquisitionSource.ITEM:
-        raise Conflict("این خانه از طریق آیتم در اختیار تیم است و سؤال نمی‌گیرد.")
     elif holding.question_assigned_at is not None:
         raise Conflict("سؤال قبلاً به این تیم تخصیص داده شده است.")
 

@@ -280,3 +280,37 @@ class TestMediaAccess:
         client.force_authenticate(user=user)
         allowed = client.get(f"/api/media/submissions/{submission.pk}/")
         assert allowed.status_code == 200
+
+    def test_mentor_without_staff_can_download_submission_file(self, node, teams, running_game):
+        file_question = Question.objects.create(
+            level=node.level,
+            code="fq2",
+            title="File Q",
+            body="Upload",
+            answer_type=AnswerType.FILE,
+            is_active=True,
+        )
+        user = make_user(teams[0], "file-user-2")
+        mentor = make_user(None, "mentor-nostaff")
+        mentor.user_permissions.add(
+            Permission.objects.get(
+                content_type=ContentType.objects.get_for_model(Occupancy),
+                codename="act_as_mentor",
+            )
+        )
+        occ = occupy(node, teams[0])
+        assign_question(occ)
+        occ.question = file_question
+        occ.save(update_fields=["question"])
+
+        upload = SimpleUploadedFile("proof.png", b"hello", content_type="image/png")
+        submission = submit_answer(occ, user, file=upload)
+
+        client = APIClient()
+        client.force_authenticate(user=mentor)
+        response = client.get(f"/api/media/submissions/{submission.pk}/")
+        assert response.status_code == 200
+
+        detail = client.get(f"/api/submissions/{submission.pk}/")
+        assert detail.status_code == 200
+        assert detail.data["file_name"].endswith(".png")

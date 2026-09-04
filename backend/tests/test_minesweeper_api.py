@@ -137,6 +137,31 @@ def _layout(difficulty) -> DifficultyConfig:
     return DifficultyConfig.objects.get(pk=difficulty)
 
 
+def _undirected(a: Node, b: Node) -> Edge:
+    lower, upper = sorted((a, b), key=lambda node: node.pk)
+    return Edge.objects.create(a=lower, b=upper, directed=False)
+
+
+def grant_access(team: Team, node: Node) -> Occupancy:
+    spawn = LevelConfig.objects.get(level="spawn")
+    home = Node.objects.create(
+        code=f"ms-home-{team.pk}-{node.pk}",
+        name="home",
+        level=spawn,
+    )
+    holding = Occupancy.objects.create(team=team, node=home, slot=1, is_spawn=True)
+    _undirected(home, node)
+    return holding
+
+
+@pytest.fixture(autouse=True)
+def _reachable_play_nodes(alpha, beta, node, other_node):
+    home_a = grant_access(alpha, node)
+    home_b = grant_access(beta, node)
+    _undirected(home_a.node, other_node)
+    _undirected(home_b.node, other_node)
+
+
 def _configure(node, difficulty=MinesweeperDifficulty.HARD, *, enabled=True):
     return MinesweeperSettings.objects.create(
         node=node,
@@ -337,7 +362,8 @@ class TestEntryAuthorization:
         assert MinesweeperGame.objects.count() == 0
 
     def test_graph_node_code_is_accepted(self, alpha, alpha_client, running_contest):
-        """A gate is entered from the road: the team must hold something next to it."""
+        """A gate is entered from the road: the team must hold something next to it,
+        and the road through a gate is one-way, as it is on the real map."""
         gate = Node.objects.create(
             code="C34_0",
             name="Connector",
@@ -399,15 +425,12 @@ class TestStartPlay:
         assert MinesweeperGame.objects.filter(node=node).count() == 1
         assert MinesweeperAttempt.objects.filter(team=alpha).count() == 1
 
-    @pytest.mark.parametrize("status", [MinesweeperStatus.WON, MinesweeperStatus.LOST])
-    def test_finished_attempt_starts_a_new_game(
-        self, alpha_client, alpha, node, running_contest, status
-    ):
+    def test_lost_attempt_starts_a_new_game(self, alpha_client, alpha, node, running_contest):
         _configure(node, MinesweeperDifficulty.EASY)
         first = _begin(alpha_client, node)
         assert first.status_code == 201
         attempt = MinesweeperAttempt.objects.get(pk=first.json()["attempt_id"])
-        attempt.status = status
+        attempt.status = MinesweeperStatus.LOST
         attempt.finished_at = timezone.now()
         attempt.save(update_fields=["status", "finished_at"])
 
@@ -418,6 +441,24 @@ class TestStartPlay:
         assert second.json()["status"] == MinesweeperStatus.IN_PROGRESS
         assert MinesweeperGame.objects.filter(node=node).count() == 2
         assert MinesweeperAttempt.objects.filter(team=alpha).count() == 2
+
+    def test_won_attempt_is_returned_instead_of_a_fresh_board(
+        self, alpha_client, alpha, node, running_contest
+    ):
+        _configure(node, MinesweeperDifficulty.EASY)
+        first = _begin(alpha_client, node)
+        assert first.status_code == 201
+        attempt = MinesweeperAttempt.objects.get(pk=first.json()["attempt_id"])
+        attempt.status = MinesweeperStatus.WON
+        attempt.finished_at = timezone.now()
+        attempt.save(update_fields=["status", "finished_at"])
+
+        second = _begin(alpha_client, node)
+        assert second.status_code == 201
+        assert second.json()["attempt_id"] == first.json()["attempt_id"]
+        assert second.json()["status"] == MinesweeperStatus.WON
+        assert MinesweeperGame.objects.filter(node=node).count() == 1
+        assert MinesweeperAttempt.objects.filter(team=alpha).count() == 1
 
     def test_two_teams_get_independent_games(
         self, alpha_client, beta_client, alpha, beta, node, running_contest

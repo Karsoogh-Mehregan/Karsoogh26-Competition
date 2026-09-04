@@ -16,7 +16,7 @@ from game.models import Edge, GameSettings, GameStatus, LevelConfig, Node, Occup
 from game.services.mentor import Conflict
 from game.services.movement import claim_node, expandable_node_ids, is_reachable
 from minesweeper.crossings import cleared_node_codes, has_cleared, open_board_node_codes
-from minesweeper.exceptions import AlreadyCleared, EntryFeeUnaffordable, NodeUnreachable
+from minesweeper.exceptions import EntryFeeUnaffordable, NodeUnreachable
 from minesweeper.models import (
     DifficultyConfig,
     MinesweeperAttempt,
@@ -169,11 +169,19 @@ class TestEnteringAGate:
         assert MinesweeperAttempt.objects.count() == 0
 
     def test_a_cleared_gate_cannot_be_paid_for_twice(self, team, road, running_game):
-        seat(team, road["near"])
-        win(start_play(road["gate"], team))
+        """Going back to a gate you have beaten hands back the won board.
 
-        with pytest.raises(AlreadyCleared):
-            start_play(road["gate"], team)
+        Not an error: the map still offers the gate so the finished grid can be
+        looked at, and the crossing is permanent, so a second board would charge
+        for a road that is already open — and hand out a second score row.
+        """
+        seat(team, road["near"])
+        won = win(start_play(road["gate"], team))
+
+        again = start_play(road["gate"], team)
+
+        assert again.pk == won.pk
+        assert MinesweeperAttempt.objects.filter(team=team).count() == 1
         team.refresh_from_db()
         assert team.balance == 400 - TOLL_COST
 
@@ -264,8 +272,8 @@ class TestBoardApi:
         client.force_authenticate(user)
 
         rows = {row["code"]: row for row in client.get("/api/teams/").json()}
-        assert rows["alpha"]["crossings"] == ["C34_0"]
-        assert rows["alpha"]["open_boards"] == []
+        assert rows["alpha"]["cleared_tolls"] == ["C34_0"]
+        assert rows["alpha"]["active_tolls"] == []
 
     def test_teams_list_reports_an_open_board(self, team, road, running_game):
         seat(team, road["near"])
@@ -276,8 +284,8 @@ class TestBoardApi:
         client.force_authenticate(user)
 
         rows = {row["code"]: row for row in client.get("/api/teams/").json()}
-        assert rows["alpha"]["open_boards"] == ["C34_0"]
-        assert rows["alpha"]["crossings"] == []
+        assert rows["alpha"]["active_tolls"] == ["C34_0"]
+        assert rows["alpha"]["cleared_tolls"] == []
 
 
 class TestProvisioning:

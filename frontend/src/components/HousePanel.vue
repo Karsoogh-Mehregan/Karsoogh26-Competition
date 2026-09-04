@@ -95,12 +95,12 @@ const reserveEntryCost = computed(() =>
 // play, and a win is a crossing this team keeps.
 const isGate = computed(() => spec.value?.level === 'toll')
 const hasCrossed = computed(
-  () => !!spec.value && (actingTeam.value?.crossings ?? []).includes(spec.value.nodeCode),
+  () => !!spec.value && (actingTeam.value?.cleared_tolls ?? []).includes(spec.value.nodeCode),
 )
 // A board left unfinished here. The toll is charged per board, so this one is
 // already bought and the button resumes it instead of quoting the price again.
 const hasOpenBoard = computed(
-  () => !!spec.value && (actingTeam.value?.open_boards ?? []).includes(spec.value.nodeCode),
+  () => !!spec.value && (actingTeam.value?.active_tolls ?? []).includes(spec.value.nodeCode),
 )
 
 function withCost(label: string): string {
