@@ -781,7 +781,11 @@ class GradeView(MentorActionView):
         payload = self.serializer_class(data=request.data)
         payload.is_valid(raise_exception=True)
         holding = self.get_holding(team_code, node_code)
-        if not question_visible_to_mentor(holding.question, request.user):
+        # Holdings without a question row still go through (tower tests / legacy
+        # grade path). Assignment only applies once a Question is attached.
+        if holding.question_id is not None and not question_visible_to_mentor(
+            holding.question, request.user
+        ):
             raise PermissionDenied("این سؤال به شما تخصیص داده نشده است.")
         try:
             holding = self.perform(holding, payload.validated_data)
