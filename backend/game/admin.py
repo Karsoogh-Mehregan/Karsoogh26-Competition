@@ -1,7 +1,8 @@
 from django import forms
-from django.contrib import admin
+from django.contrib import admin, messages
 
 from accounts.permissions import MENTOR_PERM
+from game.services.attempts import reopen_attempts
 from notifications.services import users_with_perm
 
 from .models import (
@@ -132,7 +133,9 @@ class OccupancyAdmin(admin.ModelAdmin):
         "points",
         "is_spawn",
         "entered_at",
+        "expires_at",
         "released_at",
+        "release_reason",
     )
     list_filter = (ActiveFilter, "is_spawn", "release_reason", "node__level")
     list_select_related = ("node", "node__level", "team")
@@ -154,9 +157,28 @@ class OccupancyAdmin(admin.ModelAdmin):
         "released_at",
         "release_reason",
     )
+    actions = ["reopen_selected_attempts"]
 
     def has_add_permission(self, request):
         return False
+
+    @admin.action(description="Reopen the selected attempts (fresh clock, seat kept)")
+    def reopen_selected_attempts(self, request, queryset):
+        """Hand back an attempt the wall clock ate while the game was stopped.
+
+        The bulk sweep is `manage.py restore_expired_attempts`; this is the
+        hand-picked one. Anything graded, answered, questionless, or released
+        for a reason other than expiry is reported and left alone.
+        """
+        reopened, skipped = reopen_attempts(list(queryset.select_related("node__level", "team")))
+        if reopened:
+            self.message_user(request, f"{len(reopened)} attempt(s) reopened.", messages.SUCCESS)
+        for occupancy, reason in skipped:
+            self.message_user(
+                request,
+                f"{occupancy.team.code} @ {occupancy.node.code}: {reason}",
+                messages.WARNING,
+            )
 
 
 @admin.register(GameSettings)
