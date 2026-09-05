@@ -6,16 +6,18 @@ This command reopens those attempts and restarts their clock.
 
 It touches only attempts that expired inside a window (default: the last hour)
 and never a graded one, a submitted one, or a seat another team has taken since.
+The same reopen lives on the Occupancy admin as an action, for hand-picked rows.
 """
 
 from datetime import timedelta
 
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from core.boards import Board
 from game.models import Occupancy, ReleaseReason
+from game.services.attempts import reopen_attempts
 
 
 class Command(BaseCommand):
@@ -49,74 +51,34 @@ class Command(BaseCommand):
         now = timezone.now()
         cutoff = now - timedelta(minutes=since)
 
-        base = Occupancy.objects.select_related("node__level", "team").filter(
+        targets = Occupancy.objects.select_related("node__level", "team").filter(
+            Q(released_at__isnull=True) | Q(release_reason=ReleaseReason.EXPIRED),
             question_id__isnull=False,
             grade__isnull=True,
             floor__isnull=True,
             submission__isnull=True,
-            expires_at__isnull=False,
             expires_at__lte=now,
             expires_at__gte=cutoff,
         )
         if options["board"]:
-            base = base.filter(team__board=options["board"])
+            targets = targets.filter(team__board=options["board"])
         if options["team"]:
-            base = base.filter(team__code=options["team"])
+            targets = targets.filter(team__code=options["team"])
 
-        swept = base.filter(released_at__isnull=False, release_reason=ReleaseReason.EXPIRED)
-        pending = base.filter(released_at__isnull=True)
+        if options["dry_run"]:
+            for occupancy in targets:
+                state = "restore" if occupancy.released_at else "re-clock"
+                self.stdout.write(f"{state:10} {occupancy.team.code} {occupancy.node.code}")
+            self.stdout.write(self.style.SUCCESS(f"[dry-run] {targets.count()} would reopen."))
+            return
 
-        restored, reclocked, skipped = [], [], []
-
-        with transaction.atomic():
-            for occ in pending.select_for_update():
-                occ.expires_at = now + timedelta(
-                    minutes=minutes or occ.node.level.attempt_ttl_minutes
-                )
-                if not options["dry_run"]:
-                    occ.save(update_fields=["expires_at"])
-                reclocked.append(occ)
-
-            for occ in swept.select_for_update():
-                conflict = self._conflict(occ)
-                if conflict:
-                    skipped.append((occ, conflict))
-                    continue
-                occ.released_at = None
-                occ.release_reason = ""
-                occ.expires_at = now + timedelta(
-                    minutes=minutes or occ.node.level.attempt_ttl_minutes
-                )
-                if not options["dry_run"]:
-                    occ.save(update_fields=["released_at", "release_reason", "expires_at"])
-                restored.append(occ)
-
-            if options["dry_run"]:
-                transaction.set_rollback(True)
-
-        for occ in reclocked:
-            self.stdout.write(f"re-clocked  {occ.team.code} {occ.node.code} slot {occ.slot}")
-        for occ in restored:
-            self.stdout.write(f"restored    {occ.team.code} {occ.node.code} slot {occ.slot}")
-        for occ, reason in skipped:
+        reopened, skipped = reopen_attempts(list(targets), minutes=minutes)
+        for occupancy in reopened:
+            self.stdout.write(f"reopened  {occupancy.team.code} {occupancy.node.code}")
+        for occupancy, reason in skipped:
             self.stdout.write(
-                self.style.WARNING(f"skipped     {occ.team.code} {occ.node.code}: {reason}")
+                self.style.WARNING(
+                    f"skipped   {occupancy.team.code} {occupancy.node.code}: {reason}"
+                )
             )
-
-        prefix = "[dry-run] " if options["dry_run"] else ""
-        self.stdout.write(
-            self.style.SUCCESS(
-                f"{prefix}{len(reclocked)} re-clocked, {len(restored)} restored, "
-                f"{len(skipped)} skipped."
-            )
-        )
-
-    def _conflict(self, occ: Occupancy) -> str | None:
-        active = Occupancy.objects.active().exclude(pk=occ.pk)
-        if active.filter(node_id=occ.node_id, slot=occ.slot).exists():
-            return "slot taken since"
-        if occ.floor is not None and active.filter(node_id=occ.node_id, floor=occ.floor).exists():
-            return "floor taken since"
-        if active.filter(team_id=occ.team_id, node_id=occ.node_id, source=occ.source).exists():
-            return "team already holds this node"
-        return None
+        self.stdout.write(self.style.SUCCESS(f"{len(reopened)} reopened, {len(skipped)} skipped."))
