@@ -37,17 +37,58 @@ class RoomForm(forms.ModelForm):
 
 @admin.register(Room)
 class RoomAdmin(admin.ModelAdmin):
+    """Turning a room off is how a judge goes off duty.
+
+    `is_active` is togglable straight from the list (`list_editable`) and in
+    bulk (the two actions), because it is the one field an organiser flips
+    mid-event — a judge steps out, their room goes off, the rotation stops
+    handing them duels. `services._available_rooms` filters on exactly this
+    flag, so an unticked room disappears from the queue on the next challenge;
+    duels already in it are untouched and stay in that judge's list to close.
+
+    A judge is out of rotation once *all* their rooms are off, which in practice
+    is one room — `seed_demo` gives each judge exactly one. There is deliberately
+    no switch here for `User.is_active`: that is a login, and disabling it would
+    lock the judge out of the site rather than take them off the rota.
+    """
+
     form = RoomForm
-    list_display = ("name", "mentor", "is_active", "duels_hosted", "last_assigned_at")
-    list_filter = ("is_active",)
+    list_display = ("name", "mentor", "is_active", "duels_hosted", "open_duels", "last_assigned_at")
+    list_editable = ("is_active",)
+    list_filter = ("is_active", "mentor")
     search_fields = ("name", "link", "mentor__username")
     list_select_related = ("mentor",)
     readonly_fields = ("created_at",)
-    actions = ["reset_rotation"]
+    actions = ["activate_rooms", "deactivate_rooms", "reset_rotation"]
 
     @admin.display(description="duels")
     def duels_hosted(self, room: Room) -> int:
         return room.duels.count()
+
+    @admin.display(description="open now")
+    def open_duels(self, room: Room) -> int:
+        """A room with a live duel in it should not be switched off blind."""
+        return room.duels.filter(status=DuelStatus.OPEN).count()
+
+    @admin.action(description="Turn on (judge back into the rotation)")
+    def activate_rooms(self, request, queryset):
+        updated = queryset.update(is_active=True)
+        self.message_user(request, f"{updated} room(s) turned on.")
+
+    @admin.action(description="Turn off (judge out of the rotation)")
+    def deactivate_rooms(self, request, queryset):
+        """Off means "hand me no new duels"; it never closes one already running.
+
+        Whoever is mid-duel keeps it and can still call its winner, so the
+        message says how many are in that state rather than letting an organiser
+        assume the board is now clear.
+        """
+        live = Duel.objects.filter(room__in=queryset, status=DuelStatus.OPEN).count()
+        updated = queryset.update(is_active=False)
+        note = f"{updated} room(s) turned off."
+        if live:
+            note += f" {live} duel(s) already in them stay open for their judge to close."
+        self.message_user(request, note)
 
     @admin.action(description="Send to the front of the rotation")
     def reset_rotation(self, request, queryset):

@@ -13,6 +13,7 @@ import {
   CircleAlertIcon,
   ExternalLinkIcon,
   GavelIcon,
+  Loader2Icon,
   RefreshCwIcon,
   SwordsIcon,
 } from '@lucide/vue'
@@ -20,6 +21,14 @@ import { computed, ref } from 'vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table,
@@ -98,7 +107,6 @@ const targetGroups = computed(() => {
 // Which row's button is spinning. Without it every button in the table would
 // look busy while one of them is submitting.
 const pendingTarget = ref<number | null>(null)
-const pendingWinner = ref<string | null>(null)
 
 const pastDuels = computed<Duel[]>(() => (isDuelMentor.value ? judged.value : history.value))
 
@@ -140,13 +148,49 @@ async function onChallenge(target: DuelTarget) {
   }
 }
 
-async function onCallWinner(duel: Duel, winnerCode: string) {
-  pendingWinner.value = winnerCode
-  try {
-    await callWinner(duel, winnerCode)
-  } finally {
-    pendingWinner.value = null
-  }
+/**
+ * Naming a winner is irreversible, so it takes two deliberate acts.
+ *
+ * Closing a duel moves a floor and settles the stake in one transaction, and
+ * `DuelAdmin` freezes the row afterwards — there is no undo, only an organiser
+ * editing the database. A single click on one of two adjacent buttons is far
+ * too little for that, so the click only *proposes* a winner and a modal asks
+ * again. The modal is deliberately not an inline swap: a confirm button that
+ * appears where the trigger just was is reachable by the second half of an
+ * accidental double-click, which is the exact misclick being guarded against.
+ */
+const proposedWinner = ref<DuelTeam | null>(null)
+
+const confirmOpen = computed({
+  get: () => proposedWinner.value !== null,
+  set: (value: boolean) => {
+    if (!value) proposedWinner.value = null
+  },
+})
+
+/** What confirming actually does, in the judge's own terms. */
+const confirmConsequence = computed(() => {
+  const duel = judging.value
+  const winner = proposedWinner.value
+  if (!duel || !winner) return ''
+  const where = `طبقهٔ ${duel.floor} ساختمان «${houseLabel(duel)}»`
+  return winner.code === duel.attacker.code
+    ? `${where} به تیم «${duel.attacker.name}» می‌رسد و ورودی دوئل به آن بازگردانده می‌شود.`
+    : `${where} برای تیم «${duel.attacked.name}» باقی می‌ماند و ورودی دوئل ` +
+        `(${formatBalance(duel.stake)}) به آن پرداخت می‌شود.`
+})
+
+function askWinner(team: DuelTeam) {
+  proposedWinner.value = team
+}
+
+async function confirmWinner() {
+  const duel = judging.value
+  const winner = proposedWinner.value
+  if (!duel || !winner || submitting.value) return
+  // Only close on success: a refusal leaves the dialog up with the error toast,
+  // rather than dropping the judge back to a card that looks unchanged.
+  if (await callWinner(duel, winner.code)) proposedWinner.value = null
 }
 </script>
 
@@ -240,21 +284,16 @@ async function onCallWinner(duel: Duel, winnerCode: string) {
             <div class="flex flex-col gap-2">
               <span class="text-muted-foreground text-sm">برندهٔ دوئل کدام تیم بود؟</span>
               <div class="flex flex-wrap gap-2">
-                <Button
-                  :disabled="submitting"
-                  :aria-busy="pendingWinner === judging.attacker.code"
-                  @click="onCallWinner(judging, judging.attacker.code)"
-                >
+                <Button :disabled="submitting" @click="askWinner(judging.attacker)">
                   {{ judging.attacker.name }}
                 </Button>
-                <Button
-                  :disabled="submitting"
-                  :aria-busy="pendingWinner === judging.attacked.code"
-                  @click="onCallWinner(judging, judging.attacked.code)"
-                >
+                <Button :disabled="submitting" @click="askWinner(judging.attacked)">
                   {{ judging.attacked.name }}
                 </Button>
               </div>
+              <p class="text-muted-foreground text-xs">
+                پس از ثبت، نتیجه قابل تغییر نیست.
+              </p>
             </div>
           </template>
 
@@ -385,4 +424,39 @@ async function onCallWinner(duel: Duel, winnerCode: string) {
       </template>
     </div>
   </div>
+
+    <!-- Second act: restates who won, what it does, and that it is final. -->
+    <Dialog v-model:open="confirmOpen">
+      <DialogContent dir="rtl" class="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>تأیید برندهٔ دوئل</DialogTitle>
+          <DialogDescription v-if="judging">
+            دوئل {{ duelRef(judging) }} — «{{ judging.attacker.name }}» در برابر
+            «{{ judging.attacked.name }}»
+          </DialogDescription>
+        </DialogHeader>
+
+        <div v-if="proposedWinner" class="flex flex-col gap-3">
+          <div class="bg-muted flex flex-col gap-1 rounded-lg p-3">
+            <span class="text-muted-foreground text-xs">برنده</span>
+            <span class="text-base font-bold">{{ proposedWinner.name }}</span>
+          </div>
+          <p class="text-muted-foreground text-sm">{{ confirmConsequence }}</p>
+          <p class="text-destructive flex items-start gap-2 text-xs">
+            <CircleAlertIcon class="mt-0.5 size-3.5 shrink-0" />
+            این نتیجه پس از ثبت قابل تغییر نیست.
+          </p>
+        </div>
+
+        <DialogFooter class="flex-row gap-2 sm:justify-start">
+          <Button variant="outline" class="flex-1" :disabled="submitting" @click="confirmOpen = false">
+            انصراف
+          </Button>
+          <Button class="flex-1" :disabled="submitting" :aria-busy="submitting" @click="confirmWinner">
+            <Loader2Icon v-if="submitting" class="size-4 animate-spin" />
+            ثبت برنده
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 </template>
