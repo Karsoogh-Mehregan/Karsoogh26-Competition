@@ -72,7 +72,12 @@ def _floors_for_ranked(
 @transaction.atomic
 def grade_attempt(holding: Occupancy, grade: int) -> Occupancy:
     settings = GameSettings.load()
-    if not settings.is_running:
+    # Grading is allowed while the game is running *or* paused: a pause freezes
+    # the clock so mentors can catch up on the queue, and the auto-pause at the
+    # buzzer must not strand every ungraded submission unjudged. Only a game that
+    # has not started or is finished refuses — there is nothing legitimate to
+    # grade in either.
+    if not (settings.is_running or settings.is_paused):
         raise Conflict("بازی در حال اجرا نیست.")
 
     node = holding.node

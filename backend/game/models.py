@@ -4,7 +4,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from django.conf import settings
 from django.core.validators import RegexValidator
 from django.db import models
-from django.db.models import CheckConstraint, F, Q, UniqueConstraint
+from django.db.models import CheckConstraint, ExpressionWrapper, F, Q, UniqueConstraint
 from django.utils import timezone
 
 from core.boards import Board
@@ -405,6 +405,15 @@ class GameSettings(models.Model):
         blank=True,
         help_text="Stamped the first time status becomes running; anchors the entry grace.",
     )
+    paused_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the current pause began; null while running. On resume, every live "
+            "attempt's clock is pushed forward by how long this pause lasted, so a "
+            "question timer freezes with the game instead of burning through the stop."
+        ),
+    )
 
     class Meta:
         verbose_name = "game settings"
@@ -480,13 +489,56 @@ class GameSettings(models.Model):
             touched |= {"accumulated_seconds", "running_since"}
 
         if self.status == GameStatus.RUNNING:
+            # Resuming from a pause: hand back to every live attempt exactly the
+            # wall time the stop cost it, so its question clock froze with the
+            # game rather than draining through the pause.
+            if self.paused_at is not None:
+                self._thaw_attempt_clocks(now)
             self.running_since = now
             touched.add("running_since")
             if self.started_at is None:
                 self.started_at = now
                 touched.add("started_at")
 
+        # `paused_at` marks the start of the current stop, and only a pause has
+        # one: entering PAUSED stamps it, every other status clears it (a resume
+        # above has already spent it, and finished/not_started never had one).
+        if self.status == GameStatus.PAUSED:
+            if self.paused_at is None:
+                self.paused_at = now
+                touched.add("paused_at")
+        elif self.paused_at is not None:
+            self.paused_at = None
+            touched.add("paused_at")
+
         return tuple(touched)
+
+    def _thaw_attempt_clocks(self, now) -> None:
+        """Push live attempt deadlines forward by the pause that just ended.
+
+        Only attempts that were still *ticking* when the pause began move: a
+        reservation still owing an answer (`question` set, no grade, no
+        submission, floor not yet captured) whose `expires_at` had not already
+        passed at `paused_at`. Shifting one that expired before the stop would
+        revive a dead attempt; the sweep leaves those for release as normal.
+
+        `F("expires_at") + delta` is wrapped so both Postgres and SQLite treat
+        the result as a datetime rather than guessing the output type.
+        """
+        delta = now - self.paused_at
+        if delta <= timedelta(0):
+            return
+        Occupancy.objects.active().filter(
+            question_id__isnull=False,
+            grade__isnull=True,
+            submission__isnull=True,
+            floor__isnull=True,
+            expires_at__gt=self.paused_at,
+        ).update(
+            expires_at=ExpressionWrapper(
+                F("expires_at") + delta, output_field=models.DateTimeField()
+            )
+        )
 
     @classmethod
     def load(cls) -> "GameSettings":
@@ -546,6 +598,7 @@ class GameSettings(models.Model):
         if not self.time_is_up:
             return False
 
+        now = timezone.now()
         stopped = (
             type(self)
             .objects.filter(pk=self.pk, status=GameStatus.RUNNING)
@@ -553,6 +606,10 @@ class GameSettings(models.Model):
                 status=GameStatus.PAUSED,
                 accumulated_seconds=self.duration_seconds,
                 running_since=None,
+                # The buzzer bypasses `_roll_clock`, so it stamps the pause start
+                # by hand — a resume must know when this stop began to thaw the
+                # attempt clocks, exactly as a manual pause does.
+                paused_at=now,
             )
         )
         # Keep this instance honest whether or not we won the race — either way
@@ -560,6 +617,7 @@ class GameSettings(models.Model):
         self.status = GameStatus.PAUSED
         self.accumulated_seconds = self.duration_seconds
         self.running_since = None
+        self.paused_at = now
         if not stopped:
             return False
 

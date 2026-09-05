@@ -111,7 +111,14 @@ def release_expired_attempts(*, node: Node | None = None) -> int:
     The slot becomes free for another reservation. TeamQuestion is left
     alone, so the same question is never served to that team again.
     Occupancies that already have a submission stay put for grading.
+
+    A stopped game sweeps nothing: while paused the attempt clocks are frozen
+    (their deadlines are pushed forward on resume), so releasing one here would
+    expire a timer that is not actually running. Not-started and finished have
+    nothing legitimate to release either.
     """
+    if not GameSettings.load().is_running:
+        return 0
     now = timezone.now()
     qs = Occupancy.objects.active().filter(
         question_id__isnull=False,
