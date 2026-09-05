@@ -241,30 +241,55 @@ class TestGel:
         assert team.name in message.body
         assert Notification.objects.filter(user=occupant, message=message).exists()
 
-    def test_gels_spawn_and_toll(self, running_game, team):
+    def test_gels_a_spawn(self, running_game, team):
         spawn = Node.objects.create(
             board=Board.GIRLS,
             code="s1",
             name="Spawn",
             level=LevelConfig.objects.get(level=Level.SPAWN),
         )
+        give(team, ItemType.GEL)
+
+        use_gel(team, spawn)
+
+        spawn.refresh_from_db()
+        assert spawn.gelled is True
+        with pytest.raises(Conflict, match="گِل"):
+            claim_spawn(team, spawn)
+
+    def test_rejects_a_toll_gate(self, running_game, team):
         toll = Node.objects.create(
             board=Board.GIRLS,
             code="t1",
             name="Toll",
             level=LevelConfig.objects.get(level=Level.TOLL),
         )
+        give(team, ItemType.GEL)
+
+        with pytest.raises(Conflict, match="عوارضی"):
+            use_gel(team, toll)
+        toll.refresh_from_db()
+        assert toll.gelled is False
+        assert TeamItem.objects.filter(team=team, item_type=ItemType.GEL).exists()
+
+    def test_rejects_a_connector_code_and_a_minesweeper_board(self, running_game, hard, team):
+        """A Designer can move a gate off the `toll` tier; it is still a gate."""
+        from minesweeper.models import MinesweeperDifficulty, MinesweeperSettings
+
+        connector = Node.objects.create(board=Board.GIRLS, code="C34_0", name="Gate", level=hard)
+        boarded = Node.objects.create(board=Board.GIRLS, code="h9", name="Hard 9", level=hard)
+        MinesweeperSettings.objects.create(node=boarded, difficulty_id=MinesweeperDifficulty.EASY)
         give(team, ItemType.GEL, quantity=2)
 
-        use_gel(team, spawn)
-        use_gel(team, toll)
-
-        spawn.refresh_from_db()
-        toll.refresh_from_db()
-        assert spawn.gelled is True
-        assert toll.gelled is True
-        with pytest.raises(Conflict, match="گِل"):
-            claim_spawn(team, spawn)
+        with pytest.raises(Conflict, match="عوارضی"):
+            use_gel(team, connector)
+        with pytest.raises(Conflict, match="عوارضی"):
+            use_gel(team, boarded)
+        connector.refresh_from_db()
+        boarded.refresh_from_db()
+        assert connector.gelled is False
+        assert boarded.gelled is False
+        assert TeamItem.objects.get(team=team, item_type=ItemType.GEL).quantity == 2
 
     def test_locks_only_the_team_s_board(self, running_game, hard, team):
         girls = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)

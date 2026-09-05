@@ -29,7 +29,7 @@ interface GraphNode {
 
 const { items, loading, using, error, needsNode, useItem } = useItems()
 const { nodes } = useGraph() as { nodes: GraphNode[] }
-const { levelOf, isGelled } = useMapDesign()
+const { levelOf, isGelled, hasMinesweeper } = useMapDesign()
 
 const hasItems = computed(() => items.value.length > 0)
 const pickingGel = computed(() => pickerItem.value?.item_type === 'gel')
@@ -39,12 +39,26 @@ const pickerItem = ref<TeamItem | null>(null)
 const selectedCode = ref('')
 const nodeQuery = ref('')
 
+// A gate is the only road onto the ring past it, so gel never offers one: the
+// `toll` tier, the connector glyphs and a minesweeper board all name the same
+// nodes, and the server refuses all three either way.
+function isGate(node: GraphNode): boolean {
+  return (
+    levelOf(node.id, node.type) === 'toll' ||
+    node.type === 'c34' ||
+    node.type === 'c45' ||
+    hasMinesweeper(node.id)
+  )
+}
+
 const pickerNodes = computed(() => {
   const rows = nodes as GraphNode[]
   if (pickingGel.value) {
     return rows.filter((node) => {
       const level = levelOf(node.id, node.type)
-      return node.id !== 'CENTER' && level !== 'center' && !isGelled(node.id)
+      return (
+        node.id !== 'CENTER' && level !== 'center' && !isGate(node) && !isGelled(node.id)
+      )
     })
   }
   return rows.filter((node) => {
@@ -148,7 +162,8 @@ async function confirmUse() {
           <DialogTitle class="pe-6">انتخاب نود</DialogTitle>
           <DialogDescription>
             <template v-if="pickingGel">
-              خانه‌ای را که می‌خواهید گِل بگیرید انتخاب کنید. مرکز شهر قابل انتخاب نیست.
+              خانه‌ای را که می‌خواهید گِل بگیرید انتخاب کنید. مرکز شهر و عوارضی‌ها قابل انتخاب
+              نیستند.
             </template>
             <template v-else>
               خانه‌ای را که می‌خواهید با

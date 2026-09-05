@@ -69,6 +69,30 @@ def _reject_unplayable(node: Node) -> None:
         raise Conflict("این خانه با آیتم قابل تملک نیست.")
 
 
+def _reject_ungellable(node: Node) -> None:
+    """The city hall and the toll gates are not houses, so they cannot be gelled.
+
+    A gate is the only road onto the ring beyond it; gelling one would wall off
+    a whole ring for every team at once. It is recognised three ways because a
+    Designer may move a node between tiers: the `toll` level, the `C34`/`C45`
+    connector codes, and a minesweeper board — the board is the gate.
+    """
+    if node.level_id == Level.CENTER or node.code == "CENTER":
+        raise Conflict("خانهٔ مرکز را نمی‌توان گِل گرفت.")
+    if (
+        node.level_id == Level.TOLL
+        or node.code.upper().startswith(("C34", "C45"))
+        or _has_minesweeper_board(node)
+    ):
+        raise Conflict("عوارضی را نمی‌توان گِل گرفت.")
+
+
+def _has_minesweeper_board(node: Node) -> bool:
+    """Read through the reverse accessor: `minesweeper` depends on `game`."""
+    settings = getattr(node, "minesweeper_settings", None)
+    return bool(settings and settings.enabled)
+
+
 def _playable_floors(node: Node) -> list[int]:
     floors = list(
         FloorReward.objects.filter(level_id=node.level_id)
@@ -222,10 +246,10 @@ def use_fake_document(team: Team, node: Node) -> Occupancy:
 def use_gel(team: Team, node: Node) -> list[Occupancy]:
     """Evict everyone on the node and lock it. Nobody sits here afterwards."""
     _require_running()
-    if node.level_id == Level.CENTER or node.code == "CENTER":
-        raise Conflict("خانهٔ مرکز را نمی‌توان گِل گرفت.")
-
+    # Deliberately not joining `minesweeper_settings` here: it is the nullable
+    # side of an outer join, which Postgres refuses to lock.
     node = Node.objects.select_for_update().select_related("level").get(pk=node.pk)
+    _reject_ungellable(node)
     _reject_gelled(node)
 
     locked = _lock_occupancies(node)
