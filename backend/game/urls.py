@@ -1,6 +1,6 @@
 from django.urls import path
 
-from game import sse, views, views_design
+from game import sse, views, views_buyout, views_design
 
 app_name = "game"
 
@@ -22,6 +22,9 @@ urlpatterns = [
     path(f"{_HOLDING}assign-question/", views.AssignQuestionView.as_view(), name="assign-question"),
     path(f"{_HOLDING}grade/", views.GradeView.as_view(), name="grade"),
     path(f"{_HOLDING}release/", views.ReleaseView.as_view(), name="release"),
+    # Buying a floor out from its holder — a duel without the meeting.
+    path("buyouts/", views_buyout.BuyOutView.as_view(), name="buyout"),
+    path("buyouts/targets/", views_buyout.BuyoutTargetListView.as_view(), name="buyout-targets"),
     # Pre-game entry sheet, always the caller's own team.
     path("entry/sheet/", views.EntrySheetView.as_view(), name="entry-sheet"),
     path(

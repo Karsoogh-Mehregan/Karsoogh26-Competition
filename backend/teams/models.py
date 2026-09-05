@@ -12,6 +12,7 @@ class BalanceReason(models.TextChoices):
     GRADE = "grade", "نمره خانه"
     EVENT = "event", "رویداد"
     DUEL = "duel", "دوئل"
+    BUYOUT = "buyout", "خرید طبقه"
 
 
 def active_holdings():

@@ -31,14 +31,17 @@ function viewerSeesFrozenLeaderboard(): boolean {
 }
 
 const BOARD = [queryKeys.teamsRoot()]
+// Who owns which floor next door decides what is for sale, so every frame that
+// moves a seat or a grade also stales the buyout table.
+const BOARD_AND_BUYOUTS = [queryKeys.teamsRoot(), queryKeys.buyoutsRoot()]
 const ROUTES: Record<string, () => QueryKey[]> = {
   'board.spawn.claimed': () => BOARD,
-  'board.node.claimed': () => [queryKeys.teamsRoot(), queryKeys.balanceEventsRoot()],
-  'board.released': () => [queryKeys.teamsRoot(), queryKeys.attemptsRoot()],
+  'board.node.claimed': () => [...BOARD_AND_BUYOUTS, queryKeys.balanceEventsRoot()],
+  'board.released': () => [...BOARD_AND_BUYOUTS, queryKeys.attemptsRoot()],
   // A grade moves balances. Frozen players keep their snapshot; organisers
   // still need the live list.
   'board.graded': () => {
-    const keys: QueryKey[] = [queryKeys.teamsRoot(), queryKeys.balanceEventsRoot()]
+    const keys: QueryKey[] = [...BOARD_AND_BUYOUTS, queryKeys.balanceEventsRoot()]
     if (!viewerSeesFrozenLeaderboard()) keys.push(queryKeys.leaderboardRoot())
     return keys
   },
@@ -56,7 +59,7 @@ const ROUTES: Record<string, () => QueryKey[]> = {
   // A Designer repainted something; every open map is stale.
   'map.design': () => [queryKeys.mapDesignRoot()],
   // A won Minesweeper toll expands reach; holdings themselves did not change.
-  'minesweeper.cleared': () => BOARD,
+  'minesweeper.cleared': () => BOARD_AND_BUYOUTS,
   // Addressed to the two teams and the judge only — see `game.sse._visible_to`.
   // A resolved duel also emits the public board frames above, so this one only
   // has to refresh the duel page itself.
@@ -72,6 +75,7 @@ const RESYNC_KEYS: QueryKey[] = [
   queryKeys.inbox(),
   queryKeys.mapDesignRoot(),
   queryKeys.duelsRoot(),
+  queryKeys.buyoutsRoot(),
 ]
 
 // Subscribed types are derived from the routing table rather than listed a

@@ -53,6 +53,9 @@ export const queryKeys = {
   duelsRoot: () => ['duels'] as const,
   duelBoard: () => ['duels', 'board'] as const,
   duelTargets: () => ['duels', 'targets'] as const,
+  // Prefix key, like duels: the target table is the only member today.
+  buyoutsRoot: () => ['buyouts'] as const,
+  buyoutTargets: () => ['buyouts', 'targets'] as const,
   minesweeperRoot: () => ['minesweeper'] as const,
   minesweeperAttempt: (attemptId: number) => ['minesweeper', 'attempt', attemptId] as const,
 }

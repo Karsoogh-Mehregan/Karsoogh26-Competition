@@ -48,6 +48,7 @@ class AcquisitionSource(models.TextChoices):
     ATTEMPT = "attempt", "تلاش"
     ITEM = "item", "آیتم"
     DUEL = "duel", "دوئل"
+    BUYOUT = "buyout", "خرید"
 
 
 # Seats a team was *given* rather than earned by answering. They behave alike
@@ -55,7 +56,9 @@ class AcquisitionSource(models.TextChoices):
 # offered a question, and grading elsewhere on the node must route around their
 # floor rather than re-rank it. Behavioural checks go through this set so a
 # fourth way of acquiring a floor is one line, not a search of the codebase.
-GRANTED_SOURCES = frozenset({AcquisitionSource.ITEM, AcquisitionSource.DUEL})
+GRANTED_SOURCES = frozenset(
+    {AcquisitionSource.ITEM, AcquisitionSource.DUEL, AcquisitionSource.BUYOUT}
+)
 
 
 class GameStatus(models.TextChoices):

@@ -28,7 +28,7 @@ export interface FloorState {
   isOwnTeam: boolean
   /** The seat's Occupancy id — what a duel challenge names as its target. */
   occupancyId: number | null
-  /** How the seat was acquired; `duel`/`item` own a floor without a grade. */
+  /** How the seat was acquired; `duel`/`item`/`buyout` own a floor without a grade. */
   source: string | null
 }
 
@@ -90,8 +90,8 @@ function emptyFloor(floor: number): FloorState {
 /**
  * Seat the holdings on the node's floors.
  *
- * A holding with a floor owns it, however it got there: a grade, an item, or a
- * won duel. Only a *reservation* — no floor yet, because the floor is captured
+ * A holding with a floor owns it, however it got there: a grade, an item, a won
+ * duel or a purchase. Only a *reservation* — no floor yet, because the floor is captured
  * at grading — is scaffolding, shown on the lowest seat still free, which is
  * where it would land if graded right now.
  */

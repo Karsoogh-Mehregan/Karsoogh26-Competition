@@ -8,7 +8,7 @@
  * - **reservation** — the team paid for the slot and owes an answer. `floor` is
  *   null, because the floor is captured at grading, not at claiming.
  * - **owned by grade** — answered and judged. `floor` and `grade` are both set.
- * - **granted** — an item takeover or a won duel. `floor` is set and `grade`
+ * - **granted** — an item takeover, a won duel or a bought floor. `floor` is set and `grade`
  *   is null, because nothing was answered for it.
  *
  * So `grade == null` does **not** mean "reserved" — it means "no question was
@@ -21,7 +21,7 @@
  */
 
 /** Seats a team was given rather than earned by answering. */
-export const GRANTED_SOURCES = new Set(['item', 'duel'])
+export const GRANTED_SOURCES = new Set(['item', 'duel', 'buyout'])
 
 /** The shape both the map and the house panel read holdings through. */
 interface HoldingLike {

@@ -354,7 +354,6 @@ affect players.
   emblem + character motif) is where that fidelity goes; a builder can also
   branch on `c.theme.key` for one-off touches.
 - **Road style is global**, not per neighbourhood.
-- **No duel or buyout affordance** — the backend has no endpoint for either.
 - **House glyphs on the map itself** are still rings; the plan (a `<symbol>`
   silhouette above `LABEL_ZOOM`, viewport-culled) is unchanged.
 
