@@ -147,7 +147,7 @@ class TeamItemListView(APIView):
     examples=[
         OpenApiExample(
             "fake_document",
-            value={"item_type": "fake_document", "node_code": "h1"},
+            value={"item_type": "fake_document", "node_code": "h1", "floor": 2},
             request_only=True,
         ),
         OpenApiExample(
@@ -184,7 +184,7 @@ class UseTeamItemView(APIView):
                 raise NotFound(f"خانهٔ «{node_code}» پیدا نشد.")
 
         if item_type == ItemType.FAKE_DOCUMENT:
-            use_fake_document(team, node)
+            use_fake_document(team, node, payload.validated_data["floor"])
         elif item_type == ItemType.GEL:
             use_gel(team, node)
         else:

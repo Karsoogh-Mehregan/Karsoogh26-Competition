@@ -93,7 +93,7 @@ class TestFakeDocument:
 
         response = client.post(
             USE_URL,
-            {"item_type": ItemType.FAKE_DOCUMENT, "node_code": node.code},
+            {"item_type": ItemType.FAKE_DOCUMENT, "node_code": node.code, "floor": 2},
             format="json",
         )
 
@@ -103,7 +103,7 @@ class TestFakeDocument:
         assert item.quantity == 1
         holding = Occupancy.objects.active().get(team=alpha, node=node)
         assert holding.source == AcquisitionSource.ITEM
-        assert holding.floor == 1
+        assert holding.floor == 2
 
     def test_unknown_node_is_rejected(self, running_game, alpha):
         give(alpha, ItemType.FAKE_DOCUMENT)
@@ -111,11 +111,27 @@ class TestFakeDocument:
 
         response = client.post(
             USE_URL,
-            {"item_type": ItemType.FAKE_DOCUMENT, "node_code": "missing"},
+            {"item_type": ItemType.FAKE_DOCUMENT, "node_code": "missing", "floor": 1},
             format="json",
         )
 
         assert response.status_code == 404
+        assert TeamItem.objects.filter(team=alpha, item_type=ItemType.FAKE_DOCUMENT).exists()
+        assert Occupancy.objects.filter(team=alpha).count() == 0
+
+    def test_a_missing_floor_is_rejected(self, running_game, hard, alpha):
+        node = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
+        give(alpha, ItemType.FAKE_DOCUMENT)
+        client = client_for(alpha)
+
+        response = client.post(
+            USE_URL,
+            {"item_type": ItemType.FAKE_DOCUMENT, "node_code": node.code},
+            format="json",
+        )
+
+        assert response.status_code == 400
+        assert "floor" in response.json()
         assert TeamItem.objects.filter(team=alpha, item_type=ItemType.FAKE_DOCUMENT).exists()
         assert Occupancy.objects.filter(team=alpha).count() == 0
 

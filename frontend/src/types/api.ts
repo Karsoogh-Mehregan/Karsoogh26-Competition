@@ -673,6 +673,8 @@ export interface TeamItem {
 export interface UseItemPayload {
   item_type: ItemType
   node_code?: string
+  /** Which storey the fake document forges a deed to; gel takes the whole house. */
+  floor?: number
 }
 
 export interface UseItemResult {
