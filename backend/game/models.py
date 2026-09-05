@@ -568,6 +568,12 @@ class Question(models.Model):
         default=100,
         help_text="The scale the mentor grades on. Payout is grade/max_grade of the floor reward.",
     )
+    mentors = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        related_name="grading_questions",
+        help_text="The mentors who grade submissions for this question. Empty = every mentor queue.",
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

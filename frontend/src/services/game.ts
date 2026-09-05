@@ -28,8 +28,15 @@ export function getSubmission(id: number, signal?: AbortSignal): Promise<Submiss
   return get<SubmissionDetail>(`/submissions/${id}/`, signal)
 }
 
-export function gradeSubmission(submissionId: number, grade: number): Promise<GradeResult> {
-  return post<GradeResult>(`/submissions/${submissionId}/grade/`, { grade })
+export function gradeSubmission(
+  submissionId: number,
+  grade: number,
+  options?: { weakReasoning?: boolean },
+): Promise<GradeResult> {
+  return post<GradeResult>(`/submissions/${submissionId}/grade/`, {
+    grade,
+    ...(options?.weakReasoning ? { weak_reasoning: true } : {}),
+  })
 }
 
 export function getGameState(signal?: AbortSignal): Promise<GameState> {
