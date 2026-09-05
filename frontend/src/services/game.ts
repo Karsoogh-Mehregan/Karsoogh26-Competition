@@ -1,6 +1,7 @@
 import { get, patch, post } from '@/lib/http'
 import type {
   AssignQuestionResult,
+  GameExtendResult,
   GameRestartResult,
   GameSettings,
   GameState,
@@ -49,6 +50,17 @@ export function getGameSettings(signal?: AbortSignal): Promise<GameSettings> {
 
 export function updateGameSettings(changes: Partial<GameSettings>): Promise<GameSettings> {
   return patch<GameSettings>('/game/settings/', changes)
+}
+
+/**
+ * Grant `minutes` more play, counted from now.
+ *
+ * Deliberately not a PATCH of `duration_minutes`: the new total depends on how
+ * much has been played at the instant it lands, and a client that computed it
+ * would be racing a clock that moves while the organiser types.
+ */
+export function extendGame(minutes: number): Promise<GameExtendResult> {
+  return post<GameExtendResult>('/game/extend/', { minutes })
 }
 
 export function restartGame(): Promise<GameRestartResult> {

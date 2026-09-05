@@ -21,6 +21,11 @@ BOARD_TOLL_STARTED = "board.toll.started"
 QUESTION_ASSIGNED = "question.assigned"
 SUBMISSION_CREATED = "mentor.submission.created"
 GAME_STATE = "game.state"
+# «وقت اضافه», announced rather than merely applied. `game.state` already tells
+# every client to re-read the clock, but a countdown that silently jumps from
+# «پایان» back to ten minutes is a mystery from the floor — this frame carries
+# the number so the hall can be told what happened and by how much.
+GAME_TIME_EXTENDED = "game.time_extended"
 NOTIFICATION_CREATED = "notification.created"
 MAP_DESIGN = "map.design"
 # Addressed frames: only the two teams and the judge are told a duel moved.

@@ -570,6 +570,74 @@ class GameSettings(models.Model):
         publish_on_commit(GAME_STATE, {"status": GameStatus.PAUSED})
         return True
 
+    def extend(self, minutes: int) -> int:
+        """Grant «وقت اضافه»: `minutes` more play *from this moment*. Returns the new total.
+
+        Resumes a paused game; see below.
+
+        Not `duration_minutes += minutes`, which is what an organiser typing into
+        the total field would get. The two only agree while the countdown is
+        still above zero; once the clock has run out they part company, and the
+        moment an organiser actually reaches for this is exactly the moment they
+        have parted. A game stopped at the buzzer has `elapsed == duration`, so
+        the naive sum happens to work — but a game that overshot, or one whose
+        duration was lowered mid-run, has `elapsed` *beyond* `duration`, and
+        there the sum silently pays out less than was granted, or nothing at all.
+
+        So the extension is measured from wherever the clock actually stands:
+        the new allowance is whatever has been played (or promised, if that is
+        more) plus the grant. Ten minutes always buys ten minutes.
+
+        Rounded up to the whole minute the column stores, because an extension
+        must never come out shorter than the number an organiser typed.
+
+        A **paused** game resumes on the same call. That is the shape of the
+        thing being asked for: the buzzer stopped play, an organiser grants more
+        of it, and needing a second click to hand the time over would leave the
+        hall stopped for as long as it took to notice. Both writes go in one
+        `save()`, so the new allowance is already on the row when the clock
+        restarts and `pause_if_time_is_up` cannot stop it again on the next
+        request.
+
+        `not_started` and `finished` are left alone. Neither is a game waiting on
+        time: starting the first would stamp `started_at` and set the entry grace
+        running, and reopening the second would overturn a game god's own ruling
+        on the strength of a time grant.
+        """
+        if minutes <= 0:
+            raise ValueError("An extension must be a positive number of minutes.")
+
+        floor_seconds = max(self.duration_seconds, self.elapsed_seconds or 0)
+        self.duration_minutes = -(-floor_seconds // 60) + minutes
+        fields = ["duration_minutes"]
+        resumed = self.status == GameStatus.PAUSED
+        if resumed:
+            self.status = GameStatus.RUNNING
+            fields.append("status")
+        self.save(update_fields=fields)
+
+        # Local: `game.services.events` imports back into `game`, so a
+        # module-level import would close the loop.
+        from game.services.events import GAME_STATE, GAME_TIME_EXTENDED, publish_on_commit
+
+        publish_on_commit(GAME_STATE, {"status": self.status})
+        # A second frame, and not a duplicate of the first: `game.state` is a
+        # refetch hint every client already acts on silently, while this one is
+        # the announcement — it carries the size of the grant so the hall can be
+        # told, rather than left to notice the countdown moved. Unaddressed and
+        # boardless on purpose: one clock runs both contests, so «وقت اضافه»
+        # reaches everyone logged in.
+        publish_on_commit(
+            GAME_TIME_EXTENDED,
+            {
+                "minutes": minutes,
+                "duration_minutes": self.duration_minutes,
+                "resumed": resumed,
+                "status": self.status,
+            },
+        )
+        return self.duration_minutes
+
     @property
     def is_running(self) -> bool:
         return self.status == GameStatus.RUNNING

@@ -9,6 +9,7 @@ import NotificationPanel from './components/NotificationPanel.vue'
 import TopBar from './components/TopBar.vue'
 import { useBoardStream } from '@/composables/useBoardStream'
 import { useNotificationAnnouncer } from '@/composables/useNotifications'
+import { useTimeExtensionAnnouncer } from '@/composables/useTimeExtension'
 import { useMeQuery } from '@/queries/auth'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
@@ -20,6 +21,7 @@ const board = useBoardStream()
 // Mounted here, not in the panel: the toast has to fire whether or not the
 // drawer happens to be open, and App outlives every route.
 useNotificationAnnouncer()
+useTimeExtensionAnnouncer()
 
 watch(
   me,

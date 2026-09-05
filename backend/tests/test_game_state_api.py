@@ -19,6 +19,7 @@ User = get_user_model()
 STATE_URL = "/api/game/state/"
 SETTINGS_URL = "/api/game/settings/"
 RESTART_URL = "/api/game/restart/"
+EXTEND_URL = "/api/game/extend/"
 
 
 @pytest.fixture
@@ -270,6 +271,177 @@ def test_the_buzzer_leaves_a_finished_game_finished(game_god):
     _patch(game_god, {"status": GameStatus.FINISHED})
 
     assert GameSettings.load().status == GameStatus.FINISHED
+
+
+# --- extra time --------------------------------------------------------------
+#
+# «وقت اضافه» is a grant of N more minutes *from now*, not a new total. The two
+# only agree while the countdown is still above zero, and an organiser reaches
+# for this precisely when it is not.
+
+
+def _extend(client, minutes):
+    return client.post(EXTEND_URL, {"minutes": minutes}, content_type="application/json")
+
+
+def test_extending_adds_to_the_countdown(player, game_god):
+    _patch(game_god, {"duration_minutes": 60})
+    _run_for(10)
+
+    response = _extend(game_god, 15)
+    assert response.status_code == 200
+    assert response.json()["duration_minutes"] == 75
+    assert response.json()["minutes_added"] == 15
+
+    assert player.get(STATE_URL).json()["remaining_seconds"] == pytest.approx(3900, abs=5)
+    assert GameSettings.load().status == GameStatus.RUNNING
+
+
+def test_extending_a_spent_clock_grants_the_whole_extension(player, game_god):
+    """The case a naive `duration += minutes` gets wrong."""
+    _patch(game_god, {"duration_minutes": 30})
+    _run_for(45)
+    # The buzzer has stopped the game and banked elapsed at the full allowance.
+    assert player.get(STATE_URL).json()["remaining_seconds"] == 0
+
+    _extend(game_god, 10)
+    assert player.get(STATE_URL).json()["remaining_seconds"] == 600
+
+
+def test_extending_never_pays_out_less_than_it_promised(player, game_god):
+    """A duration lowered mid-run leaves elapsed past it; ten minutes still buys ten."""
+    _run_for(50)
+    _patch(game_god, {"duration_minutes": 20})
+
+    _extend(game_god, 10)
+    assert player.get(STATE_URL).json()["remaining_seconds"] >= 600
+
+
+def test_extending_resumes_a_game_the_buzzer_stopped(game_god):
+    """One click: grant the time and hand it over."""
+    _patch(game_god, {"duration_minutes": 30})
+    _run_for(31)
+    assert GameSettings.load().status == GameStatus.PAUSED
+
+    _extend(game_god, 10)
+    assert GameSettings.load().status == GameStatus.RUNNING
+
+
+def test_extending_resumes_an_ordinary_pause_too(game_god):
+    _patch(game_god, {"duration_minutes": 60})
+    _run_for(10)
+    _patch(game_god, {"status": GameStatus.PAUSED})
+
+    _extend(game_god, 10)
+    assert GameSettings.load().status == GameStatus.RUNNING
+
+
+def test_the_resumed_game_does_not_stop_again_at_once(player, game_god):
+    """The new allowance is on the row before the clock restarts."""
+    _patch(game_god, {"duration_minutes": 30})
+    _run_for(31)
+
+    _extend(game_god, 10)
+    body = player.get(STATE_URL).json()
+    assert body["status"] == GameStatus.RUNNING
+    assert body["remaining_seconds"] == pytest.approx(600, abs=5)
+
+
+def test_extending_does_not_start_a_game_that_never_kicked_off(game_god):
+    """Starting it would stamp started_at and set the entry grace running."""
+    _patch(game_god, {"duration_minutes": 30})
+
+    assert _extend(game_god, 15).json()["duration_minutes"] == 45
+    settings = GameSettings.load()
+    assert settings.status == GameStatus.NOT_STARTED
+    assert settings.started_at is None
+
+
+def test_extending_does_not_reopen_a_finished_game(game_god):
+    """A game god's ending is not overturned by a time grant."""
+    _patch(game_god, {"duration_minutes": 30})
+    _run_for(10)
+    _patch(game_god, {"status": GameStatus.FINISHED})
+
+    _extend(game_god, 10)
+    assert GameSettings.load().status == GameStatus.FINISHED
+
+
+def test_an_extension_must_be_positive(game_god):
+    assert _extend(game_god, 0).status_code == 400
+    assert _extend(game_god, -5).status_code == 400
+
+
+def _captured_frames(monkeypatch):
+    """The local import inside `extend` resolves at call time, so patch the source."""
+    frames = []
+    monkeypatch.setattr(
+        "game.services.events.publish_on_commit",
+        lambda event_type, payload=None, **kwargs: frames.append((event_type, payload, kwargs)),
+    )
+    return frames
+
+
+def test_extending_announces_itself_on_the_stream(game_god, monkeypatch):
+    """«وقت اضافه» is told to the hall, not merely applied to the clock."""
+    _patch(game_god, {"duration_minutes": 60})
+    _run_for(10)
+    frames = _captured_frames(monkeypatch)
+
+    _extend(game_god, 15)
+
+    announced = [frame for frame in frames if frame[0] == "game.time_extended"]
+    assert len(announced) == 1
+    payload = announced[0][1]
+    assert payload["minutes"] == 15
+    assert payload["duration_minutes"] == 75
+    assert payload["resumed"] is False
+    assert payload["status"] == GameStatus.RUNNING
+
+
+def test_the_announcement_says_when_it_resumed_play(game_god, monkeypatch):
+    _patch(game_god, {"duration_minutes": 30})
+    _run_for(31)
+    frames = _captured_frames(monkeypatch)
+
+    _extend(game_god, 10)
+
+    payload = next(frame[1] for frame in frames if frame[0] == "game.time_extended")
+    assert payload["resumed"] is True
+    assert payload["status"] == GameStatus.RUNNING
+
+
+def test_the_announcement_reaches_both_contests(game_god, monkeypatch):
+    """One clock runs both boards, so the frame is neither addressed nor scoped."""
+    _patch(game_god, {"duration_minutes": 60})
+    _run_for(10)
+    frames = _captured_frames(monkeypatch)
+
+    _extend(game_god, 10)
+
+    kwargs = next(frame[2] for frame in frames if frame[0] == "game.time_extended")
+    assert kwargs.get("board") is None
+    assert kwargs.get("recipients") is None
+
+
+def test_the_clock_hint_still_goes_out_alongside_it(game_god, monkeypatch):
+    """The announcement does not replace `game.state`; clients still re-read."""
+    _patch(game_god, {"duration_minutes": 60})
+    _run_for(10)
+    frames = _captured_frames(monkeypatch)
+
+    _extend(game_god, 10)
+
+    assert [frame[0] for frame in frames] == ["game.state", "game.time_extended"]
+
+
+def test_only_a_game_god_may_grant_time(player, mentor):
+    assert _extend(player, 10).status_code == 403
+    assert _extend(mentor, 10).status_code == 403
+
+
+def test_extra_time_is_closed_to_anonymous_visitors(client):
+    assert _extend(client, 10).status_code == 403
 
 
 # --- mentor controls ---------------------------------------------------------

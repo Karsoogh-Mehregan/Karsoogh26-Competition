@@ -1,6 +1,6 @@
 import { readonly } from 'vue'
 import { openBoardStream } from '@/lib/eventSource'
-import { streamConnected } from '@/lib/boardStreamState'
+import { lastTimeExtension, streamConnected } from '@/lib/boardStreamState'
 import { queryClient } from '@/lib/queryClient'
 import { queryKeys } from '@/queries/keys'
 import type { GameState, Me } from '@/types/api'
@@ -65,6 +65,33 @@ const ROUTES: Record<string, () => QueryKey[]> = {
   // A resolved duel also emits the public board frames above, so this one only
   // has to refresh the duel page itself.
   'duel.updated': () => [queryKeys.duelsRoot()],
+  // Extra time rides its own frame beside `game.state`. The invalidation is the
+  // same clock refetch; what is different is the payload, which `announce`
+  // below hands to the composable that raises the toast.
+  'game.time_extended': () => [queryKeys.gameState(), queryKeys.gameSettings()],
+}
+
+/**
+ * Frames whose *content* matters, not just the fact that something moved.
+ *
+ * Almost every event here is a bare hint: the client is told to re-read and the
+ * payload is thrown away, which is what keeps `ROUTES` honest about being a
+ * cache-invalidation table. Extra time is the exception — the number of minutes
+ * granted is the message, and it exists nowhere else to be refetched from.
+ */
+function announce(eventType: string, data: unknown): void {
+  if (eventType !== 'game.time_extended') return
+  const frame = data as {
+    minutes?: number
+    duration_minutes?: number
+    resumed?: boolean
+  } | null
+  if (!frame || typeof frame.minutes !== 'number') return
+  lastTimeExtension.value = {
+    minutes: frame.minutes,
+    durationMinutes: frame.duration_minutes ?? 0,
+    resumed: frame.resumed === true,
+  }
 }
 
 const RESYNC_KEYS: QueryKey[] = [
@@ -118,7 +145,7 @@ function createBoardStream() {
     timer = setTimeout(flush, wait)
   }
 
-  function onEvent(eventType: string) {
+  function onEvent(eventType: string, data: unknown) {
     // Any frame proves the stream is alive, the heartbeat included — it carries
     // no route and exists only to say so.
     lastSeenAt = Date.now()
@@ -137,6 +164,7 @@ function createBoardStream() {
     }
     const route = ROUTES[eventType]
     if (route) schedule(route())
+    announce(eventType, data)
   }
 
   function open() {

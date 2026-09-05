@@ -483,6 +483,13 @@ export interface GameSettings {
   initial_balance: number
 }
 
+/** What a «وقت اضافه» grant came to. The server owns the arithmetic. */
+export interface GameExtendResult {
+  minutes_added: number
+  duration_minutes: number
+  remaining_seconds: number | null
+}
+
 export interface GameRestartResult {
   occupancies: number
   submissions: number
