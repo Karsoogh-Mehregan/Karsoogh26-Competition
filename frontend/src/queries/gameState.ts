@@ -1,6 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
-import { getGameSettings, getGameState, restartGame, updateGameSettings } from '@/services/game'
-import type { GameRestartResult, GameSettings, GameState } from '@/types/api'
+import {
+  extendGame,
+  getGameSettings,
+  getGameState,
+  restartGame,
+  updateGameSettings,
+} from '@/services/game'
+import type { GameExtendResult, GameRestartResult, GameSettings, GameState } from '@/types/api'
 import { detach } from './invalidate'
 import { queryKeys } from './keys'
 
@@ -43,6 +49,28 @@ export function useUpdateGameSettingsMutation() {
         queryClient.invalidateQueries({ queryKey: queryKeys.gameState() }),
         // Freeze (or thaw) changes what competing teams read from this list.
         queryClient.invalidateQueries({ queryKey: queryKeys.leaderboardRoot() }),
+      ])
+    },
+  })
+}
+
+/**
+ * Grant extra time — and resume play if the game was paused.
+ *
+ * Both caches are invalidated rather than patched from the response: the grant
+ * can move `status` as well as `duration_minutes`, and the countdown every
+ * client draws comes from the state endpoint.
+ */
+export function useExtendGameMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (minutes: number) => extendGame(minutes),
+    onSuccess: (_result: GameExtendResult) => {
+      // The grant can also resume a paused game, so the settings row is refetched
+      // rather than patched from the response — `status` is not in it.
+      detach([
+        queryClient.invalidateQueries({ queryKey: queryKeys.gameSettings() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.gameState() }),
       ])
     },
   })

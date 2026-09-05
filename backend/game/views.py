@@ -56,6 +56,8 @@ from game.serializers import (
     EntryAnswerResultSerializer,
     EntryAnswerSerializer,
     EntrySheetSerializer,
+    GameExtendResultSerializer,
+    GameExtendSerializer,
     GameRestartResultSerializer,
     GameRestartSerializer,
     GameSettingsSerializer,
@@ -915,6 +917,51 @@ class GameSettingsView(APIView):
             {"status": settings_row.status},
         )
         return Response(serializer.data)
+
+
+@extend_schema(
+    tags=["game"],
+    summary="Grant extra time",
+    description=(
+        "Game god only. Adds `minutes` of play counted from now and returns the new "
+        "total. Deliberately not `duration_minutes += minutes`: once the clock has run "
+        "out, elapsed time sits at or past the old allowance and a naive sum pays out "
+        "less than was granted. Resumes a paused game in the same call — a game stopped "
+        "at the buzzer plays on — while leaving `not_started` and `finished` alone. "
+        "Publishes a `game.state` event."
+    ),
+    request=GameExtendSerializer,
+    responses=GameExtendResultSerializer,
+    examples=[
+        OpenApiExample("ten more minutes", value={"minutes": 10}, request_only=True),
+        OpenApiExample(
+            "granted",
+            value={"minutes_added": 10, "duration_minutes": 190, "remaining_seconds": 600},
+            response_only=True,
+        ),
+    ],
+)
+class GameExtendView(APIView):
+    permission_classes = [IsGameGod]
+    serializer_class = GameExtendSerializer
+
+    def post(self, request):
+        payload = GameExtendSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        minutes = payload.validated_data["minutes"]
+        settings_row = GameSettings.load()
+        settings_row.extend(minutes)
+
+        return Response(
+            GameExtendResultSerializer(
+                {
+                    "minutes_added": minutes,
+                    "duration_minutes": settings_row.duration_minutes,
+                    "remaining_seconds": settings_row.remaining_seconds,
+                }
+            ).data
+        )
 
 
 @extend_schema(

@@ -395,6 +395,29 @@ class GameSettingsSerializer(serializers.ModelSerializer):
         )
 
 
+class GameExtendSerializer(serializers.Serializer):
+    """«وقت اضافه»: how many minutes of play to add from this moment.
+
+    A grant, not a new total — the server works out what the total becomes, so
+    an organiser never has to do the arithmetic against a clock that is moving
+    while they type it.
+    """
+
+    minutes = serializers.IntegerField(
+        min_value=1,
+        max_value=600,
+        help_text="Minutes of play to add, counted from now.",
+    )
+
+
+class GameExtendResultSerializer(serializers.Serializer):
+    """What the grant came to, so the dialog can say it out loud."""
+
+    minutes_added = serializers.IntegerField(read_only=True)
+    duration_minutes = serializers.IntegerField(read_only=True)
+    remaining_seconds = serializers.IntegerField(read_only=True, allow_null=True)
+
+
 class GameRestartSerializer(serializers.Serializer):
     """Confirmation is required in the body, not just in the UI.
 
