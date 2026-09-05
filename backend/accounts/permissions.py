@@ -71,12 +71,29 @@ class GameIsRunning(BasePermission):
         return GameSettings.load().is_running
 
 
+def is_site_admin(user) -> bool:
+    """A Django admin: staff (can open /admin/) or superuser.
+
+    This is deliberately the Django notion of an admin, not an event role — the
+    leaderboard is hidden from teams, mentors, game gods and everyone else, and
+    shown only to the people running the site itself.
+    """
+    return bool(user and user.is_authenticated and (user.is_staff or user.is_superuser))
+
+
 class CanViewLeaderboard(BasePermission):
-    """Any logged-in user may read the board. Freeze is applied in the view."""
+    """Admins only: staff or superusers. Hidden from every ordinary user.
+
+    The standings are an operator-only view now; teams and organisers do not see
+    them at all. Freeze is still applied in the view for the admins who can read
+    it. `403` for anyone else — the SPA also hides the page and its nav link, but
+    the endpoint is the real wall.
+    """
+
+    message = "دسترسی به جدول امتیازات فقط برای مدیران مجاز است."
 
     def has_permission(self, request, view):
-        user = request.user
-        return bool(user and user.is_authenticated)
+        return is_site_admin(request.user)
 
 
 class IsDesigner(BasePermission):

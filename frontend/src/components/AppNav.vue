@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { useActing } from '@/composables/useActing'
 import { useMapDesign } from '@/composables/useMapDesign'
 
-const { me, isMentor, isAnnouncer, isPlayer } = useActing()
+const { me, isMentor, isAnnouncer, isPlayer, isSiteAdmin } = useActing()
 const { canDesign } = useMapDesign()
 const route = useRoute()
 </script>
@@ -56,7 +56,12 @@ const route = useRoute()
         کوله پشتی
       </RouterLink>
     </Button>
-    <Button as-child size="sm" :variant="route.path === '/leaderboard' ? 'default' : 'outline'">
+    <Button
+      v-if="isSiteAdmin"
+      as-child
+      size="sm"
+      :variant="route.path === '/leaderboard' ? 'default' : 'outline'"
+    >
       <RouterLink
         to="/leaderboard"
         :aria-current="route.path === '/leaderboard' ? 'page' : undefined"

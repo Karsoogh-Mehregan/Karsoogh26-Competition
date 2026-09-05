@@ -29,6 +29,7 @@ class MeSerializer(serializers.ModelSerializer):
             "id",
             "username",
             "is_staff",
+            "is_superuser",
             "is_mentor",
             "is_game_god",
             "is_announcer",
