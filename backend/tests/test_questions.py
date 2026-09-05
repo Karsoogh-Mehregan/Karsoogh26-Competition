@@ -84,6 +84,14 @@ def make_user(team, username, *, staff=False):
     return user
 
 
+def assign_to_mentor(occupancy, mentor):
+    """Point the holding's question at this mentor (API queue is assignment-scoped)."""
+    occupancy.refresh_from_db()
+    occupancy.question.mentor = mentor
+    occupancy.question.save(update_fields=["mentor"])
+    return occupancy.question
+
+
 def occupy(node, team, **kwargs):
     kwargs.setdefault("slot", 1)
     return Occupancy.objects.create(node=node, team=team, **kwargs)
@@ -213,7 +221,7 @@ class TestMentorGradingAPI:
         mentor = make_user(None, "mentor", staff=True)
         occ = occupy(node, teams[0])
         assign_question(occ)
-        occ.refresh_from_db()
+        assign_to_mentor(occ, mentor)
         submission = submit_answer(occ, user, body="42")
 
         client = APIClient()
@@ -322,6 +330,7 @@ class TestMentorGradingAPI:
         mentor = make_user(None, "mentor", staff=True)
         occ = occupy(node, teams[0])
         assign_question(occ)
+        assign_to_mentor(occ, mentor)
         submission = submit_answer(Occupancy.objects.get(pk=occ.pk), user, body="42")
 
         client = APIClient()
@@ -399,6 +408,7 @@ class TestMentorGradingAPI:
         mentor = make_user(None, "weak-mentor", staff=True)
         occ = occupy(node, team)
         assign_question(occ)
+        assign_to_mentor(occ, mentor)
         submission = submit_answer(Occupancy.objects.get(pk=occ.pk), user, body="nah")
 
         client = APIClient()
@@ -428,6 +438,7 @@ class TestMentorGradingAPI:
         mentor = make_user(None, "weak-mentor2", staff=True)
         occ = occupy(node, teams[0])
         assign_question(occ)
+        assign_to_mentor(occ, mentor)
         submission = submit_answer(Occupancy.objects.get(pk=occ.pk), user, body="nah")
 
         client = APIClient()
@@ -441,6 +452,117 @@ class TestMentorGradingAPI:
         assert response.status_code == 400
         assert Occupancy.objects.get(pk=occ.pk).grade is None
 
+
+class TestMentorQuestionAssignment:
+    def test_assigned_question_only_visible_to_that_mentor(
+        self, node, teams, questions, running_game
+    ):
+        user = make_user(teams[0], "player-asgn")
+        owner = make_user(None, "mentor-owner", staff=True)
+        other = make_user(None, "mentor-other", staff=True)
+        occ = occupy(node, teams[0])
+        assign_question(occ)
+        occ.refresh_from_db()
+        occ.question.mentor = owner
+        occ.question.save(update_fields=["mentor"])
+        submission = submit_answer(occ, user, body="42")
+
+        client = APIClient()
+        client.force_authenticate(user=owner)
+        own_list = client.get("/api/submissions/")
+        own_detail = client.get(f"/api/submissions/{submission.pk}/")
+        assert own_list.status_code == 200
+        assert any(row["id"] == submission.pk for row in own_list.data)
+        assert own_detail.status_code == 200
+
+        client.force_authenticate(user=other)
+        other_list = client.get("/api/submissions/")
+        other_detail = client.get(f"/api/submissions/{submission.pk}/")
+        other_grade = client.post(
+            f"/api/submissions/{submission.pk}/grade/", {"grade": 50}, format="json"
+        )
+        assert other_list.status_code == 200
+        assert all(row["id"] != submission.pk for row in other_list.data)
+        assert other_detail.status_code == 404
+        assert other_grade.status_code == 404
+
+    def test_unassigned_question_hidden_from_every_mentor(
+        self, node, teams, questions, running_game
+    ):
+        user = make_user(teams[0], "player-unasn")
+        mentor_a = make_user(None, "mentor-a", staff=True)
+        mentor_b = make_user(None, "mentor-b", staff=True)
+        occ = occupy(node, teams[0])
+        assign_question(occ)
+        occ.refresh_from_db()
+        assert occ.question.mentor_id is None
+        submission = submit_answer(occ, user, body="42")
+
+        client = APIClient()
+        for mentor in (mentor_a, mentor_b):
+            client.force_authenticate(user=mentor)
+            listing = client.get("/api/submissions/")
+            detail = client.get(f"/api/submissions/{submission.pk}/")
+            assert all(row["id"] != submission.pk for row in listing.data)
+            assert detail.status_code == 404
+
+    def test_superuser_sees_every_submission(self, node, teams, questions, running_game):
+        user = make_user(teams[0], "player-su")
+        owner = make_user(None, "mentor-owner-su", staff=True)
+        admin = make_user(None, "super-admin", staff=True)
+        admin.is_superuser = True
+        admin.save(update_fields=["is_superuser"])
+
+        occ = occupy(node, teams[0])
+        assign_question(occ)
+        assign_to_mentor(occ, owner)
+        submission = submit_answer(occ, user, body="42")
+
+        client = APIClient()
+        client.force_authenticate(user=admin)
+        listing = client.get("/api/submissions/")
+        detail = client.get(f"/api/submissions/{submission.pk}/")
+        grade = client.post(
+            f"/api/submissions/{submission.pk}/grade/", {"grade": 50}, format="json"
+        )
+
+        assert any(row["id"] == submission.pk for row in listing.data)
+        assert detail.status_code == 200
+        assert grade.status_code == 200
+
+    def test_one_mentor_can_own_several_questions(self, node, teams, easy, running_game):
+        mentor = make_user(None, "multi-mentor", staff=True)
+        qs = [
+            Question.objects.create(
+                level=easy,
+                code=f"mq{i}",
+                title=f"Multi {i}",
+                body="x",
+                answer_type=AnswerType.TEXT,
+                answer_key="k",
+                is_active=True,
+                mentor=mentor,
+            )
+            for i in range(2)
+        ]
+        user = make_user(teams[0], "multi-player")
+        nodes = [
+            Node.objects.create(board=Board.GIRLS, code=f"mn{i}", name=f"MN{i}", level=easy)
+            for i in range(2)
+        ]
+        submissions = []
+        for i, question in enumerate(qs):
+            occ = occupy(nodes[i], teams[0])
+            occ.question = question
+            occ.question_assigned_at = timezone.now()
+            occ.save(update_fields=["question", "question_assigned_at"])
+            submissions.append(submit_answer(occ, user, body=f"ans{i}"))
+
+        client = APIClient()
+        client.force_authenticate(user=mentor)
+        listing = client.get("/api/submissions/")
+        ids = {row["id"] for row in listing.data}
+        assert {s.pk for s in submissions} <= ids
 
 
 class TestMediaAccess:
@@ -494,6 +616,8 @@ class TestMediaAccess:
         assign_question(occ)
         occ.question = file_question
         occ.save(update_fields=["question"])
+        file_question.mentor = mentor
+        file_question.save(update_fields=["mentor"])
 
         upload = SimpleUploadedFile("proof.png", b"hello", content_type="image/png")
         submission = submit_answer(occ, user, file=upload)

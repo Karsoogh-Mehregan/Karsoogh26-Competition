@@ -1,4 +1,8 @@
+from django import forms
 from django.contrib import admin
+
+from accounts.permissions import MENTOR_PERM
+from notifications.services import users_with_perm
 
 from .models import (
     Edge,
@@ -16,6 +20,22 @@ from .models import (
     Submission,
     TeamQuestion,
 )
+
+
+class QuestionForm(forms.ModelForm):
+    class Meta:
+        model = Question
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        """Offer only actual mentors (explicit grant, not has_perm)."""
+        super().__init__(*args, **kwargs)
+        mentor = self.fields.get("mentor")
+        if mentor is not None:
+            mentor.queryset = users_with_perm(MENTOR_PERM).filter(is_active=True)
+            mentor.help_text = (
+                "Only users holding act_as_mentor. Empty = submissions stay off every mentor queue."
+            )
 
 
 class ActiveFilter(admin.SimpleListFilter):
@@ -172,10 +192,20 @@ class GameSettingsAdmin(admin.ModelAdmin):
 
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
-    list_display = ("code", "title", "level", "answer_type", "max_grade", "is_active", "created_at")
-    list_filter = ("level", "answer_type", "is_active")
-    search_fields = ("code", "title")
-    list_select_related = ("level",)
+    form = QuestionForm
+    list_display = (
+        "code",
+        "title",
+        "level",
+        "mentor",
+        "answer_type",
+        "max_grade",
+        "is_active",
+        "created_at",
+    )
+    list_filter = ("level", "answer_type", "is_active", "mentor")
+    search_fields = ("code", "title", "mentor__username")
+    list_select_related = ("level", "mentor")
     fieldsets = (
         (
             None,
@@ -188,6 +218,7 @@ class QuestionAdmin(admin.ModelAdmin):
                     "attachment",
                     "answer_type",
                     "max_grade",
+                    "mentor",
                     "is_active",
                 )
             },
