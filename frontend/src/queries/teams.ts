@@ -33,6 +33,11 @@ export function useLeaderboardQuery(enabled: () => boolean) {
     enabled,
     staleTime: computed(() => (frozenPlayer.value ? Infinity : 0)),
     refetchOnWindowFocus: computed(() => !frozenPlayer.value),
+    // A frozen player keeps their snapshot; everyone else falls back to polling
+    // while the stream is down.
+    refetchInterval: computed(() =>
+      frozenPlayer.value || streamConnected.value ? false : 20_000,
+    ),
   })
 }
 

@@ -1,4 +1,5 @@
 import { computed } from 'vue'
+import { streamConnected } from '@/lib/boardStreamState'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import {
   assignQuestion,
@@ -37,6 +38,9 @@ export function useSubmissionsQuery(enabled: () => boolean) {
     queryKey: queryKeys.submissions(),
     queryFn: ({ signal }) => listSubmissions(signal),
     enabled,
+    // A mentor sits on this page waiting for work to arrive, so the queue must
+    // not depend on the stream alone.
+    refetchInterval: computed(() => (streamConnected.value ? false : 10_000)),
   })
 }
 

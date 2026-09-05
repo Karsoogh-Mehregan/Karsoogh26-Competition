@@ -219,4 +219,4 @@ def test_heartbeat_when_nothing_happens(stream_enabled, fake_hub, settings):
         await generator.aclose()
         return seen[2]
 
-    assert async_to_sync(scenario)() == b": keepalive\n\n"
+    assert async_to_sync(scenario)() == sse.HEARTBEAT_PAYLOAD
