@@ -55,13 +55,14 @@ export function useSubmissionQuery(id: () => number | null) {
 export interface GradeSubmissionVariables {
   submissionId: number
   grade: number
+  weakReasoning?: boolean
 }
 
 export function useGradeSubmissionMutation() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ submissionId, grade }: GradeSubmissionVariables) =>
-      gradeSubmission(submissionId, grade),
+    mutationFn: ({ submissionId, grade, weakReasoning }: GradeSubmissionVariables) =>
+      gradeSubmission(submissionId, grade, { weakReasoning }),
     onSuccess: (_result: GradeResult) => {
       detach([
         queryClient.invalidateQueries({ queryKey: queryKeys.submissions() }),

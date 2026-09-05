@@ -159,6 +159,8 @@ export interface GradeResult {
   grade_multiplier: string | null
   points: number
   awarded: number
+  /** Wallet taken by «استدلال ضعیف»; 0 for a normal grade. */
+  penalty: number
   released_at: string | null
   release_reason: string
 }

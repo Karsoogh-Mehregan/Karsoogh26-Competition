@@ -13,6 +13,7 @@ class BalanceReason(models.TextChoices):
     EVENT = "event", "رویداد"
     DUEL = "duel", "دوئل"
     BUYOUT = "buyout", "خرید طبقه"
+    WEAK_REASONING = "weak_reasoning", "استدلال ضعیف"
 
 
 def active_holdings():

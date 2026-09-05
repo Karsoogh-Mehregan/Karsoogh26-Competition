@@ -32,16 +32,18 @@ const gradeMutation = useGradeSubmissionMutation()
 
 const gradeInput = ref<string | number>('')
 const actionError = ref('')
+const weakArmed = ref(false)
 
 const detail = computed(() => detailQuery.data.value ?? null)
 const alreadyGraded = computed(() => detail.value?.grade != null)
 const maxGrade = computed(() => detail.value?.question.max_grade ?? 100)
 
 watch(
-  () => [props.submissionId, detail.value?.grade] as const,
+  () => [props.submissionId, detail.value?.grade, props.open] as const,
   ([, grade]) => {
     gradeInput.value = grade == null ? '' : String(grade)
     actionError.value = ''
+    weakArmed.value = false
   },
   { immediate: true },
 )
@@ -96,6 +98,7 @@ const dialogOpen = computed({
 
 async function submitGrade() {
   actionError.value = ''
+  weakArmed.value = false
   const raw = toAsciiDigits(gradeInput.value).trim()
   const parsed = Number(raw)
   if (raw === '' || !Number.isInteger(parsed) || parsed < 0 || parsed > maxGrade.value) {
@@ -110,6 +113,33 @@ async function submitGrade() {
   } catch (err) {
     actionError.value = err instanceof ApiError ? err.detail : 'ثبت نمره ناموفق بود.'
     toast.error(actionError.value)
+  }
+}
+
+async function applyWeakReasoning() {
+  actionError.value = ''
+  if (!weakArmed.value) {
+    weakArmed.value = true
+    return
+  }
+  try {
+    const result = await gradeMutation.mutateAsync({
+      submissionId: props.submissionId,
+      grade: 0,
+      weakReasoning: true,
+    })
+    const penalty = result.penalty ?? 0
+    toast.success(
+      penalty > 0
+        ? `استدلال ضعیف ثبت شد · نمره ۰ · کسر ${penalty} از موجودی`
+        : 'استدلال ضعیف ثبت شد · نمره ۰',
+    )
+    weakArmed.value = false
+    emit('graded')
+  } catch (err) {
+    actionError.value = err instanceof ApiError ? err.detail : 'ثبت استدلال ضعیف ناموفق بود.'
+    toast.error(actionError.value)
+    weakArmed.value = false
   }
 }
 </script>
@@ -216,6 +246,38 @@ async function submitGrade() {
               نمره {{ detail.grade }} قبلاً ثبت شده و قابل تغییر نیست.
             </p>
           </form>
+
+          <div
+            v-if="!alreadyGraded"
+            class="border-border/80 bg-muted/40 flex flex-col gap-2 rounded-lg border border-dashed p-3"
+          >
+            <div class="space-y-1">
+              <p class="text-sm font-semibold tracking-tight">استدلال ضعیف</p>
+              <p class="text-muted-foreground text-xs leading-5">
+                نمره صفر می‌شود و ۱۰٪ از موجودی فعلی تیم کسر می‌گردد.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="destructive"
+              class="w-full"
+              :disabled="saving"
+              :aria-busy="saving && weakArmed"
+              @click="applyWeakReasoning"
+            >
+              <template v-if="saving && weakArmed">در حال اعمال…</template>
+              <template v-else-if="weakArmed">تأیید کسر ۱۰٪ و نمره صفر</template>
+              <template v-else>استدلال ضعیف</template>
+            </Button>
+            <button
+              v-if="weakArmed && !saving"
+              type="button"
+              class="text-muted-foreground text-xs underline-offset-4 hover:underline"
+              @click="weakArmed = false"
+            >
+              انصراف
+            </button>
+          </div>
         </aside>
       </div>
     </DialogContent>

@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 
 from django.db import IntegrityError, transaction
 from django.db.models import Count
@@ -23,6 +24,7 @@ from game.models import (
     ReleaseReason,
     Submission,
     TeamQuestion,
+    _round_half_up,
 )
 from game.services.events import (
     BOARD_RELEASED,
@@ -31,6 +33,8 @@ from game.services.events import (
     publish_on_commit,
 )
 from game.services.mentor import grade_attempt, max_grade_for
+from teams.ledger import apply_balance_change
+from teams.models import BalanceReason, Team
 
 
 def assign_question(occupancy: Occupancy) -> Question:
@@ -213,13 +217,26 @@ def _validate_answer_payload(question: Question, *, body: str, file) -> None:
             raise InvalidAnswerPayload("Answer must be numeric.") from exc
 
 
-def grade_submission(submission: Submission, grade: int) -> Occupancy:
+@transaction.atomic
+def grade_submission(
+    submission: Submission,
+    grade: int,
+    *,
+    weak_reasoning: bool = False,
+) -> Occupancy:
     """Apply a mentor grade to the occupancy tied to a submission.
 
     Scoring, floors, balances and the release of anything short of full marks
     are all owned by `mentor.grade_attempt`; this only resolves the submission
     to its holding and bounds the grade against that question's scale.
+
+    `weak_reasoning` is the mentor's «استدلال ضعیف» shortcut: the grade must be
+    zero, and after the usual zero-grade release the team loses 10% of its
+    wallet (rounded half-up). The debit is recorded as `BalanceReason.WEAK_REASONING`.
     """
+    if weak_reasoning and grade != 0:
+        raise ValueError("Weak-reasoning penalty only applies with grade 0.")
+
     submission = Submission.objects.select_related(
         "occupancy__node__level",
         "occupancy__question",
@@ -234,4 +251,20 @@ def grade_submission(submission: Submission, grade: int) -> Occupancy:
     if occupancy.grade is not None:
         raise AlreadyGraded("Occupancy has already been graded.")
 
-    return grade_attempt(occupancy, grade)
+    occupancy = grade_attempt(occupancy, grade)
+    occupancy.penalty = 0
+
+    if weak_reasoning:
+        team = Team.objects.select_for_update().get(pk=occupancy.team_id)
+        penalty = _round_half_up(Decimal(team.balance) * Decimal("0.1"))
+        if penalty:
+            apply_balance_change(
+                team,
+                -penalty,
+                reason=BalanceReason.WEAK_REASONING,
+                detail=occupancy.node.code,
+            )
+            occupancy.team.refresh_from_db(fields=["balance"])
+        occupancy.penalty = penalty
+
+    return occupancy

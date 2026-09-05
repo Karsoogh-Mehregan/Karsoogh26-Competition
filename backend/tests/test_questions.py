@@ -387,6 +387,61 @@ class TestMentorGradingAPI:
         assert occ.released_at is not None
         assert occ.release_reason == "zero_grade"
 
+    def test_weak_reasoning_zeros_grade_and_takes_ten_percent(
+        self, node, teams, questions, running_game
+    ):
+        from teams.models import BalanceEvent, BalanceReason
+
+        team = teams[0]
+        team.balance = 405
+        team.save(update_fields=["balance"])
+        user = make_user(team, "weak-player")
+        mentor = make_user(None, "weak-mentor", staff=True)
+        occ = occupy(node, team)
+        assign_question(occ)
+        submission = submit_answer(Occupancy.objects.get(pk=occ.pk), user, body="nah")
+
+        client = APIClient()
+        client.force_authenticate(user=mentor)
+        response = client.post(
+            f"/api/submissions/{submission.pk}/grade/",
+            {"grade": 0, "weak_reasoning": True},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        assert response.data["grade"] == 0
+        assert response.data["penalty"] == 41  # 10% of 405, half-up
+        assert response.data["release_reason"] == "zero_grade"
+
+        occ.refresh_from_db()
+        assert occ.grade == 0
+        assert occ.released_at is not None
+        assert Team.objects.get(pk=team.pk).balance == 364
+
+        event = BalanceEvent.objects.get(team=team, reason=BalanceReason.WEAK_REASONING)
+        assert event.delta == -41
+        assert event.detail == node.code
+
+    def test_weak_reasoning_refuses_nonzero_grade(self, node, teams, questions, running_game):
+        user = make_user(teams[0], "weak-player2")
+        mentor = make_user(None, "weak-mentor2", staff=True)
+        occ = occupy(node, teams[0])
+        assign_question(occ)
+        submission = submit_answer(Occupancy.objects.get(pk=occ.pk), user, body="nah")
+
+        client = APIClient()
+        client.force_authenticate(user=mentor)
+        response = client.post(
+            f"/api/submissions/{submission.pk}/grade/",
+            {"grade": 10, "weak_reasoning": True},
+            format="json",
+        )
+
+        assert response.status_code == 400
+        assert Occupancy.objects.get(pk=occ.pk).grade is None
+
+
 
 class TestMediaAccess:
     def test_other_team_cannot_download_submission_file(self, node, teams, running_game):

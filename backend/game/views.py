@@ -523,13 +523,19 @@ class SubmissionDetailView(generics.RetrieveAPIView):
     description=(
         "Score 0–`max_grade` of the assigned question. Pays "
         "`grade / max_grade` of the floor reward; anything below `max_grade` "
-        "keeps the money and releases the holding."
+        "keeps the money and releases the holding. With `weak_reasoning: true` "
+        "(and `grade: 0`), also deducts 10% of the team's current balance."
     ),
     parameters=[_SUBMISSION_PK],
     request=GradeSubmissionSerializer,
     responses=GradeResultSerializer,
     examples=[
         OpenApiExample("request", value={"grade": 5}, request_only=True),
+        OpenApiExample(
+            "weak reasoning",
+            value={"grade": 0, "weak_reasoning": True},
+            request_only=True,
+        ),
         OpenApiExample(
             "scored",
             value={
@@ -538,6 +544,7 @@ class SubmissionDetailView(generics.RetrieveAPIView):
                 "grade_multiplier": "0.500",
                 "points": 0,
                 "awarded": 50,
+                "penalty": 0,
                 "released_at": "2026-01-01T12:00:00Z",
                 "release_reason": "partial_grade",
             },
@@ -557,7 +564,11 @@ class SubmissionGradeView(APIView):
         payload.is_valid(raise_exception=True)
 
         try:
-            occupancy = grade_submission(submission, payload.validated_data["grade"])
+            occupancy = grade_submission(
+                submission,
+                payload.validated_data["grade"],
+                weak_reasoning=payload.validated_data["weak_reasoning"],
+            )
         except GameServiceError as exc:
             _map_service_error(exc)
         except ValueError as exc:
@@ -570,6 +581,7 @@ class SubmissionGradeView(APIView):
                 "grade_multiplier": occupancy.grade_multiplier,
                 "points": occupancy.points,
                 "awarded": getattr(occupancy, "awarded", 0),
+                "penalty": getattr(occupancy, "penalty", 0),
                 "released_at": occupancy.released_at,
                 "release_reason": occupancy.release_reason,
             }
