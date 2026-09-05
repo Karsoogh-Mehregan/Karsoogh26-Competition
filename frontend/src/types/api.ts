@@ -2,12 +2,14 @@
 export type Board = 'girls' | 'boys'
 
 export interface Holding {
-  id: number
+  /** Null on another team's seat: the Occupancy pk is masked away by the server. */
+  id: number | null
   node_code: string
   node_name: string
   level: string
   slot: number
   floor: number | null
+  /** Null on another team's seat — a rival's score belongs to the leaderboard. */
   grade: number | null
   is_spawn: boolean
   source: 'attempt' | 'item' | 'duel' | 'buyout'
