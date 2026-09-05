@@ -370,3 +370,26 @@ class TestRelease:
             action_url("release", "alpha"), {"reason": "expired"}, format="json"
         )
         assert response.status_code == 200
+
+    def test_grade_is_allowed_while_paused(self, client_mentor, holdings):
+        # A pause freezes the clock so mentors can clear the queue; the buzzer's
+        # auto-pause must not strand every ungraded submission unjudged.
+        settings = GameSettings.load()
+        settings.status = GameStatus.PAUSED
+        settings.save(update_fields=["status"])
+
+        response = client_mentor.post(action_url("grade", "alpha"), {"grade": 50}, format="json")
+        assert response.status_code == 200
+
+    def test_grade_is_refused_before_kickoff(self, client_mentor, holdings):
+        # Default status is not_started — nothing legitimate to grade yet.
+        response = client_mentor.post(action_url("grade", "alpha"), {"grade": 50}, format="json")
+        assert response.status_code == 409
+
+    def test_grade_is_refused_after_finish(self, client_mentor, holdings):
+        settings = GameSettings.load()
+        settings.status = GameStatus.FINISHED
+        settings.save(update_fields=["status"])
+
+        response = client_mentor.post(action_url("grade", "alpha"), {"grade": 50}, format="json")
+        assert response.status_code == 409
