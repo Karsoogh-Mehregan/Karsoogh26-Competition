@@ -318,17 +318,21 @@ def create_charity_bag(
     return event
 
 
-def charity_bag_totals(event: CharityBagEvent, *, now=None) -> dict:
-    """Per-side totals as the players may see them: live, frozen, or final."""
+def charity_bag_totals(event: CharityBagEvent, *, now=None, live: bool = False) -> dict:
+    """Per-side totals as the players may see them: live, frozen, or final.
+
+    `live=True` is the organisers' view — the freeze is a rule for competing
+    teams, and a mentor judging the round has to read the real numbers.
+    """
     if event.status == CharityBagStatus.FINISHED:
         return {
             CharityBagSide.MICE: event.total_mice,
             CharityBagSide.LIONS: event.total_lions,
-            "frozen": True,
+            "frozen": not live,
         }
     now = now or timezone.now()
     freeze_at = event.freeze_at
-    frozen = now >= freeze_at
+    frozen = not live and now >= freeze_at
     rows = [
         entry
         for entry in event.participations.all()

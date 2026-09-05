@@ -229,8 +229,14 @@ class CharityBagEventSerializer(serializers.ModelSerializer):
 
         cache = self.context.setdefault("charity_totals", {})
         if event.pk not in cache:
-            cache[event.pk] = charity_bag_totals(event)
+            cache[event.pk] = charity_bag_totals(event, live=self._sees_live_totals())
         return cache[event.pk]
+
+    def _sees_live_totals(self) -> bool:
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return False
+        return request.user.team_id is None
 
     def get_total_mice(self, event: CharityBagEvent) -> int:
         return self._totals(event)[CharityBagSide.MICE]
