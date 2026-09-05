@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import MapHud from './MapHud.vue'
 import { useActing } from '../composables/useActing'
 import { useEntry } from '../composables/useEntry'
@@ -13,7 +13,7 @@ import { useMapViewport } from '../composables/useMapViewport'
 const HOUSE_FILL = '#E2CFA6'
 
 const { me, teams, actingTeam, isPlayer } = useActing()
-const { canClaimStart } = useEntry()
+const { canClaimStart, exhausted: entryExhausted } = useEntry()
 const inspector = useInspectorStore()
 const { nodes, edges, nodeById, outAdjacency, startEligibleIds } = useGraph()
 const design = useMapDesign()
@@ -341,6 +341,9 @@ function nodeLabel(n) {
   if (state === 'answerable') return `${n.id} — پاسخ به سؤال`
   if (isGatewayNode(n) && state === 'selectable') return `${n.id} — عوارضی؛ بازی مین‌روب`
   if (state === 'selectable') return `${n.id} — قابل انتخاب`
+  if (state === 'gated' && entryExhausted.value) {
+    return `${n.id} — فرصت سؤال‌های ورودی تمام شد؛ منتظر باز شدن نقشه بمانید`
+  }
   if (state === 'gated') return `${n.id} — ابتدا سؤال‌های ورودی را پاسخ دهید`
   return n.id
 }
@@ -361,7 +364,11 @@ function isTollGlyph(n) {
 function inspectIntent(n) {
   const holding = answerableHolding(n.id)
   if (holding) return { intent: 'solve', occupancyId: holding.id }
-  if (isEntryGate(n)) return { intent: 'entry_gate', occupancyId: null }
+  // A spent sheet is not a gate the player can walk through by answering: the
+  // panel has to say so instead of offering a dialog with nothing live in it.
+  if (isEntryGate(n)) {
+    return { intent: entryExhausted.value ? 'entry_locked' : 'entry_gate', occupancyId: null }
+  }
   // A gateway is played, not answered: it never offers a question, and it only
   // offers a board where the server has one and the team can actually open it —
   // standing beside it, or owning a board there already, finished or not.
@@ -391,6 +398,33 @@ function onNodeClick(n) {
   const { intent, occupancyId } = inspectIntent(n)
   inspector.inspect(n.id, intent, occupancyId)
 }
+
+/**
+ * Keep the open panel's intent honest.
+ *
+ * The intent is a *snapshot* of rules that go on moving while the panel sits
+ * there: clearing the entry sheet turns a spawn from «پاسخ به سؤال‌های ورودی»
+ * into «ورود به خانهٔ شروع», a grade next door opens a road, a duel takes a
+ * seat away. Without this the panel keeps offering whatever was true at click
+ * time and the player has to click the node again to see the truth.
+ *
+ * `inspectIntent` returns a fresh object each run, so this fires on any
+ * dependency change and the equality guard is what stops the redundant writes.
+ */
+watch(
+  () => {
+    const code = inspector.inspection?.nodeCode
+    if (!code) return null
+    const node = nodeById.get(code)
+    return node ? inspectIntent(node) : null
+  },
+  (next) => {
+    const current = inspector.inspection
+    if (!next || !current) return
+    if (next.intent === current.intent && next.occupancyId === current.occupancyId) return
+    inspector.inspect(current.nodeCode, next.intent, next.occupancyId)
+  },
+)
 
 // Scaffolding on the map: seats still owing an answer. Keyed on `floor`, so a
 // granted floor paints as owned rather than as a building site.

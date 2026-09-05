@@ -9,6 +9,12 @@ import { ref } from 'vue'
  * already live, and carried here rather than re-derived in the panel — two
  * copies of "may this team take this node" is exactly the kind of duplication
  * that drifts apart mid-contest.
+ *
+ * It is a *snapshot*, though, and the rules under it keep moving: clearing the
+ * entry sheet turns a spawn from `entry_gate` into `claim_start`, a neighbour's
+ * grade opens a road, a duel loses a seat. `GraphView` therefore re-derives the
+ * intent for whichever node is being inspected and writes it back here, so the
+ * panel never offers the move that was legal when the node was clicked.
  */
 export type InspectIntent =
   /** A free, reachable node: reserve it and take its question. */
@@ -19,6 +25,11 @@ export type InspectIntent =
   | 'solve'
   /** A spawn the team cannot take until the entry sheet is cleared. */
   | 'entry_gate'
+  /**
+   * A spawn whose entry sheet is spent: every question answered, every retry
+   * used, still short. Nothing to click — only the grace window opens this.
+   */
+  | 'entry_locked'
   /** A gateway node: it is played as minesweeper instead of answered. */
   | 'minesweeper'
   /** Look, but nothing to do. */
