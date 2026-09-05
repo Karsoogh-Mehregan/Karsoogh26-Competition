@@ -30,11 +30,11 @@ class QuestionForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         """Offer only actual mentors (explicit grant, not has_perm)."""
         super().__init__(*args, **kwargs)
-        mentor = self.fields.get("mentor")
-        if mentor is not None:
-            mentor.queryset = users_with_perm(MENTOR_PERM).filter(is_active=True)
-            mentor.help_text = (
-                "Only users holding act_as_mentor. Empty = submissions stay off every mentor queue."
+        mentors = self.fields.get("mentors")
+        if mentors is not None:
+            mentors.queryset = users_with_perm(MENTOR_PERM).filter(is_active=True)
+            mentors.help_text = (
+                "Only users holding act_as_mentor. Empty = submissions go to every mentor queue."
             )
 
 
@@ -197,15 +197,17 @@ class QuestionAdmin(admin.ModelAdmin):
         "code",
         "title",
         "level",
-        "mentor",
+        "mentor_list",
         "answer_type",
         "max_grade",
         "is_active",
         "created_at",
     )
-    list_filter = ("level", "answer_type", "is_active", "mentor")
-    search_fields = ("code", "title", "mentor__username")
-    list_select_related = ("level", "mentor")
+    list_filter = ("level", "answer_type", "is_active", "mentors")
+    search_fields = ("code", "title", "mentors__username")
+    list_select_related = ("level",)
+    filter_horizontal = ("mentors",)
+
     fieldsets = (
         (
             None,
@@ -218,7 +220,7 @@ class QuestionAdmin(admin.ModelAdmin):
                     "attachment",
                     "answer_type",
                     "max_grade",
-                    "mentor",
+                    "mentors",
                     "is_active",
                 )
             },
@@ -228,6 +230,13 @@ class QuestionAdmin(admin.ModelAdmin):
 
     class Media:
         js = ("game/admin/question_code_title.js",)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related("mentors")
+
+    @admin.display(description="mentors")
+    def mentor_list(self, obj):
+        return "، ".join(m.get_username() for m in obj.mentors.all()) or "—"
 
 
 @admin.register(TeamQuestion)

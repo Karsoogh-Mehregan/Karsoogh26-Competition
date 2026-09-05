@@ -184,7 +184,7 @@ class GradeSubmissionSerializer(serializers.Serializer):
     def validate(self, attrs):
         if attrs.get("weak_reasoning") and attrs["grade"] != 0:
             raise serializers.ValidationError(
-                {"weak_reasoning": "استدلال ضعیف فقط با نمره صفر مجاز است."}
+                {"weak_reasoning": "عدم ارائه فقط با نمره صفر مجاز است."}
             )
         return attrs
 

@@ -568,13 +568,11 @@ class Question(models.Model):
         default=100,
         help_text="The scale the mentor grades on. Payout is grade/max_grade of the floor reward.",
     )
-    mentor = models.ForeignKey(
+    mentors = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
         blank=True,
         related_name="grading_questions",
-        help_text="The mentor who grades submissions for this question. Empty = hidden from every mentor queue.",
+        help_text="The mentors who grade submissions for this question. Empty = every mentor queue.",
     )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -590,7 +588,6 @@ class Question(models.Model):
         ]
         indexes = [
             models.Index(fields=["level", "is_active"], name="question_level_active_idx"),
-            models.Index(fields=["mentor"], name="question_mentor_idx"),
         ]
 
     def clean(self):

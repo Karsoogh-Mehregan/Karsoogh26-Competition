@@ -87,8 +87,7 @@ def make_user(team, username, *, staff=False):
 def assign_to_mentor(occupancy, mentor):
     """Point the holding's question at this mentor (API queue is assignment-scoped)."""
     occupancy.refresh_from_db()
-    occupancy.question.mentor = mentor
-    occupancy.question.save(update_fields=["mentor"])
+    occupancy.question.mentors.add(mentor)
     return occupancy.question
 
 
@@ -463,8 +462,7 @@ class TestMentorQuestionAssignment:
         occ = occupy(node, teams[0])
         assign_question(occ)
         occ.refresh_from_db()
-        occ.question.mentor = owner
-        occ.question.save(update_fields=["mentor"])
+        occ.question.mentors.add(owner)
         submission = submit_answer(occ, user, body="42")
 
         client = APIClient()
@@ -486,7 +484,7 @@ class TestMentorQuestionAssignment:
         assert other_detail.status_code == 404
         assert other_grade.status_code == 404
 
-    def test_unassigned_question_hidden_from_every_mentor(
+    def test_unassigned_question_visible_to_every_mentor(
         self, node, teams, questions, running_game
     ):
         user = make_user(teams[0], "player-unasn")
@@ -495,7 +493,7 @@ class TestMentorQuestionAssignment:
         occ = occupy(node, teams[0])
         assign_question(occ)
         occ.refresh_from_db()
-        assert occ.question.mentor_id is None
+        assert not occ.question.mentors.exists()
         submission = submit_answer(occ, user, body="42")
 
         client = APIClient()
@@ -503,8 +501,8 @@ class TestMentorQuestionAssignment:
             client.force_authenticate(user=mentor)
             listing = client.get("/api/submissions/")
             detail = client.get(f"/api/submissions/{submission.pk}/")
-            assert all(row["id"] != submission.pk for row in listing.data)
-            assert detail.status_code == 404
+            assert any(row["id"] == submission.pk for row in listing.data)
+            assert detail.status_code == 200
 
     def test_superuser_sees_every_submission(self, node, teams, questions, running_game):
         user = make_user(teams[0], "player-su")
@@ -541,10 +539,11 @@ class TestMentorQuestionAssignment:
                 answer_type=AnswerType.TEXT,
                 answer_key="k",
                 is_active=True,
-                mentor=mentor,
             )
             for i in range(2)
         ]
+        for question in qs:
+            question.mentors.add(mentor)
         user = make_user(teams[0], "multi-player")
         nodes = [
             Node.objects.create(board=Board.GIRLS, code=f"mn{i}", name=f"MN{i}", level=easy)
@@ -616,8 +615,7 @@ class TestMediaAccess:
         assign_question(occ)
         occ.question = file_question
         occ.save(update_fields=["question"])
-        file_question.mentor = mentor
-        file_question.save(update_fields=["mentor"])
+        file_question.mentors.add(mentor)
 
         upload = SimpleUploadedFile("proof.png", b"hello", content_type="image/png")
         submission = submit_answer(occ, user, file=upload)

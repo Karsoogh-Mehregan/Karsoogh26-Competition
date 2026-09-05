@@ -230,7 +230,7 @@ def grade_submission(
     are all owned by `mentor.grade_attempt`; this only resolves the submission
     to its holding and bounds the grade against that question's scale.
 
-    `weak_reasoning` is the mentor's «استدلال ضعیف» shortcut: the grade must be
+    `weak_reasoning` is the mentor's «عدم ارائه» shortcut: the grade must be
     zero, and after the usual zero-grade release the team loses 10% of its
     wallet (rounded half-up). The debit is recorded as `BalanceReason.WEAK_REASONING`.
     """

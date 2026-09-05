@@ -25,7 +25,7 @@ class Migration(migrations.Migration):
                     ("event", "رویداد"),
                     ("duel", "دوئل"),
                     ("buyout", "خرید طبقه"),
-                    ("weak_reasoning", "استدلال ضعیف"),
+                    ("weak_reasoning", "عدم ارائه"),
                 ],
                 max_length=16,
             ),
