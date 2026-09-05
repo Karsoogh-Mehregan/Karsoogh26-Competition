@@ -20,7 +20,8 @@ from .events import BOARD_GRADED, BOARD_RELEASED, publish_on_commit
 
 # What a mentor may release by hand. DUEL_LOST is deliberately absent: a duel
 # seat change is settled by `duels.services.resolve_duel`, which moves the
-# money in the same transaction. Buyout is still to come.
+# money in the same transaction, and BOUGHT_OUT is written only by
+# `game.services.buyout.buy_out`, for the same reason.
 MENTOR_RELEASE_REASONS = (ReleaseReason.ZERO_GRADE, ReleaseReason.EXPIRED)
 
 

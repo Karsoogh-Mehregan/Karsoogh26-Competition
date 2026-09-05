@@ -13,6 +13,7 @@
  */
 import {
   ChevronRightIcon,
+  HandCoinsIcon,
   HouseIcon,
   Loader2Icon,
   Maximize2Icon,
@@ -31,6 +32,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useActing } from '@/composables/useActing'
+import { useBuyouts } from '@/composables/useBuyouts'
 import { useDuels } from '@/composables/useDuels'
 import { useEntry } from '@/composables/useEntry'
 import { useHouseSpec } from '@/composables/useHouseSpec'
@@ -140,6 +142,75 @@ async function requestDuel() {
   const target = selectedDuelTarget.value
   if (!target || duelSubmitting.value) return
   await challenge(target)
+}
+
+// ---- buyouts -----------------------------------------------------------------
+//
+// «مکانیک خرید»: a team that is stuck pays a lot and takes a unit outright; the
+// holder is put out but keeps every rial it was paid, and the buyer is paid the
+// floor's points. A duel without the meeting, so the section sits right under
+// it and reads the same way: pick a floor, see the price, act.
+//
+// Eligibility is the server's, exactly as for duels — `GET /api/buyouts/targets/`
+// has already applied adjacency, "not a house you sit in" and "not a seat under
+// an open duel", so filtering it to this node is both the question and the
+// answer. Unlike a duel the house need not be full, so on a shared node this
+// section can show where the duel one does not.
+
+const {
+  targets: buyoutTargets,
+  submitting: buyoutSubmitting,
+  buy,
+} = useBuyouts()
+
+const buyoutTargetsHere = computed(() =>
+  buyoutTargets.value
+    .filter((target) => target.node_code === spec.value?.nodeCode)
+    .sort((a, b) => b.floor - a.floor),
+)
+
+const selectedBuyoutFloor = ref<number | null>(null)
+
+watch(
+  buyoutTargetsHere,
+  (rows) => {
+    if (!rows.some((row) => row.floor === selectedBuyoutFloor.value)) {
+      selectedBuyoutFloor.value = rows[0]?.floor ?? null
+    }
+  },
+  { immediate: true },
+)
+
+const selectedBuyoutTarget = computed(
+  () => buyoutTargetsHere.value.find((row) => row.floor === selectedBuyoutFloor.value) ?? null,
+)
+
+const showBuyoutSection = computed(() => isPlayer.value && buyoutTargetsHere.value.length > 0)
+
+/** The price is large by design; a plain wallet check keeps the button honest. */
+const canAffordBuyout = computed(() => {
+  const target = selectedBuyoutTarget.value
+  const balance = actingTeam.value?.balance
+  if (!target || balance == null) return true
+  return balance >= target.cost
+})
+
+// Confirm-once: this is the most expensive click on the board and it evicts
+// another team, so the first press arms the button and the second one buys.
+const buyoutArmed = ref(false)
+watch([selectedBuyoutTarget, () => spec.value?.nodeCode], () => {
+  buyoutArmed.value = false
+})
+
+async function requestBuyout() {
+  const target = selectedBuyoutTarget.value
+  if (!target || buyoutSubmitting.value) return
+  if (!buyoutArmed.value) {
+    buyoutArmed.value = true
+    return
+  }
+  buyoutArmed.value = false
+  await buy(target)
 }
 
 const ACTION_LABEL: Record<string, string> = {
@@ -396,6 +467,68 @@ async function saveDesign() {
           </p>
         </section>
 
+        <!-- Only rendered where the server offers a purchase: an owned floor next
+             door, in a house this team is not already sitting in. -->
+        <section v-if="showBuyoutSection" class="house-buyout" aria-label="خرید واحد این ساختمان">
+          <h3 class="house-buyout-title">
+            <HandCoinsIcon class="size-3.5" />
+            خرید واحد
+          </h3>
+
+          <div class="flex flex-col gap-1.5">
+            <Label for="buyout-floor">واحدی که می‌خواهید بخرید</Label>
+            <select id="buyout-floor" v-model="selectedBuyoutFloor" class="house-select">
+              <option
+                v-for="row in buyoutTargetsHere"
+                :key="row.occupancy_id"
+                :value="row.floor"
+              >
+                طبقهٔ {{ row.floor }} — {{ row.team.name }} ({{ formatBalance(row.cost) }})
+              </option>
+            </select>
+          </div>
+
+          <dl v-if="selectedBuyoutTarget" class="house-buyout-terms">
+            <div>
+              <dt>هزینهٔ خرید</dt>
+              <dd>{{ formatBalance(selectedBuyoutTarget.cost) }}</dd>
+            </div>
+            <div>
+              <dt>امتیاز طبقه</dt>
+              <dd class="text-emerald-700 dark:text-emerald-400">
+                +{{ formatBalance(selectedBuyoutTarget.points) }}
+              </dd>
+            </div>
+          </dl>
+
+          <p v-if="!canAffordBuyout" class="text-destructive text-xs">
+            موجودی تیم برای این خرید کافی نیست.
+          </p>
+
+          <Button
+            class="w-full"
+            :variant="buyoutArmed ? 'destructive' : 'default'"
+            :disabled="!selectedBuyoutTarget || !canAffordBuyout || buyoutSubmitting"
+            :aria-busy="buyoutSubmitting"
+            @click="requestBuyout"
+          >
+            <Loader2Icon v-if="buyoutSubmitting" class="size-4 animate-spin" />
+            <HandCoinsIcon v-else class="size-4" />
+            <template v-if="buyoutArmed">
+              تأیید خرید — {{ selectedBuyoutTarget?.team.name }} بیرون می‌رود
+            </template>
+            <template v-else>
+              خرید واحد
+              <span v-if="selectedBuyoutTarget">({{ formatBalance(selectedBuyoutTarget.cost) }})</span>
+            </template>
+          </Button>
+
+          <p class="text-muted-foreground text-xs">
+            هزینه بلافاصله کسر می‌شود و طبقه بدون سؤال به شما می‌رسد؛ تیم فعلی بیرون می‌رود اما
+            امتیازی از دست نمی‌دهد و امتیاز طبقه به شما پرداخت می‌شود.
+          </p>
+        </section>
+
         <section v-if="canDesign" class="house-design" aria-label="طراحی این خانه">
           <h3 class="house-design-title">
             <PaintbrushIcon class="size-3.5" />
@@ -601,6 +734,50 @@ async function saveDesign() {
   margin: 0;
   font-size: 0.8125rem;
   font-weight: 700;
+}
+
+.house-buyout {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0.6rem 0.9rem 0;
+  padding: 0.75rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: color-mix(in oklab, var(--muted) 35%, transparent);
+}
+.house-buyout-title {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+.house-buyout-terms {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin: 0;
+}
+.house-buyout-terms > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--background);
+}
+.house-buyout-terms dt {
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+}
+.house-buyout-terms dd {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .house-design {

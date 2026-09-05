@@ -110,12 +110,10 @@ class LeaderboardRowSerializer(serializers.Serializer):
     balance = serializers.IntegerField(read_only=True)
 
 
-REASON_LABELS: dict[str, str] = {
-    BalanceReason.INITIAL: "موجودی اولیه",
-    BalanceReason.ENTRY: "رزرو خانه",
-    BalanceReason.TOLL: "عوارضی",
-    BalanceReason.GRADE: "نمره خانه",
-}
+# Every reason's Persian label, from the enum itself — a hand-written copy here
+# fell behind the moment `event`, `duel` and `buyout` landed, and the wallet log
+# showed the raw codes.
+REASON_LABELS: dict[str, str] = dict(BalanceReason.choices)
 
 
 class BalanceEventSerializer(serializers.ModelSerializer):

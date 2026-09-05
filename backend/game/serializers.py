@@ -544,3 +544,38 @@ class LevelConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = LevelConfig
         fields = ("level", "entry_cost", "capacity")
+
+
+# ---- buyouts ---------------------------------------------------------------
+
+
+class BuyoutTeamSerializer(serializers.Serializer):
+    """The holder of a purchasable seat, as the panel names them."""
+
+    code = serializers.SlugField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    color = serializers.CharField(read_only=True, allow_null=True)
+
+
+class BuyoutTargetSerializer(serializers.Serializer):
+    """One row of «واحدهایی که می‌توانید بخرید»."""
+
+    occupancy_id = serializers.IntegerField()
+    node_code = serializers.CharField()
+    node_name = serializers.CharField()
+    level = serializers.CharField()
+    floor = serializers.IntegerField()
+    team = BuyoutTeamSerializer()
+    cost = serializers.IntegerField(help_text="The floor's buyout price.")
+    points = serializers.IntegerField(help_text="What the buyer is paid for the floor.")
+
+
+class BuyOutSerializer(serializers.Serializer):
+    occupancy = serializers.IntegerField(help_text="Id of the seat being bought.")
+
+
+class BuyoutResultSerializer(serializers.Serializer):
+    """The seat the buyer now holds, plus the wallet after both entries."""
+
+    holding = HoldingSerializer(read_only=True)
+    balance = serializers.IntegerField(read_only=True)

@@ -208,6 +208,23 @@ item takeovers and duel wins alike — and the three behavioural checks that use
 reserved floors in `grade_attempt`) go through that set instead. Points already paid to the
 loser are **not** clawed back; the rules do not ask for it.
 
+**A buyout is a duel without the meeting.** The doc's «مکانیک خرید»: a stuck team pays a
+lot and takes a unit outright. `game/services/buyout.py` is the whole of it — no model, no
+judge, no stake, no rest window. `POST /api/buyouts/` (`{occupancy}`) charges the floor's
+`FloorReward.buyout_cost`, soft-releases the holder as `bought_out` **without clawing back a
+rial**, seats the buyer on the same slot and floor with `source=buyout` (the fourth member of
+`GRANTED_SOURCES`, so it expands reach and is never offered a question), and pays the buyer the
+floor's `points` — both wallet entries carry `BalanceReason.BUYOUT`. What carries over from
+duels is reach: the house must be adjacent by `movement.is_reachable` and the buyer may hold no
+seat in it. What does not: the house need **not** be full. One rule is new — a seat that is an
+open `Duel.target` is refused, because the judge is about to decide it and the FK is PROTECT.
+`GET /api/buyouts/targets/` mirrors `/api/duels/targets/` and is the only eligibility the SPA
+reads: `HousePanel` filters it to the node it shows and renders the «خرید واحد» section under
+the duel one only where a row exists. Every refusal is a `BuyoutRefused` (a 409 with the
+Persian sentence the player reads). Board frames (`board.node.claimed`, `board.released`,
+`board.graded`, `minesweeper.cleared`) stale the SPA's buyout table, because who owns what
+next door is what is for sale.
+
 **A restart clears state, never content — and every app owes it a line.**
 `game/services/reset.py` is the game god's wipe, and it is the one function a new
 app is most likely to break without noticing. The rule it applies: anything a *team*

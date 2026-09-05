@@ -10,7 +10,7 @@ export interface Holding {
   floor: number | null
   grade: number | null
   is_spawn: boolean
-  source: 'attempt' | 'item' | 'duel'
+  source: 'attempt' | 'item' | 'duel' | 'buyout'
 }
 
 export interface Team {
@@ -834,6 +834,36 @@ export interface DuelTarget {
   floor: number
   team: DuelTeam
   cost: number
+}
+
+// ---- buyouts ---------------------------------------------------------------
+
+/**
+ * One row of the table of floors this team may buy — see `game/views_buyout.py`.
+ * Same shape as a `DuelTarget`, plus what the buyer is paid for the floor.
+ */
+export interface BuyoutTarget {
+  occupancy_id: number
+  node_code: string
+  node_name: string
+  level: string
+  floor: number
+  team: DuelTeam
+  /** The floor's buyout price, charged on purchase. */
+  cost: number
+  /** The floor's points, paid to the buyer on purchase. */
+  points: number
+}
+
+export interface BuyoutResult {
+  holding: {
+    id: number
+    node: { code: string; name: string; level: string }
+    slot: number
+    floor: number | null
+  }
+  /** The buyer's wallet after paying the price and receiving the points. */
+  balance: number
 }
 
 /** The whole duel page in one response — see `duels/views.py`. */
