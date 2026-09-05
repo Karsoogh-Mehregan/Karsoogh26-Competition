@@ -3,6 +3,15 @@ const CSRF_COOKIE = 'csrftoken'
 const CSRF_HEADER = 'X-CSRFToken'
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE'])
 
+// `fetch` waits forever by default and nginx gives /api/ a 24h read timeout so
+// that SSE can hold a stream open. Between the two, a request that stalls never
+// fails — the button spins until the player reloads the page. This is the only
+// place that ends one.
+const REQUEST_TIMEOUT_MS = 20_000
+// An answer carries an image over event wifi, so uploads get their own budget.
+const UPLOAD_TIMEOUT_MS = 120_000
+const TIMED_OUT = Symbol('request timed out')
+
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
 export interface RequestOptions {
@@ -10,6 +19,7 @@ export interface RequestOptions {
   json?: unknown
   form?: FormData
   signal?: AbortSignal
+  timeoutMs?: number
 }
 
 type FieldErrors = Record<string, string[]>
@@ -45,8 +55,34 @@ function refreshCsrfFromCookie(): void {
   }
 }
 
+async function timedFetch(
+  url: string,
+  init: RequestInit,
+  signal?: AbortSignal,
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(TIMED_OUT), timeoutMs)
+  // The caller's signal is how TanStack cancels a query, so it has to keep
+  // aborting with its own reason rather than being reported as a timeout.
+  const relay = () => controller.abort(signal?.reason)
+  signal?.addEventListener('abort', relay)
+
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } catch (error) {
+    if (controller.signal.reason === TIMED_OUT) {
+      throw new ApiError(408, 'پاسخی از سرور نرسید؛ دوباره تلاش کنید.', null, null)
+    }
+    throw error
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', relay)
+  }
+}
+
 export async function ensureCsrf(): Promise<void> {
-  const response = await fetch(`${BASE}/auth/csrf/`, { credentials: 'include' })
+  const response = await timedFetch(`${BASE}/auth/csrf/`, { credentials: 'include' })
   try {
     const data = (await response.json()) as { csrf_token?: unknown }
     if (typeof data.csrf_token === 'string' && data.csrf_token) {
@@ -102,7 +138,7 @@ async function toApiError(response: Response): Promise<ApiError> {
 }
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', json, form, signal } = options
+  const { method = 'GET', json, form, signal, timeoutMs } = options
   const headers: Record<string, string> = {}
 
   if (json !== undefined) {
@@ -122,13 +158,17 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     }
   }
 
-  const response = await fetch(`${BASE}${path}`, {
-    method,
-    credentials: 'include',
-    headers,
-    body: form ?? (json !== undefined ? JSON.stringify(json) : undefined),
+  const response = await timedFetch(
+    `${BASE}${path}`,
+    {
+      method,
+      credentials: 'include',
+      headers,
+      body: form ?? (json !== undefined ? JSON.stringify(json) : undefined),
+    },
     signal,
-  })
+    timeoutMs ?? (form ? UPLOAD_TIMEOUT_MS : REQUEST_TIMEOUT_MS),
+  )
 
   // Django rotates the token on login(); the response carries the new cookie.
   refreshCsrfFromCookie()
