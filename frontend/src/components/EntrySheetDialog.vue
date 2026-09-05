@@ -6,7 +6,7 @@ import {
   RefreshCwIcon,
   XCircleIcon,
 } from '@lucide/vue'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -29,6 +29,7 @@ const {
   isOpen,
   close,
   sheet,
+  canClaimStart,
   questions,
   loading,
   answering,
@@ -81,9 +82,19 @@ async function onSubmit(question: EntryAttempt) {
     toast.error(error.value || 'ثبت پاسخ ناموفق بود.')
     return
   }
-  if (result) {
+  if (result.is_correct) {
+    // Qualifying ends the sheet's job. Leaving the dialog up over a finished
+    // sheet is what made the map look unchanged until the node was clicked
+    // again — so step out of the way and point at the move that is now open.
+    // Read it off the response, not the cache: the query client notifies in a
+    // batch, so the cached sheet may still be a tick behind here.
+    if (result.qualified) {
+      close()
+      toast.success('برگهٔ ورودی را پاس کردید — حالا خانهٔ شروع خود را انتخاب کنید.')
+      return
+    }
     toast.success('پاسخ درست بود.')
-  } else if (retriesLeft.value > 0) {
+  } else if (result.retries_left > 0) {
     toast.error('پاسخ نادرست بود. می‌توانید دوباره تلاش کنید.')
   } else {
     toast.error('پاسخ نادرست بود. فرصت دیگری باقی نمانده است.')
@@ -108,6 +119,17 @@ async function onRetry(question: EntryAttempt) {
     toast.error(error.value || 'باز کردن تلاش دوباره ناموفق بود.')
   }
 }
+
+// The grace window can open the map while this dialog is up — on a clock, with
+// no click involved. A sheet nobody can act on any more is just in the way.
+watch(
+  () => canClaimStart.value && isOpen.value && !sheet.value?.qualified,
+  (opened) => {
+    if (!opened) return
+    close()
+    toast.info('مهلت اولیه تمام شد؛ نقشه برای همهٔ تیم‌ها باز است.')
+  },
+)
 
 const progressLabel = computed(() => {
   if (!sheet.value) return ''

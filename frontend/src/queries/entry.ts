@@ -9,9 +9,13 @@ export function useEntrySheetQuery(enabled: () => boolean) {
     queryKey: queryKeys.entrySheet(),
     queryFn: ({ signal }) => getEntrySheet(signal),
     enabled,
-    // The sheet is drawn on the first read and only ever changes when this
-    // client answers, so there is nothing to poll for.
-    staleTime: Infinity,
+    // The sheet's *questions* are drawn once and only ever change when this
+    // client answers — but `can_claim_start` is not only about answers: it also
+    // flips on its own when `entry_grace_over` does, on a clock the server owns.
+    // A team that spent every retry is waiting on exactly that, so poll while
+    // the gate is still shut and stop the moment it opens.
+    staleTime: 15_000,
+    refetchInterval: (query) => (query.state.data?.can_claim_start ? false : 15_000),
     retry: false,
   })
 }
