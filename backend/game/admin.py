@@ -138,7 +138,14 @@ class OccupancyAdmin(admin.ModelAdmin):
     list_select_related = ("node", "node__level", "team")
     search_fields = ("node__code", "team__code")
     autocomplete_fields = ("node", "team")
-    readonly_fields = (
+
+    # The change form stays fully read-only — an occupancy is a ledger row the
+    # game writes, not a form to edit after the fact. The add form is the one
+    # exception: an organiser sometimes has to seat a team by hand (a duel or
+    # buyout settled off the board, a botched migration), so every meaningful
+    # field is editable there. `points` and `entered_at` are computed/auto and
+    # never editable, so they only appear on the change form.
+    _CHANGE_READONLY = (
         "node",
         "team",
         "slot",
@@ -149,14 +156,34 @@ class OccupancyAdmin(admin.ModelAdmin):
         "question",
         "question_assigned_at",
         "is_spawn",
+        "source",
         "expires_at",
         "entered_at",
         "released_at",
         "release_reason",
     )
+    _ADD_FIELDS = (
+        "node",
+        "team",
+        "slot",
+        "floor",
+        "grade",
+        "grade_multiplier",
+        "question",
+        "question_assigned_at",
+        "is_spawn",
+        "source",
+        "expires_at",
+        "released_at",
+        "release_reason",
+    )
 
-    def has_add_permission(self, request):
-        return False
+    def get_readonly_fields(self, request, obj=None):
+        # Adding: nothing read-only, so the whole add form is editable.
+        return () if obj is None else self._CHANGE_READONLY
+
+    def get_fields(self, request, obj=None):
+        return self._ADD_FIELDS if obj is None else self._CHANGE_READONLY
 
 
 @admin.register(GameSettings)
