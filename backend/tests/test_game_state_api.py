@@ -193,6 +193,85 @@ def test_a_pause_does_not_eat_into_the_countdown(player, game_god):
     assert player.get(STATE_URL).json()["remaining_seconds"] == pytest.approx(3000, abs=5)
 
 
+# --- the buzzer --------------------------------------------------------------
+#
+# Nothing runs in the background here, so the clock running out has to be applied
+# by whoever next reads the settings. `GameSettings.load()` does it, which is
+# every guard in the codebase as well as the state endpoint.
+
+
+def test_running_out_of_time_pauses_the_game(player, game_god):
+    _patch(game_god, {"duration_minutes": 30})
+    _run_for(31)
+
+    body = player.get(STATE_URL).json()
+    assert body["status"] == GameStatus.PAUSED
+    assert body["is_running"] is False
+    assert body["remaining_seconds"] == 0
+    # Banked to the allowance exactly, not to whenever the poll happened to land.
+    assert body["elapsed_seconds"] == 1800
+    assert body["running_since"] is None
+
+
+def test_the_buzzer_pauses_rather_than_finishes(player, game_god):
+    """Ending the event is a game god's call; the clock only stops the board."""
+    _patch(game_god, {"duration_minutes": 30})
+    _run_for(31)
+
+    player.get(STATE_URL)
+    assert GameSettings.load().status == GameStatus.PAUSED
+
+
+def test_the_buzzer_needs_no_endpoint_of_its_own(game_god):
+    """Any read of the settings applies it — that is what closes the board."""
+    _patch(game_god, {"duration_minutes": 30})
+    _run_for(31)
+
+    assert GameSettings.load().status == GameStatus.PAUSED
+
+
+def test_a_game_with_no_duration_never_runs_out(player, game_god):
+    _patch(game_god, {"duration_minutes": 0})
+    _run_for(600)
+
+    assert player.get(STATE_URL).json()["status"] == GameStatus.RUNNING
+
+
+def test_time_left_is_left_alone(player, game_god):
+    _patch(game_god, {"duration_minutes": 60})
+    _run_for(10)
+
+    assert player.get(STATE_URL).json()["status"] == GameStatus.RUNNING
+
+
+def test_resuming_without_more_time_stops_again(game_god):
+    """The clock really is out; a game god has to grant more time first."""
+    _patch(game_god, {"duration_minutes": 30})
+    _run_for(31)
+    assert GameSettings.load().status == GameStatus.PAUSED
+
+    _patch(game_god, {"status": GameStatus.RUNNING})
+    assert GameSettings.load().status == GameStatus.PAUSED
+
+
+def test_extending_the_duration_lets_the_game_go_on(game_god):
+    _patch(game_god, {"duration_minutes": 30})
+    _run_for(31)
+
+    _patch(game_god, {"duration_minutes": 45})
+    _patch(game_god, {"status": GameStatus.RUNNING})
+    assert GameSettings.load().status == GameStatus.RUNNING
+
+
+def test_the_buzzer_leaves_a_finished_game_finished(game_god):
+    """A game god's ending outranks the clock, and is not rewritten to paused."""
+    _patch(game_god, {"duration_minutes": 30})
+    _run_for(31)
+    _patch(game_god, {"status": GameStatus.FINISHED})
+
+    assert GameSettings.load().status == GameStatus.FINISHED
+
+
 # --- mentor controls ---------------------------------------------------------
 
 
