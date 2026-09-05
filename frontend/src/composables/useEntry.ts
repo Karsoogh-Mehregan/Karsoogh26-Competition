@@ -6,7 +6,7 @@ import {
   useEntrySheetQuery,
   useRetryEntryMutation,
 } from '@/queries/entry'
-import type { EntryAttempt, EntrySheet } from '@/types/api'
+import type { EntryAnswerResult, EntryAttempt, EntrySheet } from '@/types/api'
 
 // Module-level so the map and the side panel drive the same dialog, the same
 // way useGraph() shares one traversal state.
@@ -51,6 +51,25 @@ export function useEntry() {
   const canClaimStart = computed(() => sheet.value?.can_claim_start ?? false)
   const needsEntrySheet = computed(() => isPlayer.value && sheet.value !== null && !canClaimStart.value)
 
+  /**
+   * Every question answered, every retry spent, and still short of the required
+   * count: the sheet holds nothing left to click.
+   *
+   * This is not a refusal the player can work around — the only thing that opens
+   * the map now is `entry_grace_over`, a clock on the server. So the map must
+   * stop offering the sheet and say what is actually being waited for, rather
+   * than sending the team back into a dialog with no live question in it.
+   */
+  const exhausted = computed(() => {
+    const current = sheet.value
+    if (!current || current.can_claim_start) return false
+    if (current.retries_left > 0) return false
+    return current.total_count > 0 && current.answered_count >= current.total_count
+  })
+
+  /** Projected wall clock of the grace end; null while the game is paused. */
+  const graceEndsAt = computed(() => sheet.value?.grace_ends_at ?? null)
+
   const error = computed(() => {
     if (actionError.value) {
       return actionError.value
@@ -58,11 +77,17 @@ export function useEntry() {
     return sheetQuery.error.value ? messageOf(sheetQuery.error.value) : ''
   })
 
-  async function answer(code: string, value: number): Promise<boolean | null> {
+  /**
+   * The whole graded sheet, not just the verdict on this answer.
+   *
+   * The caller needs to know whether *this* answer was the one that qualified
+   * the team, and reading that back off the cache means racing the query
+   * client's batched notification. The response already says so.
+   */
+  async function answer(code: string, value: number): Promise<EntryAnswerResult | null> {
     actionError.value = ''
     try {
-      const result = await answerMutation.mutateAsync({ code, answer: value })
-      return result.is_correct
+      return await answerMutation.mutateAsync({ code, answer: value })
     } catch (err) {
       actionError.value = messageOf(err)
       return null
@@ -94,6 +119,8 @@ export function useEntry() {
     isPlayer,
     canClaimStart,
     needsEntrySheet,
+    exhausted,
+    graceEndsAt,
     answer,
     retry,
   }

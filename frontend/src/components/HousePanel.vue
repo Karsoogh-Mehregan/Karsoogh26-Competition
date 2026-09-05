@@ -33,11 +33,12 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useActing } from '@/composables/useActing'
 import { useBuyouts } from '@/composables/useBuyouts'
+import { useCountdown } from '@/composables/useCountdown'
 import { useDuels } from '@/composables/useDuels'
 import { useEntry } from '@/composables/useEntry'
 import { useHouseSpec } from '@/composables/useHouseSpec'
 import { useMapDesign } from '@/composables/useMapDesign'
-import { formatBalance } from '@/lib/format'
+import { formatBalance, formatDuration } from '@/lib/format'
 import { entryCostForLevel } from '@/lib/nodeLevels'
 import { ARCHETYPES } from '@/lib/house/archetypes'
 import type { FloorState } from '@/lib/house/spec'
@@ -59,7 +60,7 @@ const HouseCanvas = defineAsyncComponent({
 const inspector = useInspectorStore()
 const { spec, inspection, holdings } = useHouseSpec()
 const { me, actingTeam, isPlayer, claimStart, assignQuestion } = useActing()
-const { open: openEntrySheet } = useEntry()
+const { open: openEntrySheet, graceEndsAt } = useEntry()
 const { pinOf, canDesign, isGelled } = useMapDesign()
 const { data: levelConfigs } = useLevelsQuery(() => !!me.value)
 const attemptStore = useAttemptStore()
@@ -218,6 +219,7 @@ const ACTION_LABEL: Record<string, string> = {
   claim_start: 'ورود به خانهٔ شروع',
   solve: 'رفتن به سؤال',
   entry_gate: 'پاسخ به سؤال‌های ورودی',
+  // entry_locked deliberately has none: there is no move left to offer.
   minesweeper: 'ورود به مین‌روب',
   resume_minesweeper: 'ادامه بازی',
 }
@@ -254,6 +256,27 @@ const actionLabel = computed(() => {
   }
   if (intent === 'reserve') return withCost(ACTION_LABEL.reserve)
   return ACTION_LABEL[intent] ?? ''
+})
+
+/**
+ * The sheet is spent and the spawn is shut until the grace window runs out.
+ *
+ * There is no button for this — nothing the player can press changes it — so
+ * the footer explains what is being waited for and, while the clock is running,
+ * how long is left. `grace_ends_at` is a projection off the *run* clock, so a
+ * paused game reports null and the countdown honestly disappears.
+ */
+const entryLocked = computed(() => inspection.value?.intent === 'entry_locked')
+// Only tick while the message is actually on screen; a null end stops the timer.
+const { remaining: graceRemaining } = useCountdown(
+  computed(() => (entryLocked.value ? graceEndsAt.value : null)),
+)
+const graceWaitLabel = computed(() => {
+  if (!entryLocked.value) return ''
+  if (!graceEndsAt.value || graceRemaining.value <= 0) {
+    return 'فرصت پاسخ به سؤال‌های ورودی تمام شد. تا باز شدن نقشه برای همهٔ تیم‌ها صبر کنید.'
+  }
+  return `فرصت پاسخ به سؤال‌های ورودی تمام شد. نقشه تا ${formatDuration(graceRemaining.value)} دیگر برای همهٔ تیم‌ها باز می‌شود.`
 })
 
 async function runAction() {
@@ -602,6 +625,14 @@ async function saveDesign() {
             {{ formatBalance(spec.capacity) }}
           </template>
           <template v-else>ظرفیت این خانه پر است</template>
+        </p>
+
+        <p
+          v-if="graceWaitLabel"
+          class="text-muted-foreground rounded-md border border-dashed p-2 text-xs leading-6"
+          role="status"
+        >
+          {{ graceWaitLabel }}
         </p>
 
         <Button

@@ -490,7 +490,85 @@ class GameSettings(models.Model):
 
     @classmethod
     def load(cls) -> "GameSettings":
-        return cls.objects.get_or_create(pk=1)[0]
+        """The singleton, with the buzzer applied.
+
+        The check lives here rather than in the one view that draws the clock
+        because *every* guard in the codebase asks this question through
+        `is_running` — `claim_node`, `request_duel`, `submit_answer`, the entry
+        sheet. Flipping the row anywhere else would leave the countdown reading
+        «پایان» while the board went on accepting moves, and it would put the
+        rule in a dozen call sites that a new app is free to forget.
+
+        It is a write on a read path, but only ever one: the flip is conditional
+        on the row still being `running`, so the first caller past the buzzer
+        pays for it and every caller after that finds the game already stopped.
+        """
+        row = cls.objects.get_or_create(pk=1)[0]
+        row.pause_if_time_is_up()
+        return row
+
+    @property
+    def time_is_up(self) -> bool:
+        """Running, on a clock, and that clock has reached zero.
+
+        `duration_minutes == 0` turns the limit off. Only a *running* game can
+        run out: a paused one's timer is frozen, so it cannot cross the line
+        while stopped.
+        """
+        if self.duration_minutes == 0 or self.status != GameStatus.RUNNING:
+            return False
+        return (self.elapsed_seconds or 0) >= self.duration_seconds
+
+    def pause_if_time_is_up(self) -> bool:
+        """Stop the game the moment its allotted time is gone. Returns whether it did.
+
+        Paused, not finished, and that is the whole point: the clock running out
+        is not the organisers' verdict on the event. It closes the board so no
+        team plays a second it was not given, and leaves every ending — declare
+        it finished, or raise `duration_minutes` and carry on — to a game god.
+
+        Resuming without extending the duration re-pauses on the next request,
+        because the clock really is out. Give the game more time first.
+
+        A conditional UPDATE rather than a locked read: `status=running` in the
+        WHERE clause is what makes this idempotent under concurrency, so the many
+        callers arriving at the buzzer at once produce exactly one transition and
+        nobody holds a lock on the settings row to get it.
+
+        That bypasses `save()`, and therefore `_roll_clock`, so the ledger is
+        closed by hand here — deliberately, and to an exact number: the stretch
+        is banked as the *whole allotted duration* rather than as wall time up to
+        this call. The difference is however long it took a client to poll after
+        the buzzer, time nobody was entitled to play, and a stopped game whose
+        clock reads its own duration is easier to explain than one reading
+        thirteen seconds more.
+        """
+        if not self.time_is_up:
+            return False
+
+        stopped = (
+            type(self)
+            .objects.filter(pk=self.pk, status=GameStatus.RUNNING)
+            .update(
+                status=GameStatus.PAUSED,
+                accumulated_seconds=self.duration_seconds,
+                running_since=None,
+            )
+        )
+        # Keep this instance honest whether or not we won the race — either way
+        # the row is stopped by the time we return.
+        self.status = GameStatus.PAUSED
+        self.accumulated_seconds = self.duration_seconds
+        self.running_since = None
+        if not stopped:
+            return False
+
+        # Local: `game.services.events` imports back into `game`, so a
+        # module-level import would close the loop.
+        from game.services.events import GAME_STATE, publish_on_commit
+
+        publish_on_commit(GAME_STATE, {"status": GameStatus.PAUSED})
+        return True
 
     @property
     def is_running(self) -> bool:
@@ -574,6 +652,12 @@ class Question(models.Model):
     max_grade = models.PositiveSmallIntegerField(
         default=100,
         help_text="The scale the mentor grades on. Payout is grade/max_grade of the floor reward.",
+    )
+    mentors = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        related_name="grading_questions",
+        help_text="The mentors who grade submissions for this question. Empty = every mentor queue.",
     )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)

@@ -44,7 +44,12 @@ from game.models import (
     Submission,
     TeamQuestion,
 )
-from game.permissions import IsOwnTeam, IsTeamMember
+from game.permissions import (
+    IsOwnTeam,
+    IsTeamMember,
+    question_visible_to_mentor,
+    submissions_for_mentor,
+)
 from game.serializers import (
     ActiveAttemptSerializer,
     AssignQuestionSerializer,
@@ -475,6 +480,7 @@ class SubmissionListView(generics.ListAPIView):
             "occupancy__node__level",
             "occupancy__question",
         ).order_by("-submitted_at")
+        qs = submissions_for_mentor(qs, self.request.user)
 
         graded = self.request.query_params.get("graded")
         if graded == "true":
@@ -502,19 +508,22 @@ class SubmissionListView(generics.ListAPIView):
 @extend_schema(
     tags=["game"],
     summary="Submission detail",
-    description="Includes answer_key. Mentor only.",
+    description="Includes answer_key. Mentor only; scoped to assigned questions.",
     parameters=[_SUBMISSION_PK],
     examples=[OpenApiExample("detail", value=_SUBMISSION_DETAIL, response_only=True)],
 )
 class SubmissionDetailView(generics.RetrieveAPIView):
     permission_classes = [IsMentor]
     serializer_class = SubmissionDetailSerializer
-    queryset = Submission.objects.select_related(
-        "occupancy__team",
-        "occupancy__node__level",
-        "occupancy__question",
-        "submitted_by",
-    )
+
+    def get_queryset(self):
+        qs = Submission.objects.select_related(
+            "occupancy__team",
+            "occupancy__node__level",
+            "occupancy__question",
+            "submitted_by",
+        )
+        return submissions_for_mentor(qs, self.request.user)
 
 
 @extend_schema(
@@ -523,13 +532,19 @@ class SubmissionDetailView(generics.RetrieveAPIView):
     description=(
         "Score 0–`max_grade` of the assigned question. Pays "
         "`grade / max_grade` of the floor reward; anything below `max_grade` "
-        "keeps the money and releases the holding."
+        "keeps the money and releases the holding. With `weak_reasoning: true` "
+        "(and `grade: 0`), also deducts 10% of the team's current balance."
     ),
     parameters=[_SUBMISSION_PK],
     request=GradeSubmissionSerializer,
     responses=GradeResultSerializer,
     examples=[
         OpenApiExample("request", value={"grade": 5}, request_only=True),
+        OpenApiExample(
+            "weak reasoning",
+            value={"grade": 0, "weak_reasoning": True},
+            request_only=True,
+        ),
         OpenApiExample(
             "scored",
             value={
@@ -538,6 +553,7 @@ class SubmissionDetailView(generics.RetrieveAPIView):
                 "grade_multiplier": "0.500",
                 "points": 0,
                 "awarded": 50,
+                "penalty": 0,
                 "released_at": "2026-01-01T12:00:00Z",
                 "release_reason": "partial_grade",
             },
@@ -549,15 +565,23 @@ class SubmissionGradeView(APIView):
     permission_classes = [IsMentor]
 
     def post(self, request, pk: int):
-        submission = get_object_or_404(
-            Submission.objects.select_related("occupancy__node__level"),
-            pk=pk,
+        qs = submissions_for_mentor(
+            Submission.objects.select_related(
+                "occupancy__node__level",
+                "occupancy__question",
+            ),
+            request.user,
         )
+        submission = get_object_or_404(qs, pk=pk)
         payload = GradeSubmissionSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
 
         try:
-            occupancy = grade_submission(submission, payload.validated_data["grade"])
+            occupancy = grade_submission(
+                submission,
+                payload.validated_data["grade"],
+                weak_reasoning=payload.validated_data["weak_reasoning"],
+            )
         except GameServiceError as exc:
             _map_service_error(exc)
         except ValueError as exc:
@@ -570,6 +594,7 @@ class SubmissionGradeView(APIView):
                 "grade_multiplier": occupancy.grade_multiplier,
                 "points": occupancy.points,
                 "awarded": getattr(occupancy, "awarded", 0),
+                "penalty": getattr(occupancy, "penalty", 0),
                 "released_at": occupancy.released_at,
                 "release_reason": occupancy.release_reason,
             }
@@ -612,21 +637,28 @@ class SubmissionMediaView(APIView):
 
     def get(self, request, pk: int):
         submission = get_object_or_404(
-            Submission.objects.select_related("occupancy__team"),
+            Submission.objects.select_related(
+                "occupancy__team",
+                "occupancy__question",
+            ),
             pk=pk,
         )
         if not submission.file:
             raise Http404("No file attached.")
         owns_file = submission.occupancy.team_id == request.user.team_id
-        if not (_is_mentor(request.user) or request.user.is_staff or owns_file):
-            raise PermissionDenied("You cannot access this file.")
-        return _serve_upload(submission.file)
+        if owns_file or request.user.is_staff:
+            return _serve_upload(submission.file)
+        if _is_mentor(request.user) and question_visible_to_mentor(
+            submission.occupancy.question, request.user
+        ):
+            return _serve_upload(submission.file)
+        raise PermissionDenied("You cannot access this file.")
 
 
 @extend_schema(
     tags=["game"],
     summary="Download question attachment",
-    description="Mentor, staff, or a team that was served this question.",
+    description="Assigned mentor, staff, or a team that was served this question.",
     parameters=[_QUESTION_PK],
     responses={200: OpenApiTypes.BINARY},
 )
@@ -637,7 +669,9 @@ class QuestionMediaView(APIView):
         question = get_object_or_404(Question, pk=pk)
         if not question.attachment:
             raise Http404("No attachment.")
-        if _is_mentor(request.user) or request.user.is_staff:
+        if request.user.is_staff:
+            return _serve_upload(question.attachment)
+        if _is_mentor(request.user) and question_visible_to_mentor(question, request.user):
             return _serve_upload(question.attachment)
         if request.user.team_id is None:
             raise PermissionDenied("You cannot access this file.")
@@ -663,7 +697,7 @@ class MentorActionView(APIView):
     def get_holding(self, team_code: str, node_code: str) -> Occupancy:
         holding = (
             Occupancy.objects.active()
-            .select_related("node", "node__level", "team")
+            .select_related("node", "node__level", "team", "question")
             .filter(team__code=team_code, node__code=node_code)
             .first()
         )
@@ -742,6 +776,22 @@ class GradeView(MentorActionView):
 
     def perform(self, holding, data):
         return services.grade_attempt(holding, data["grade"])
+
+    def post(self, request, team_code: str, node_code: str):
+        payload = self.serializer_class(data=request.data)
+        payload.is_valid(raise_exception=True)
+        holding = self.get_holding(team_code, node_code)
+        # Holdings without a question row still go through (tower tests / legacy
+        # grade path). Assignment only applies once a Question is attached.
+        if holding.question_id is not None and not question_visible_to_mentor(
+            holding.question, request.user
+        ):
+            raise PermissionDenied("این سؤال به شما تخصیص داده نشده است.")
+        try:
+            holding = self.perform(holding, payload.validated_data)
+        except GameServiceError as exc:
+            _map_service_error(exc)
+        return Response(HoldingSerializer(holding).data)
 
 
 @extend_schema(

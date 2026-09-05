@@ -179,6 +179,14 @@ class SubmissionDetailSerializer(serializers.ModelSerializer):
 
 class GradeSubmissionSerializer(serializers.Serializer):
     grade = serializers.IntegerField(min_value=0, max_value=100)
+    weak_reasoning = serializers.BooleanField(required=False, default=False)
+
+    def validate(self, attrs):
+        if attrs.get("weak_reasoning") and attrs["grade"] != 0:
+            raise serializers.ValidationError(
+                {"weak_reasoning": "عدم ارائه فقط با نمره صفر مجاز است."}
+            )
+        return attrs
 
 
 class SubmitCreatedSerializer(serializers.Serializer):
@@ -192,6 +200,7 @@ class GradeResultSerializer(serializers.Serializer):
     grade_multiplier = serializers.DecimalField(max_digits=4, decimal_places=3, allow_null=True)
     points = serializers.IntegerField()
     awarded = serializers.IntegerField()
+    penalty = serializers.IntegerField()
     released_at = serializers.DateTimeField(allow_null=True)
     release_reason = serializers.CharField(allow_blank=True)
 

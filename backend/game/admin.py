@@ -1,4 +1,8 @@
+from django import forms
 from django.contrib import admin
+
+from accounts.permissions import MENTOR_PERM
+from notifications.services import users_with_perm
 
 from .models import (
     Edge,
@@ -16,6 +20,22 @@ from .models import (
     Submission,
     TeamQuestion,
 )
+
+
+class QuestionForm(forms.ModelForm):
+    class Meta:
+        model = Question
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        """Offer only actual mentors (explicit grant, not has_perm)."""
+        super().__init__(*args, **kwargs)
+        mentors = self.fields.get("mentors")
+        if mentors is not None:
+            mentors.queryset = users_with_perm(MENTOR_PERM).filter(is_active=True)
+            mentors.help_text = (
+                "Only users holding act_as_mentor. Empty = submissions go to every mentor queue."
+            )
 
 
 class ActiveFilter(admin.SimpleListFilter):
@@ -172,10 +192,22 @@ class GameSettingsAdmin(admin.ModelAdmin):
 
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
-    list_display = ("code", "title", "level", "answer_type", "max_grade", "is_active", "created_at")
-    list_filter = ("level", "answer_type", "is_active")
-    search_fields = ("code", "title")
+    form = QuestionForm
+    list_display = (
+        "code",
+        "title",
+        "level",
+        "mentor_list",
+        "answer_type",
+        "max_grade",
+        "is_active",
+        "created_at",
+    )
+    list_filter = ("level", "answer_type", "is_active", "mentors")
+    search_fields = ("code", "title", "mentors__username")
     list_select_related = ("level",)
+    filter_horizontal = ("mentors",)
+
     fieldsets = (
         (
             None,
@@ -188,6 +220,7 @@ class QuestionAdmin(admin.ModelAdmin):
                     "attachment",
                     "answer_type",
                     "max_grade",
+                    "mentors",
                     "is_active",
                 )
             },
@@ -197,6 +230,13 @@ class QuestionAdmin(admin.ModelAdmin):
 
     class Media:
         js = ("game/admin/question_code_title.js",)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related("mentors")
+
+    @admin.display(description="mentors")
+    def mentor_list(self, obj):
+        return "، ".join(m.get_username() for m in obj.mentors.all()) or "—"
 
 
 @admin.register(TeamQuestion)

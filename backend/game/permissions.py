@@ -1,3 +1,4 @@
+from django.db.models import Q, QuerySet
 from rest_framework.permissions import BasePermission
 
 
@@ -16,3 +17,25 @@ class IsOwnTeam(BasePermission):
         if not (user and user.is_authenticated and user.team_id):
             return False
         return view.kwargs.get("team_code") == user.team.code
+
+
+def question_visible_to_mentor(question, user) -> bool:
+    """Whether this mentor may see or grade the question.
+
+    Superusers see every question. A question with no mentors is open to
+    every mentor; once it names any, only those mentors see it.
+    """
+    if getattr(user, "is_superuser", False):
+        return True
+    if question is None:
+        return True
+    return not question.mentors.exists() or question.mentors.filter(pk=user.pk).exists()
+
+
+def submissions_for_mentor(qs: QuerySet, user) -> QuerySet:
+    """Submissions this mentor may list, open, or grade."""
+    if getattr(user, "is_superuser", False):
+        return qs
+    return qs.filter(
+        Q(occupancy__question__mentors=user) | Q(occupancy__question__mentors__isnull=True)
+    )
