@@ -1,7 +1,7 @@
 """Consume inventory items and apply their board effects.
 
-Item grants write `Occupancy(source=item)`. They do not go through claim, grade,
-or mentor release — those are different flows.
+Fake-document grants write `Occupancy(source=item)`. Gel does not seat anyone:
+it evicts the house and locks the node until the next restart.
 """
 
 from django.db import IntegrityError, transaction
@@ -19,8 +19,9 @@ from game.models import (
 )
 from teams.models import ItemType, Team, TeamItem
 
-from .events import BOARD_NODE_CLAIMED, BOARD_RELEASED, publish_on_commit
+from .events import BOARD_GELLED, BOARD_NODE_CLAIMED, BOARD_RELEASED, publish_on_commit
 from .mentor import Conflict
+from .movement import reject_if_gelled
 
 _UNPLAYABLE_LEVELS = frozenset({Level.SPAWN, Level.TOLL})
 
@@ -41,6 +42,26 @@ def consume_item(team: Team, item_type: str) -> TeamItem | None:
 def _require_running() -> None:
     if not GameSettings.load().is_running:
         raise Conflict("بازی در حال اجرا نیست.")
+
+
+def _reject_gelled(node: Node) -> None:
+    reject_if_gelled(node)
+
+
+def _node_has_open_duel(occupancies: list[Occupancy]) -> bool:
+    if not occupancies:
+        return False
+    from duels.models import Duel
+
+    return Duel.objects.open().filter(target_id__in=[row.pk for row in occupancies]).exists()
+
+
+def _notify_gelled(node: Node, team_ids: list[int]) -> None:
+    if not team_ids:
+        return
+    from game.notices import house_gelled
+
+    house_gelled(node.code, node.name or node.code, list(team_ids))
 
 
 def _reject_unplayable(node: Node) -> None:
@@ -77,9 +98,9 @@ def _held_floors(occupancies: list[Occupancy]) -> set[int]:
     return {occupancy.floor for occupancy in occupancies if occupancy.floor is not None}
 
 
-def _soft_release(occupancy: Occupancy) -> None:
+def _soft_release(occupancy: Occupancy, reason: str = ReleaseReason.ITEM_TAKEOVER) -> None:
     occupancy.released_at = timezone.now()
-    occupancy.release_reason = ReleaseReason.ITEM_TAKEOVER
+    occupancy.release_reason = reason
     occupancy.save(update_fields=["released_at", "release_reason"])
 
 
@@ -152,7 +173,9 @@ def _publish_takeover(team: Team, node: Node, *, released: bool) -> None:
 def use_fake_document(team: Team, node: Node) -> Occupancy:
     """Grant this team exactly one floor on the node, evicting if the house is full."""
     _require_running()
+    node = Node.objects.select_for_update().select_related("level").get(pk=node.pk)
     _reject_unplayable(node)
+    _reject_gelled(node)
     consume_item(team, ItemType.FAKE_DOCUMENT)
 
     locked = _lock_occupancies(node)
@@ -197,24 +220,40 @@ def use_fake_document(team: Team, node: Node) -> Occupancy:
 
 @transaction.atomic
 def use_gel(team: Team, node: Node) -> list[Occupancy]:
-    """Clear the node and grant this team every FloorReward on its level."""
+    """Evict everyone on the node and lock it. Nobody sits here afterwards."""
     _require_running()
-    _reject_unplayable(node)
-    consume_item(team, ItemType.GEL)
+    if node.level_id == Level.CENTER or node.code == "CENTER":
+        raise Conflict("خانهٔ مرکز را نمی‌توان گل گرفت.")
+
+    node = Node.objects.select_for_update().select_related("level").get(pk=node.pk)
+    _reject_gelled(node)
 
     locked = _lock_occupancies(node)
-    floors = _playable_floors(node)
-    released = False
-    for occupancy in locked:
-        _soft_release(occupancy)
-        released = True
+    if _node_has_open_duel(locked):
+        raise Conflict("این خانه در حال دوئل است.")
 
-    holdings = [
-        _create_item_holding(team, node, floor=floor, slot=slot)
-        for slot, floor in enumerate(floors, start=1)
-    ]
-    _publish_takeover(team, node, released=released)
-    return holdings
+    consume_item(team, ItemType.GEL)
+
+    victim_ids: list[int] = []
+    seen: set[int] = set()
+    for occupancy in locked:
+        _soft_release(occupancy, ReleaseReason.GELLED)
+        if occupancy.team_id not in seen:
+            seen.add(occupancy.team_id)
+            victim_ids.append(occupancy.team_id)
+
+    node.gelled = True
+    node.save(update_fields=["gelled"])
+
+    if locked:
+        publish_on_commit(
+            BOARD_RELEASED,
+            {"node": node.code, "reason": ReleaseReason.GELLED},
+            board=team.board,
+        )
+    publish_on_commit(BOARD_GELLED, {"node": node.code}, board=team.board)
+    _notify_gelled(node, victim_ids)
+    return locked
 
 
 @transaction.atomic

@@ -42,6 +42,7 @@ class ReleaseReason(models.TextChoices):
     DUEL_LOST = "duel_lost", "باخت دوئل"
     BOUGHT_OUT = "bought_out", "خریداری شد"
     ITEM_TAKEOVER = "item_takeover", "آیتم"
+    GELLED = "gelled", "گل"
 
 
 class AcquisitionSource(models.TextChoices):
@@ -170,6 +171,12 @@ class Node(models.Model):
     # A Designer's pin. Blank means the renderer picks, and it picks so that no
     # two neighbours look alike; a pin is honoured even if it breaks that.
     archetype = models.CharField(max_length=32, blank=True, choices=ARCHETYPES)
+    # The gel item empties a house and locks it for the rest of the run. Cleared
+    # on restart: it is team state, not map content.
+    gelled = models.BooleanField(
+        default=False,
+        help_text="Locked by the gel item: nobody may enter until the game is restarted.",
+    )
 
     class Meta:
         ordering = ["board", "code"]

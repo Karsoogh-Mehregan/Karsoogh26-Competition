@@ -92,6 +92,7 @@ def buyable_targets(team: Team) -> list[dict]:
         .exclude(team=team)
         .filter(floor__isnull=False)
         .exclude(node__level_id__in=_UNBUYABLE_LEVELS)
+        .exclude(node__gelled=True)
         .select_related("node__level", "team")
         .order_by("node__code", "floor")
     )
@@ -151,6 +152,8 @@ def buy_out(buyer: Team, target_id: int) -> Occupancy:
         raise BuyoutRefused("این واحد هنوز صاحبی ندارد.")
 
     node: Node = target.node
+    if node.gelled:
+        raise BuyoutRefused("این خانه گل گرفته شده و ورود به آن ممکن نیست.")
     if node.level_id in _UNBUYABLE_LEVELS:
         raise BuyoutRefused("این خانه قابل خرید نیست.")
     if target.team.board != buyer.board:

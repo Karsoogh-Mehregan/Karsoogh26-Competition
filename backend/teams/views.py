@@ -175,7 +175,11 @@ class UseTeamItemView(APIView):
         node_code = payload.validated_data["node_code"]
         node = None
         if node_code:
-            node = Node.objects.select_related("level").filter(code=node_code).first()
+            node = (
+                Node.objects.select_related("level")
+                .filter(board=team.board, code=node_code)
+                .first()
+            )
             if node is None:
                 raise NotFound(f"خانهٔ «{node_code}» پیدا نشد.")
 

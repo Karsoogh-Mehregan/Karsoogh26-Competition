@@ -355,6 +355,7 @@ def test_restart_clears_the_board(game_god, played_board):
         "rooms_requeued": 0,
         "minesweeper_attempts": 0,
         "minesweeper_boards": 0,
+        "gelled_nodes": 0,
         "matchmaking_tickets": 0,
         "territory_games": 0,
         "centipede_games": 0,

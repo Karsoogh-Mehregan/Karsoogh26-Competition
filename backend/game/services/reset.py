@@ -24,7 +24,7 @@ from django.db import transaction
 
 from duels.models import Duel, Room
 from events.reset import clear_event_state
-from game.models import EntryAttempt, GameSettings, GameStatus, Occupancy
+from game.models import EntryAttempt, GameSettings, GameStatus, Node, Occupancy
 from minesweeper.models import MinesweeperGame
 from notifications.models import Message, MessageStatus
 from teams.models import BalanceEvent, Team
@@ -81,6 +81,11 @@ def restart_game(*, by=None, board: str | None = None) -> dict:
     if board is not None:
         minesweeper_games = minesweeper_games.filter(node__board=board)
     _boards, board_counts = minesweeper_games.delete()
+
+    # Gel locks are run state. Left behind, last contest's crosses would still
+    # close houses on the next run.
+    nodes_qs = Node.objects.all() if board is None else Node.objects.filter(board=board)
+    gelled_nodes = nodes_qs.filter(gelled=True).update(gelled=False)
 
     # Event instances are opened for one run: an auction, a charity bag round, a
     # wheel, a pig event and every match played inside them. The catalogue in
@@ -152,6 +157,7 @@ def restart_game(*, by=None, board: str | None = None) -> dict:
         "rooms_requeued": rooms,
         "minesweeper_attempts": board_counts.get("minesweeper.MinesweeperAttempt", 0),
         "minesweeper_boards": board_counts.get("minesweeper.MinesweeperGame", 0),
+        "gelled_nodes": gelled_nodes,
         **events_cleared,
         "teams": teams,
     }

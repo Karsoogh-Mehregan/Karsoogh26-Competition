@@ -425,6 +425,7 @@ class GameRestartResultSerializer(serializers.Serializer):
     rooms_requeued = serializers.IntegerField(read_only=True)
     minesweeper_attempts = serializers.IntegerField(read_only=True)
     minesweeper_boards = serializers.IntegerField(read_only=True)
+    gelled_nodes = serializers.IntegerField(read_only=True)
     matchmaking_tickets = serializers.IntegerField(read_only=True)
     territory_games = serializers.IntegerField(read_only=True)
     centipede_games = serializers.IntegerField(read_only=True)
@@ -512,11 +513,12 @@ class NodeDesignSerializer(serializers.ModelSerializer):
     capacity = serializers.IntegerField(source="level.capacity", read_only=True)
     archetype = serializers.ChoiceField(choices=ARCHETYPES, allow_blank=True, required=False)
     minesweeper = serializers.SerializerMethodField()
+    gelled = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Node
-        fields = ("code", "level", "capacity", "archetype", "minesweeper")
-        read_only_fields = ("code",)
+        fields = ("code", "level", "capacity", "archetype", "minesweeper", "gelled")
+        read_only_fields = ("code", "gelled")
 
     def get_minesweeper(self, node) -> bool:
         """Whether this node has a playable minesweeper board.

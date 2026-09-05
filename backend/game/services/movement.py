@@ -11,6 +11,11 @@ from .mentor import Conflict
 from .questions import assign_question, release_expired_attempts
 
 
+def reject_if_gelled(node: Node) -> None:
+    if node.gelled:
+        raise Conflict("این خانه گل گرفته شده و ورود به آن ممکن نیست.")
+
+
 def is_reachable(node: Node, held_ids: set[int]) -> bool:
     """A directed edge a -> b is one-way; undirected rows are normalised a.id < b.id."""
     if not held_ids:
@@ -67,6 +72,7 @@ def open_attempt_count(team: Team) -> int:
 
 
 def _reserve(team: Team, node: Node) -> Occupancy:
+    reject_if_gelled(node)
     if node.level_id == Level.TOLL:
         raise Conflict("عبور از عوارضی با بازی مین‌روب انجام می‌شود، نه با سؤال.")
     held_ids = expandable_node_ids(team)
@@ -116,12 +122,19 @@ def _reserve(team: Team, node: Node) -> Occupancy:
     return holding
 
 
+def _lock_node(node: Node) -> Node:
+    """Serialise with the gel item, which locks the same row before it stamps `gelled`."""
+    return Node.objects.select_for_update().select_related("level").get(pk=node.pk)
+
+
 @transaction.atomic
 def claim_spawn(team: Team, node: Node) -> Occupancy:
     """Seat a team on its start node, free of charge and without a question.
 
     Colour ownership is the caller's rule; this only takes the single spawn slot.
     """
+    node = _lock_node(node)
+    reject_if_gelled(node)
     holding = Occupancy.objects.active().filter(team=team, node=node).first()
     if holding is not None:
         return holding
@@ -145,6 +158,8 @@ def claim_node(team: Team, node: Node) -> Occupancy:
     if not settings.is_running:
         raise Conflict("بازی در حال اجرا نیست.")
 
+    node = _lock_node(node)
+    reject_if_gelled(node)
     release_expired_attempts()
 
     holdings = list(

@@ -1,4 +1,4 @@
-"""Item usage services: consume inventory and grant source=item holdings."""
+"""Item usage services: consume inventory, grant fake-document floors, lock houses with gel."""
 
 import pytest
 
@@ -6,7 +6,6 @@ from core.boards import Board
 from game.models import (
     AcquisitionSource,
     Edge,
-    FloorReward,
     GameSettings,
     GameStatus,
     Level,
@@ -17,13 +16,14 @@ from game.models import (
 )
 from game.services import (
     claim_node,
+    claim_spawn,
     consume_item,
     is_reachable,
     use_fake_document,
     use_gel,
     use_gilari,
 )
-from game.services.events import BOARD_NODE_CLAIMED, BOARD_RELEASED
+from game.services.events import BOARD_GELLED, BOARD_NODE_CLAIMED, BOARD_RELEASED
 from game.services.mentor import Conflict
 from game.services.movement import expandable_node_ids
 from teams.models import ItemType, Team, TeamItem
@@ -61,26 +61,6 @@ def give(team, item_type, quantity=1) -> TeamItem:
 def occupy(node, team, **kwargs) -> Occupancy:
     kwargs.setdefault("slot", 1)
     return Occupancy.objects.create(node=node, team=team, **kwargs)
-
-
-def reward_floors(node) -> list[int]:
-    return list(
-        FloorReward.objects.filter(level_id=node.level_id)
-        .order_by("floor")
-        .values_list("floor", flat=True)
-    )
-
-
-def assert_gel_owns_every_reward(node, team, holdings=None) -> list[Occupancy]:
-    floors = reward_floors(node)
-    active = list(Occupancy.objects.active().filter(node=node).order_by("floor", "pk"))
-    if holdings is not None:
-        assert sorted(holding.floor for holding in holdings) == floors
-    assert [occupancy.floor for occupancy in active] == floors
-    assert {occupancy.team_id for occupancy in active} == {team.pk}
-    assert {occupancy.source for occupancy in active} == {AcquisitionSource.ITEM}
-    assert Occupancy.objects.active().exclude(team=team).filter(node=node).count() == 0
-    return active
 
 
 def test_consume_item_decrements_and_deletes_at_zero(team):
@@ -185,111 +165,167 @@ class TestFakeDocument:
 
 
 class TestGel:
-    @pytest.mark.parametrize("level_id", ["easy", "medium", "hard"])
-    def test_owns_every_floor_reward_on_an_empty_node(self, running_game, team, level_id):
-        level = LevelConfig.objects.get(level=level_id)
-        node = Node.objects.create(
-            board=Board.GIRLS, code=f"n-{level_id}", name=level_id, level=level
-        )
+    def test_empties_and_locks_an_empty_node(self, running_game, hard, team):
+        node = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
         give(team, ItemType.GEL, quantity=2)
 
-        holdings = use_gel(team, node)
+        released = use_gel(team, node)
 
-        assert_gel_owns_every_reward(node, team, holdings)
+        node.refresh_from_db()
+        assert released == []
+        assert node.gelled is True
+        assert Occupancy.objects.active().filter(node=node).count() == 0
         leftover = TeamItem.objects.get(team=team, item_type=ItemType.GEL)
         assert leftover.quantity == 1
 
-    def test_does_not_invent_a_floor_missing_from_rewards(self, running_game, hard, team):
-        FloorReward.objects.filter(level_id=hard.level, floor=3).delete()
+    def test_evicts_everyone_and_lets_nobody_claim(self, running_game, hard, team):
         node = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
-        give(team, ItemType.GEL)
-
-        holdings = use_gel(team, node)
-
-        floors = reward_floors(node)
-        assert 3 not in floors
-        assert_gel_owns_every_reward(node, team, holdings)
-        assert Occupancy.objects.active().filter(node=node, floor=3).count() == 0
-
-    def test_picks_up_an_extra_floor_reward(self, running_game, easy, team):
-        FloorReward.objects.create(level_id=easy.level, floor=2, points=150)
-        node = Node.objects.create(board=Board.GIRLS, code="e1", name="Easy 1", level=easy)
-        give(team, ItemType.GEL)
-
-        holdings = use_gel(team, node)
-
-        assert reward_floors(node) == [1, 2]
-        assert_gel_owns_every_reward(node, team, holdings)
-
-    def test_clears_a_partly_occupied_node(self, running_game, hard, team):
-        node = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
-        other = Team.objects.create(board=Board.GIRLS, code="bravo", name="Bravo")
-        occupy(node, other, slot=1, floor=1, source=AcquisitionSource.ITEM)
-        previous = occupy(node, team, slot=2, floor=2)
-        give(team, ItemType.GEL)
-
-        holdings = use_gel(team, node)
-
-        assert_gel_owns_every_reward(node, team, holdings)
-        previous.refresh_from_db()
-        assert previous.released_at is not None
-        assert previous.release_reason == ReleaseReason.ITEM_TAKEOVER
-        assert previous.pk not in {holding.pk for holding in holdings}
-
-    def test_clears_a_full_node(self, running_game, hard, team):
-        node = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
-        previous = [
-            occupy(
-                node,
-                Team.objects.create(board=Board.GIRLS, code=code, name=code.title()),
-                slot=slot,
-                floor=slot,
-                source=AcquisitionSource.ATTEMPT,
-            )
-            for slot, code in enumerate(("bravo", "charlie", "delta"), start=1)
-        ]
+        other = Team.objects.create(board=Board.GIRLS, code="bravo", name="Bravo", balance=400)
+        previous = occupy(node, other, slot=1, floor=1, source=AcquisitionSource.ATTEMPT)
         give(team, ItemType.GEL)
 
         use_gel(team, node)
 
-        assert_gel_owns_every_reward(node, team)
-        for occupancy in previous:
-            occupancy.refresh_from_db()
-            assert occupancy.released_at is not None
-            assert occupancy.release_reason == ReleaseReason.ITEM_TAKEOVER
+        node.refresh_from_db()
+        previous.refresh_from_db()
+        assert node.gelled is True
+        assert previous.released_at is not None
+        assert previous.release_reason == ReleaseReason.GELLED
+        assert Occupancy.objects.active().filter(node=node).count() == 0
+        with pytest.raises(Conflict, match="گل"):
+            claim_node(other, node)
+        with pytest.raises(Conflict, match="گل"):
+            claim_node(team, node)
 
-    def test_second_gel_replaces_previous_ownership(self, running_game, team):
-        level = LevelConfig.objects.get(level="medium")
-        node = Node.objects.create(board=Board.GIRLS, code="m1", name="Medium 1", level=level)
-        give(team, ItemType.GEL, quantity=2)
-
-        first = use_gel(team, node)
-        second = use_gel(team, node)
-
-        assert_gel_owns_every_reward(node, team, second)
-        for occupancy in first:
-            occupancy.refresh_from_db()
-            assert occupancy.released_at is not None
-        assert {holding.pk for holding in first}.isdisjoint({holding.pk for holding in second})
-        assert not TeamItem.objects.filter(team=team, item_type=ItemType.GEL).exists()
-
-    def test_other_team_cannot_claim_a_gelled_node(self, running_game, easy, team):
-        level = LevelConfig.objects.get(level="medium")
-        house = Node.objects.create(board=Board.GIRLS, code="m1", name="Medium 1", level=level)
-        neighbour = Node.objects.create(board=Board.GIRLS, code="e1", name="Easy 1", level=easy)
-        lower, upper = sorted((house, neighbour), key=lambda node: node.pk)
-        Edge.objects.create(a=lower, b=upper, directed=False)
-        other = Team.objects.create(board=Board.GIRLS, code="bravo", name="Bravo", balance=400)
-        occupy(neighbour, other, slot=1, floor=1, source=AcquisitionSource.ITEM)
+    def test_rejects_center(self, running_game, team):
+        center = Node.objects.create(
+            board=Board.GIRLS,
+            code="CENTER",
+            name="مرکز",
+            level=LevelConfig.objects.get(level=Level.CENTER),
+        )
         give(team, ItemType.GEL)
 
-        use_gel(team, house)
+        with pytest.raises(Conflict):
+            use_gel(team, center)
+        assert TeamItem.objects.filter(team=team, item_type=ItemType.GEL).exists()
+        center.refresh_from_db()
+        assert center.gelled is False
 
+    def test_second_gel_is_refused(self, running_game, hard, team):
+        node = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
+        give(team, ItemType.GEL, quantity=2)
+
+        use_gel(team, node)
         with pytest.raises(Conflict):
-            claim_node(other, house)
-        with pytest.raises(Conflict):
-            claim_node(team, house)
-        assert_gel_owns_every_reward(house, team)
+            use_gel(team, node)
+        leftover = TeamItem.objects.get(team=team, item_type=ItemType.GEL)
+        assert leftover.quantity == 1
+
+    def test_notifies_the_teams_that_were_inside(self, running_game, hard, team, django_user_model):
+        from notifications.models import Message, Notification
+
+        node = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
+        other = Team.objects.create(board=Board.GIRLS, code="bravo", name="Bravo")
+        occupant = django_user_model.objects.create_user("bravo-user", password="x", team=other)
+        occupy(node, other, slot=1, floor=1)
+        give(team, ItemType.GEL)
+
+        use_gel(team, node)
+
+        message = Message.objects.get(sender_label="گل")
+        assert "گل گرفته شد" in message.body
+        assert Notification.objects.filter(user=occupant, message=message).exists()
+
+    def test_gels_spawn_and_toll(self, running_game, team):
+        spawn = Node.objects.create(
+            board=Board.GIRLS,
+            code="s1",
+            name="Spawn",
+            level=LevelConfig.objects.get(level=Level.SPAWN),
+        )
+        toll = Node.objects.create(
+            board=Board.GIRLS,
+            code="t1",
+            name="Toll",
+            level=LevelConfig.objects.get(level=Level.TOLL),
+        )
+        give(team, ItemType.GEL, quantity=2)
+
+        use_gel(team, spawn)
+        use_gel(team, toll)
+
+        spawn.refresh_from_db()
+        toll.refresh_from_db()
+        assert spawn.gelled is True
+        assert toll.gelled is True
+        with pytest.raises(Conflict, match="گل"):
+            claim_spawn(team, spawn)
+
+    def test_locks_only_the_team_s_board(self, running_game, hard, team):
+        girls = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
+        boys = Node.objects.create(board=Board.BOYS, code="h1", name="Hard 1", level=hard)
+        give(team, ItemType.GEL)
+
+        use_gel(team, girls)
+
+        girls.refresh_from_db()
+        boys.refresh_from_db()
+        assert girls.gelled is True
+        assert boys.gelled is False
+
+    def test_open_duel_is_refused(self, running_game, hard, team, django_user_model):
+        from django.contrib.auth.models import Permission
+
+        from duels.models import Duel, Room
+
+        node = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
+        other = Team.objects.create(board=Board.GIRLS, code="bravo", name="Bravo")
+        target = occupy(node, other, slot=1, floor=1)
+        judge = django_user_model.objects.create_user("judge-gel", password="x")
+        judge.user_permissions.add(Permission.objects.get(codename="judge_duel"))
+        room = Room.objects.create(name="R", link="https://skyroom.test/r", mentor=judge)
+        Duel.objects.create(
+            attacker=team,
+            attacked=other,
+            node=node,
+            target=target,
+            floor=1,
+            stake=1,
+            room=room,
+            mentor=judge,
+        )
+        give(team, ItemType.GEL)
+
+        with pytest.raises(Conflict, match="دوئل"):
+            use_gel(team, node)
+        node.refresh_from_db()
+        target.refresh_from_db()
+        assert node.gelled is False
+        assert target.released_at is None
+        assert TeamItem.objects.filter(team=team, item_type=ItemType.GEL).exists()
+
+    def test_fake_document_cannot_sit_on_a_gelled_node(self, running_game, hard, team):
+        node = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
+        give(team, ItemType.GEL)
+        use_gel(team, node)
+        give(team, ItemType.FAKE_DOCUMENT)
+
+        with pytest.raises(Conflict, match="گل"):
+            use_fake_document(team, node)
+
+    def test_restart_unlocks_gelled_nodes(self, running_game, hard, team):
+        from game.services.reset import restart_game
+
+        node = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
+        give(team, ItemType.GEL)
+        use_gel(team, node)
+
+        summary = restart_game()
+
+        node.refresh_from_db()
+        assert summary["gelled_nodes"] == 1
+        assert node.gelled is False
 
 
 class TestGilari:
@@ -330,4 +366,5 @@ def test_fake_document_and_gel_publish_board_hints(running_game, easy, team, mon
     published.clear()
     use_gel(team, node)
     assert BOARD_RELEASED in published
-    assert BOARD_NODE_CLAIMED in published
+    assert BOARD_GELLED in published
+    assert BOARD_NODE_CLAIMED not in published

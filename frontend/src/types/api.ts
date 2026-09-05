@@ -490,6 +490,7 @@ export interface GameRestartResult {
   rooms_requeued: number
   minesweeper_attempts: number
   minesweeper_boards: number
+  gelled_nodes: number
   matchmaking_tickets: number
   territory_games: number
   centipede_games: number
@@ -709,6 +710,8 @@ export interface NodeDesign {
   archetype: string
   /** Whether this node has an enabled minesweeper board behind it. */
   minesweeper: boolean
+  /** Locked by the gel item; nobody may enter until a restart. */
+  gelled: boolean
 }
 
 export interface MapDesign {

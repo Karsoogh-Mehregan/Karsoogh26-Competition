@@ -86,7 +86,7 @@ export function useMapDesign() {
   const nodeRows = computed(() => {
     const map = new Map<
       string,
-      { level: Level; capacity: 1 | 2 | 3; archetype: string; minesweeper: boolean }
+      { level: Level; capacity: 1 | 2 | 3; archetype: string; minesweeper: boolean; gelled: boolean }
     >()
     for (const row of design.value?.nodes ?? []) {
       map.set(row.code, {
@@ -94,6 +94,7 @@ export function useMapDesign() {
         capacity: row.capacity,
         archetype: row.archetype,
         minesweeper: row.minesweeper,
+        gelled: row.gelled,
       })
     }
     return map
@@ -144,6 +145,10 @@ export function useMapDesign() {
    */
   function hasMinesweeper(code: string): boolean {
     return nodeRows.value.get(code)?.minesweeper ?? false
+  }
+
+  function isGelled(code: string): boolean {
+    return nodeRows.value.get(code)?.gelled ?? false
   }
 
   function neighborhoodOf(node: PolarNode): Neighborhood {
@@ -198,6 +203,7 @@ export function useMapDesign() {
     levelOf,
     capacityOf,
     hasMinesweeper,
+    isGelled,
     neighborhoodOf,
     themeOf,
     pinOf,

@@ -29,21 +29,29 @@ interface GraphNode {
 
 const { items, loading, using, error, needsNode, useItem } = useItems()
 const { nodes } = useGraph() as { nodes: GraphNode[] }
-const { levelOf } = useMapDesign()
+const { levelOf, isGelled } = useMapDesign()
 
 const hasItems = computed(() => items.value.length > 0)
+const pickingGel = computed(() => pickerItem.value?.item_type === 'gel')
 
 const pickerOpen = ref(false)
 const pickerItem = ref<TeamItem | null>(null)
 const selectedCode = ref('')
 const nodeQuery = ref('')
 
-const playableNodes = computed(() =>
-  (nodes as GraphNode[]).filter((node) => {
+const pickerNodes = computed(() => {
+  const rows = nodes as GraphNode[]
+  if (pickingGel.value) {
+    return rows.filter((node) => {
+      const level = levelOf(node.id, node.type)
+      return node.id !== 'CENTER' && level !== 'center' && !isGelled(node.id)
+    })
+  }
+  return rows.filter((node) => {
     const level = levelOf(node.id, node.type)
     return level !== 'spawn' && level !== 'toll'
-  }),
-)
+  })
+})
 
 function normalize(value: string): string {
   return value
@@ -55,7 +63,7 @@ function normalize(value: string): string {
 
 const visibleNodes = computed(() => {
   const needle = normalize(nodeQuery.value)
-  const rows = playableNodes.value
+  const rows = pickerNodes.value
   if (!needle) return rows
   return rows.filter((node) => node.id.toUpperCase().includes(needle))
 })
@@ -139,9 +147,14 @@ async function confirmUse() {
         <DialogHeader class="text-start sm:text-start">
           <DialogTitle class="pe-6">انتخاب نود</DialogTitle>
           <DialogDescription>
-            خانه‌ای را که می‌خواهید با
-            {{ pickerItem?.display_name }}
-            بگیرید انتخاب کنید.
+            <template v-if="pickingGel">
+              خانه‌ای را که می‌خواهید گل بگیرید انتخاب کنید. مرکز شهر قابل انتخاب نیست.
+            </template>
+            <template v-else>
+              خانه‌ای را که می‌خواهید با
+              {{ pickerItem?.display_name }}
+              بگیرید انتخاب کنید.
+            </template>
           </DialogDescription>
         </DialogHeader>
 
@@ -177,7 +190,9 @@ async function confirmUse() {
                 @click="selectedCode = node.id"
               >
                 <span class="font-semibold tabular-nums">{{ node.id }}</span>
-                <span class="text-muted-foreground text-xs">{{ levelLabel(node) }}</span>
+                <span v-if="!pickingGel" class="text-muted-foreground text-xs">{{
+                  levelLabel(node)
+                }}</span>
               </button>
             </li>
           </ul>

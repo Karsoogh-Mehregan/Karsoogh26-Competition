@@ -24,6 +24,9 @@ export function useItemMutation() {
           queryClient.invalidateQueries({ queryKey: queryKeys.attemptsRoot() }),
         )
       }
+      if (payload.item_type === 'gel') {
+        tasks.push(queryClient.invalidateQueries({ queryKey: queryKeys.mapDesignRoot() }))
+      }
       detach(tasks)
     },
   })
