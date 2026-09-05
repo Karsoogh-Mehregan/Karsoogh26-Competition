@@ -319,13 +319,28 @@ class CharityBagListCreateView(EventAvailabilityMixin, APIView):
         payload = CreateCharityBagSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         starts_at = payload.validated_data.get("starts_at", timezone.now())
-        configured_duration = require_event_enabled(EventCode.CHARITY_BAG).duration_seconds
+        configuration = require_event_enabled(EventCode.CHARITY_BAG)
         duration = payload.validated_data.get(
-            "duration_seconds", configured_duration or settings.CHARITY_BAG_DURATION_SECONDS
+            "duration_seconds",
+            configuration.duration_seconds or settings.CHARITY_BAG_DURATION_SECONDS,
         )
         ends_at = payload.validated_data.get("ends_at", starts_at + timedelta(seconds=duration))
+        minimum_stake = payload.validated_data.get(
+            "minimum_stake",
+            configuration.settings.get("minimum_stake", settings.CHARITY_BAG_MINIMUM_STAKE),
+        )
+        freeze_seconds = payload.validated_data.get(
+            "freeze_seconds",
+            configuration.settings.get("freeze_seconds", settings.CHARITY_BAG_FREEZE_SECONDS),
+        )
         try:
-            event = create_charity_bag(starts_at, ends_at, board=payload.validated_data["board"])
+            event = create_charity_bag(
+                starts_at,
+                ends_at,
+                board=payload.validated_data["board"],
+                minimum_stake=minimum_stake,
+                freeze_seconds=freeze_seconds,
+            )
         except CharityBagError as exc:
             raise Conflict(str(exc)) from exc
         return _charity_response(
@@ -349,7 +364,7 @@ class CharityBagParticipationView(EventAvailabilityMixin, APIView):
 
     def post(self, request, pk: int):
         if request.user.team_id is None:
-            raise PermissionDenied("فقط حساب یک تیم می‌تواند در کیسه خیریه شرکت کند.")
+            raise PermissionDenied("فقط حساب یک تیم می‌تواند در مؤسسه خیریه شرکت کند.")
         get_object_or_404(CharityBagEvent, pk=pk)
         payload = EnterCharityBagSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
@@ -357,7 +372,7 @@ class CharityBagParticipationView(EventAvailabilityMixin, APIView):
             enter_charity_bag(
                 pk,
                 request.user.team,
-                payload.validated_data["action"],
+                payload.validated_data["side"],
                 payload.validated_data["amount"],
             )
         except CharityBagError as exc:

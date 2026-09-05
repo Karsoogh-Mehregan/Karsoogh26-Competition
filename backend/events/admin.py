@@ -57,7 +57,7 @@ class CharityBagParticipationInline(admin.TabularInline):
     extra = 0
     readonly_fields = (
         "team",
-        "action",
+        "side",
         "amount",
         "stake_deducted",
         "final_payout",
@@ -73,18 +73,20 @@ class CharityBagEventAdmin(admin.ModelAdmin):
         "status",
         "starts_at",
         "ends_at",
-        "total_contributed",
-        "total_requested",
-        "charity_succeeded",
+        "minimum_stake",
+        "total_mice",
+        "total_lions",
+        "absent_penalty_total",
+        "winning_side",
     )
-    list_filter = ("board", "status", "charity_succeeded")
+    list_filter = ("board", "status", "winning_side")
     inlines = (CharityBagParticipationInline,)
 
 
 @admin.register(CharityBagParticipation)
 class CharityBagParticipationAdmin(admin.ModelAdmin):
-    list_display = ("event", "team", "action", "amount", "final_payout", "submitted_at")
-    list_filter = ("action",)
+    list_display = ("event", "team", "side", "amount", "final_payout", "submitted_at")
+    list_filter = ("side",)
 
 
 class CentipedeDecisionInline(admin.TabularInline):

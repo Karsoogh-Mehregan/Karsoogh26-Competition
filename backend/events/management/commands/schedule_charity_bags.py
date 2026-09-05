@@ -38,7 +38,11 @@ class Command(BaseCommand):
                 _, created = CharityBagEvent.objects.get_or_create(
                     board=board,
                     starts_at=starts_at,
-                    defaults={"ends_at": starts_at + duration},
+                    defaults={
+                        "ends_at": starts_at + duration,
+                        "minimum_stake": settings.CHARITY_BAG_MINIMUM_STAKE,
+                        "freeze_seconds": settings.CHARITY_BAG_FREEZE_SECONDS,
+                    },
                 )
                 created_count += int(created)
 

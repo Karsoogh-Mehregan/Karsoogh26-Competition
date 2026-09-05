@@ -425,6 +425,15 @@ class GameRestartResultSerializer(serializers.Serializer):
     rooms_requeued = serializers.IntegerField(read_only=True)
     minesweeper_attempts = serializers.IntegerField(read_only=True)
     minesweeper_boards = serializers.IntegerField(read_only=True)
+    matchmaking_tickets = serializers.IntegerField(read_only=True)
+    territory_games = serializers.IntegerField(read_only=True)
+    centipede_games = serializers.IntegerField(read_only=True)
+    olympics_matches = serializers.IntegerField(read_only=True)
+    charity_bags = serializers.IntegerField(read_only=True)
+    auctions = serializers.IntegerField(read_only=True)
+    wheel_events = serializers.IntegerField(read_only=True)
+    pig_games = serializers.IntegerField(read_only=True)
+    pig_events = serializers.IntegerField(read_only=True)
     teams = serializers.IntegerField(read_only=True)
 
 

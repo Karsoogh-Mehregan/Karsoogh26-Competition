@@ -137,8 +137,8 @@ interface EnterCharityVariables extends EnterCharityBagInput {
 export function useEnterCharityBagMutation() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ eventId, action, amount }: EnterCharityVariables) =>
-      enterCharityBag(eventId, { action, amount }),
+    mutationFn: ({ eventId, side, amount }: EnterCharityVariables) =>
+      enterCharityBag(eventId, { side, amount }),
     onSuccess: (event: CharityBagEvent) => {
       queryClient.setQueryData(queryKeys.charityBag(event.id), event)
       queryClient.invalidateQueries({ queryKey: queryKeys.balanceEventsRoot() })

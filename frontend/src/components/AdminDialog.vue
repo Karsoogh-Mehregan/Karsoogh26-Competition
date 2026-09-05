@@ -113,9 +113,19 @@ async function doRestart() {
   try {
     const result = await restart()
     confirmingRestart.value = false
+    const events =
+      result.charity_bags +
+      result.auctions +
+      result.wheel_events +
+      result.pig_events +
+      result.territory_games +
+      result.centipede_games +
+      result.olympics_matches +
+      result.pig_games
     toast.success(
       `بازی بازنشانی شد — ${result.occupancies} خانه، ${result.submissions} پاسخ` +
-        `${result.duels ? ` و ${result.duels} دوئل` : ''} حذف شد.`,
+        `${result.duels ? `، ${result.duels} دوئل` : ''}` +
+        `${events ? ` و ${events} رویداد` : ''} حذف شد.`,
     )
   } catch (error) {
     toast.error(error instanceof ApiError ? error.detail : 'بازنشانی بازی ناموفق بود.')
