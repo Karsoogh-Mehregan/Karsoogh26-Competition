@@ -372,6 +372,69 @@ def test_an_extension_must_be_positive(game_god):
     assert _extend(game_god, -5).status_code == 400
 
 
+def _captured_frames(monkeypatch):
+    """The local import inside `extend` resolves at call time, so patch the source."""
+    frames = []
+    monkeypatch.setattr(
+        "game.services.events.publish_on_commit",
+        lambda event_type, payload=None, **kwargs: frames.append((event_type, payload, kwargs)),
+    )
+    return frames
+
+
+def test_extending_announces_itself_on_the_stream(game_god, monkeypatch):
+    """«وقت اضافه» is told to the hall, not merely applied to the clock."""
+    _patch(game_god, {"duration_minutes": 60})
+    _run_for(10)
+    frames = _captured_frames(monkeypatch)
+
+    _extend(game_god, 15)
+
+    announced = [frame for frame in frames if frame[0] == "game.time_extended"]
+    assert len(announced) == 1
+    payload = announced[0][1]
+    assert payload["minutes"] == 15
+    assert payload["duration_minutes"] == 75
+    assert payload["resumed"] is False
+    assert payload["status"] == GameStatus.RUNNING
+
+
+def test_the_announcement_says_when_it_resumed_play(game_god, monkeypatch):
+    _patch(game_god, {"duration_minutes": 30})
+    _run_for(31)
+    frames = _captured_frames(monkeypatch)
+
+    _extend(game_god, 10)
+
+    payload = next(frame[1] for frame in frames if frame[0] == "game.time_extended")
+    assert payload["resumed"] is True
+    assert payload["status"] == GameStatus.RUNNING
+
+
+def test_the_announcement_reaches_both_contests(game_god, monkeypatch):
+    """One clock runs both boards, so the frame is neither addressed nor scoped."""
+    _patch(game_god, {"duration_minutes": 60})
+    _run_for(10)
+    frames = _captured_frames(monkeypatch)
+
+    _extend(game_god, 10)
+
+    kwargs = next(frame[2] for frame in frames if frame[0] == "game.time_extended")
+    assert kwargs.get("board") is None
+    assert kwargs.get("recipients") is None
+
+
+def test_the_clock_hint_still_goes_out_alongside_it(game_god, monkeypatch):
+    """The announcement does not replace `game.state`; clients still re-read."""
+    _patch(game_god, {"duration_minutes": 60})
+    _run_for(10)
+    frames = _captured_frames(monkeypatch)
+
+    _extend(game_god, 10)
+
+    assert [frame[0] for frame in frames] == ["game.state", "game.time_extended"]
+
+
 def test_only_a_game_god_may_grant_time(player, mentor):
     assert _extend(player, 10).status_code == 403
     assert _extend(mentor, 10).status_code == 403

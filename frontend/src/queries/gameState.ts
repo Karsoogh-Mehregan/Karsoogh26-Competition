@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
+import { suppressNextTimeExtensionToast } from '@/lib/boardStreamState'
 import {
   extendGame,
   getGameSettings,
@@ -64,7 +65,13 @@ export function useUpdateGameSettingsMutation() {
 export function useExtendGameMutation() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (minutes: number) => extendGame(minutes),
+    mutationFn: (minutes: number) => {
+      // The grant comes back to this client on the stream like everyone
+      // else's; the organiser who pressed the button gets the mutation's own
+      // toast instead, not both.
+      suppressNextTimeExtensionToast()
+      return extendGame(minutes)
+    },
     onSuccess: (_result: GameExtendResult) => {
       // The grant can also resume a paused game, so the settings row is refetched
       // rather than patched from the response — `status` is not in it.

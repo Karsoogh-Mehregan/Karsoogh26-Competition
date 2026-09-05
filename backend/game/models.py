@@ -603,16 +603,32 @@ class GameSettings(models.Model):
         floor_seconds = max(self.duration_seconds, self.elapsed_seconds or 0)
         self.duration_minutes = -(-floor_seconds // 60) + minutes
         fields = ["duration_minutes"]
-        if self.status == GameStatus.PAUSED:
+        resumed = self.status == GameStatus.PAUSED
+        if resumed:
             self.status = GameStatus.RUNNING
             fields.append("status")
         self.save(update_fields=fields)
 
         # Local: `game.services.events` imports back into `game`, so a
         # module-level import would close the loop.
-        from game.services.events import GAME_STATE, publish_on_commit
+        from game.services.events import GAME_STATE, GAME_TIME_EXTENDED, publish_on_commit
 
         publish_on_commit(GAME_STATE, {"status": self.status})
+        # A second frame, and not a duplicate of the first: `game.state` is a
+        # refetch hint every client already acts on silently, while this one is
+        # the announcement — it carries the size of the grant so the hall can be
+        # told, rather than left to notice the countdown moved. Unaddressed and
+        # boardless on purpose: one clock runs both contests, so «وقت اضافه»
+        # reaches everyone logged in.
+        publish_on_commit(
+            GAME_TIME_EXTENDED,
+            {
+                "minutes": minutes,
+                "duration_minutes": self.duration_minutes,
+                "resumed": resumed,
+                "status": self.status,
+            },
+        )
         return self.duration_minutes
 
     @property
