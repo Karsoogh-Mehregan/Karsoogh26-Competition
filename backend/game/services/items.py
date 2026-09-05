@@ -56,12 +56,12 @@ def _node_has_open_duel(occupancies: list[Occupancy]) -> bool:
     return Duel.objects.open().filter(target_id__in=[row.pk for row in occupancies]).exists()
 
 
-def _notify_gelled(node: Node, team_ids: list[int]) -> None:
+def _notify_gelled(node: Node, by_team: Team, team_ids: list[int]) -> None:
     if not team_ids:
         return
     from game.notices import house_gelled
 
-    house_gelled(node.code, node.name or node.code, list(team_ids))
+    house_gelled(node.code, node.name or node.code, by_team.name, list(team_ids))
 
 
 def _reject_unplayable(node: Node) -> None:
@@ -223,7 +223,7 @@ def use_gel(team: Team, node: Node) -> list[Occupancy]:
     """Evict everyone on the node and lock it. Nobody sits here afterwards."""
     _require_running()
     if node.level_id == Level.CENTER or node.code == "CENTER":
-        raise Conflict("خانهٔ مرکز را نمی‌توان گل گرفت.")
+        raise Conflict("خانهٔ مرکز را نمی‌توان گِل گرفت.")
 
     node = Node.objects.select_for_update().select_related("level").get(pk=node.pk)
     _reject_gelled(node)
@@ -252,7 +252,7 @@ def use_gel(team: Team, node: Node) -> list[Occupancy]:
             board=team.board,
         )
     publish_on_commit(BOARD_GELLED, {"node": node.code}, board=team.board)
-    _notify_gelled(node, victim_ids)
+    _notify_gelled(node, team, victim_ids)
     return locked
 
 

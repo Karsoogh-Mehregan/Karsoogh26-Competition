@@ -29,7 +29,7 @@ class Migration(migrations.Migration):
                     ("duel_lost", "باخت دوئل"),
                     ("bought_out", "خریداری شد"),
                     ("item_takeover", "آیتم"),
-                    ("gelled", "گل"),
+                    ("gelled", "گِل"),
                 ],
                 max_length=16,
             ),

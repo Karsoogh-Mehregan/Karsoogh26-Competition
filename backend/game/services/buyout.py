@@ -153,7 +153,7 @@ def buy_out(buyer: Team, target_id: int) -> Occupancy:
 
     node: Node = target.node
     if node.gelled:
-        raise BuyoutRefused("این خانه گل گرفته شده و ورود به آن ممکن نیست.")
+        raise BuyoutRefused("این خانه گِل گرفته شده و ورود به آن ممکن نیست.")
     if node.level_id in _UNBUYABLE_LEVELS:
         raise BuyoutRefused("این خانه قابل خرید نیست.")
     if target.team.board != buyer.board:

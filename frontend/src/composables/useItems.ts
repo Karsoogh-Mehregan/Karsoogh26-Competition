@@ -9,7 +9,7 @@ const NODE_ITEMS = new Set<ItemType>(['fake_document', 'gel'])
 
 const SUCCESS: Record<ItemType, string> = {
   fake_document: 'سند جعلی استفاده شد.',
-  gel: 'گل استفاده شد.',
+  gel: 'گِل استفاده شد.',
   gilari_100: '۱۰۰ گیلاری مصرف شد!',
 }
 

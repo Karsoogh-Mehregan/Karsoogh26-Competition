@@ -431,7 +431,7 @@ async function saveDesign() {
         </ul>
 
         <p v-if="gelled" class="text-destructive px-1 text-sm">
-          این خانه گل گرفته شده و ورود به آن بسته است.
+          این خانه گِل گرفته شده و ورود به آن بسته است.
         </p>
 
         <!-- Only rendered where the server offers a duel: a full house next

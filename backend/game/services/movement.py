@@ -13,7 +13,7 @@ from .questions import assign_question, release_expired_attempts
 
 def reject_if_gelled(node: Node) -> None:
     if node.gelled:
-        raise Conflict("این خانه گل گرفته شده و ورود به آن ممکن نیست.")
+        raise Conflict("این خانه گِل گرفته شده و ورود به آن ممکن نیست.")
 
 
 def is_reachable(node: Node, held_ids: set[int]) -> bool:

@@ -148,7 +148,7 @@ async function confirmUse() {
           <DialogTitle class="pe-6">انتخاب نود</DialogTitle>
           <DialogDescription>
             <template v-if="pickingGel">
-              خانه‌ای را که می‌خواهید گل بگیرید انتخاب کنید. مرکز شهر قابل انتخاب نیست.
+              خانه‌ای را که می‌خواهید گِل بگیرید انتخاب کنید. مرکز شهر قابل انتخاب نیست.
             </template>
             <template v-else>
               خانه‌ای را که می‌خواهید با

@@ -192,9 +192,9 @@ class TestGel:
         assert previous.released_at is not None
         assert previous.release_reason == ReleaseReason.GELLED
         assert Occupancy.objects.active().filter(node=node).count() == 0
-        with pytest.raises(Conflict, match="گل"):
+        with pytest.raises(Conflict, match="گِل"):
             claim_node(other, node)
-        with pytest.raises(Conflict, match="گل"):
+        with pytest.raises(Conflict, match="گِل"):
             claim_node(team, node)
 
     def test_rejects_center(self, running_game, team):
@@ -233,8 +233,12 @@ class TestGel:
 
         use_gel(team, node)
 
-        message = Message.objects.get(sender_label="گل")
-        assert "گل گرفته شد" in message.body
+        message = Message.objects.get(sender_label="گِل")
+        assert "گِل گرفته شد" in message.body
+        # The house is «Hard 1» and the team that gelled it is named, so the
+        # occupant learns who did it, not just that it happened.
+        assert "Hard 1" in message.body
+        assert team.name in message.body
         assert Notification.objects.filter(user=occupant, message=message).exists()
 
     def test_gels_spawn_and_toll(self, running_game, team):
@@ -259,7 +263,7 @@ class TestGel:
         toll.refresh_from_db()
         assert spawn.gelled is True
         assert toll.gelled is True
-        with pytest.raises(Conflict, match="گل"):
+        with pytest.raises(Conflict, match="گِل"):
             claim_spawn(team, spawn)
 
     def test_locks_only_the_team_s_board(self, running_game, hard, team):
@@ -311,7 +315,7 @@ class TestGel:
         use_gel(team, node)
         give(team, ItemType.FAKE_DOCUMENT)
 
-        with pytest.raises(Conflict, match="گل"):
+        with pytest.raises(Conflict, match="گِل"):
             use_fake_document(team, node)
 
     def test_restart_unlocks_gelled_nodes(self, running_game, hard, team):

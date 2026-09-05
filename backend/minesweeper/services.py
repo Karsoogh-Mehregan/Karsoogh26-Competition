@@ -145,7 +145,7 @@ def require_graph_access(team: Team, node: Node) -> None:
     released.
     """
     if node.gelled:
-        raise NodeUnreachable("این خانه گل گرفته شده و ورود به آن ممکن نیست.")
+        raise NodeUnreachable("این خانه گِل گرفته شده و ورود به آن ممکن نیست.")
     if team_can_access_node(team, node) or _existing_attempt(team, node) is not None:
         return
     raise NodeUnreachable("این خانه از مسیر فعلی تیم در دسترس نیست.")

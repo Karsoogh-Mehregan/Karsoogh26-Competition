@@ -42,7 +42,7 @@ class ReleaseReason(models.TextChoices):
     DUEL_LOST = "duel_lost", "باخت دوئل"
     BOUGHT_OUT = "bought_out", "خریداری شد"
     ITEM_TAKEOVER = "item_takeover", "آیتم"
-    GELLED = "gelled", "گل"
+    GELLED = "gelled", "گِل"
 
 
 class AcquisitionSource(models.TextChoices):

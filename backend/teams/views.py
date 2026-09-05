@@ -121,7 +121,7 @@ class LeaderboardView(APIView):
             "inventory",
             value=[
                 {"item_type": "fake_document", "quantity": 1, "display_name": "سند جعلی"},
-                {"item_type": "gel", "quantity": 5, "display_name": "گل"},
+                {"item_type": "gel", "quantity": 5, "display_name": "گِل"},
             ],
             response_only=True,
         ),

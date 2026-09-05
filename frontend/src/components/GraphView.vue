@@ -337,7 +337,7 @@ function isNodeInspected(n) {
 }
 
 function nodeLabel(n) {
-  if (design.isGelled(n.id)) return `${n.id} — گل گرفته شده`
+  if (design.isGelled(n.id)) return `${n.id} — گِل گرفته شده`
   const state = nodeState(n)
   if (isGatewayNode(n) && crossedGateIds.value.has(n.id)) return `${n.id} — عوارضی؛ عبور کرده‌اید`
   if (isGatewayNode(n) && openBoardGateIds.value.has(n.id)) return `${n.id} — عوارضی؛ ادامه بازی`

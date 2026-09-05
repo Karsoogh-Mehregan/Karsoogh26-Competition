@@ -14,11 +14,11 @@ from teams.models import Team
 
 logger = logging.getLogger("karsoogh")
 
-SENDER_LABEL = "گل"
+SENDER_LABEL = "گِل"
 
 
-def house_gelled(node_code: str, node_name: str, team_ids: list[int]) -> None:
-    """Tell the teams that were sitting in the house that it is gone."""
+def house_gelled(node_code: str, node_name: str, by_team_name: str, team_ids: list[int]) -> None:
+    """Tell the teams that were sitting in the house that it is gone, and who did it."""
     if not team_ids:
         return
     teams = list(Team.objects.filter(pk__in=team_ids))
@@ -27,9 +27,10 @@ def house_gelled(node_code: str, node_name: str, team_ids: list[int]) -> None:
     where = node_name or node_code
     try:
         message = Message.objects.create(
-            title="خانه گل گرفت",
+            title="خانه گِل گرفت",
             body=(
-                f"خانهٔ «{where}» که در اختیار شما بود گل گرفته شد و دیگر کسی نمی‌تواند وارد آن شود."
+                f"خانهٔ «{where}» که در اختیار شما بود توسط تیم «{by_team_name}» گِل گرفته شد "
+                "و دیگر کسی نمی‌تواند وارد آن شود."
             ),
             sender_label=SENDER_LABEL,
         )
