@@ -228,11 +228,11 @@ export interface PlayTerritoryTurnInput {
 }
 
 export type CharityBagStatus = 'scheduled' | 'active' | 'resolving' | 'finished'
-export type CharityBagAction = 'contribute' | 'request'
+export type CharityBagSide = 'mice' | 'lions'
 
 export interface CharityBagParticipation {
   team: { code: string; name: string; color: string | null }
-  action: CharityBagAction
+  side: CharityBagSide
   amount: number
   stake_deducted: number
   final_payout: number
@@ -245,19 +245,23 @@ export interface CharityBagEvent {
   status: CharityBagStatus
   starts_at: string
   ends_at: string
+  freeze_at: string
+  minimum_stake: number
   remaining_seconds: number
   can_participate: boolean
   my_participation: CharityBagParticipation | null
   participations: CharityBagParticipation[]
-  total_contributed: number | null
-  total_requested: number | null
-  charity_succeeded: boolean | null
+  total_mice: number
+  total_lions: number
+  totals_frozen: boolean
+  absent_penalty_total: number
+  winning_side: CharityBagSide | null
   settlement_started_at: string | null
   settled_at: string | null
 }
 
 export interface EnterCharityBagInput {
-  action: CharityBagAction
+  side: CharityBagSide
   amount: number
 }
 
@@ -266,6 +270,8 @@ export interface CreateCharityBagInput {
   starts_at?: string
   ends_at?: string
   duration_seconds?: number
+  minimum_stake?: number
+  freeze_seconds?: number
 }
 
 export type CentipedeStatus = 'waiting_for_players' | 'active' | 'finished'
@@ -484,6 +490,15 @@ export interface GameRestartResult {
   rooms_requeued: number
   minesweeper_attempts: number
   minesweeper_boards: number
+  matchmaking_tickets: number
+  territory_games: number
+  centipede_games: number
+  olympics_matches: number
+  charity_bags: number
+  auctions: number
+  wheel_events: number
+  pig_games: number
+  pig_events: number
   teams: number
 }
 

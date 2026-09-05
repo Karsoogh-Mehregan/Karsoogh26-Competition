@@ -46,6 +46,10 @@ class CharityBagInvalidWindow(CharityBagError):
     pass
 
 
+class CharityBagBelowMinimum(CharityBagError):
+    pass
+
+
 class CentipedeError(Exception):
     """Base class for Centipede Game domain errors."""
 

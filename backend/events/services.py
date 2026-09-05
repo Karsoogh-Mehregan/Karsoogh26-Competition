@@ -18,6 +18,7 @@ from .exceptions import (
     CentipedeNotPlayersTurn,
     CentipedeSamePlayer,
     CharityBagAlreadyEntered,
+    CharityBagBelowMinimum,
     CharityBagInsufficientBalance,
     CharityBagInvalidWindow,
     CharityBagNotActive,
@@ -48,9 +49,9 @@ from .models import (
     CentipedeDecision,
     CentipedeGame,
     CentipedeStatus,
-    CharityBagAction,
     CharityBagEvent,
     CharityBagParticipation,
+    CharityBagSide,
     CharityBagStatus,
     EventCode,
     EventConfiguration,
@@ -292,7 +293,14 @@ def create_territory_game(
 
 
 @transaction.atomic
-def create_charity_bag(starts_at, ends_at, *, board: str) -> CharityBagEvent:
+def create_charity_bag(
+    starts_at,
+    ends_at,
+    *,
+    board: str,
+    minimum_stake: int = 0,
+    freeze_seconds: int = 180,
+) -> CharityBagEvent:
     if ends_at <= starts_at:
         raise CharityBagInvalidWindow("زمان پایان رویداد باید بعد از زمان شروع باشد.")
     now = timezone.now()
@@ -302,10 +310,72 @@ def create_charity_bag(starts_at, ends_at, *, board: str) -> CharityBagEvent:
         starts_at=starts_at,
         ends_at=ends_at,
         status=status,
+        minimum_stake=minimum_stake,
+        freeze_seconds=freeze_seconds,
     )
     if now >= ends_at:
         return sync_charity_bag(event.pk, now=now)
     return event
+
+
+def charity_bag_totals(event: CharityBagEvent, *, now=None) -> dict:
+    """Per-side totals as the players may see them: live, frozen, or final."""
+    if event.status == CharityBagStatus.FINISHED:
+        return {
+            CharityBagSide.MICE: event.total_mice,
+            CharityBagSide.LIONS: event.total_lions,
+            "frozen": True,
+        }
+    now = now or timezone.now()
+    freeze_at = event.freeze_at
+    frozen = now >= freeze_at
+    rows = [
+        entry
+        for entry in event.participations.all()
+        if not frozen or entry.submitted_at < freeze_at
+    ]
+    return {
+        CharityBagSide.MICE: sum(
+            entry.amount for entry in rows if entry.side == CharityBagSide.MICE
+        ),
+        CharityBagSide.LIONS: sum(
+            entry.amount for entry in rows if entry.side == CharityBagSide.LIONS
+        ),
+        "frozen": frozen,
+    }
+
+
+def _charge_absent_teams(event: CharityBagEvent, seated_team_ids: list[int]) -> int:
+    """Fine every team on the board that skipped a compulsory round.
+
+    Taking part is compulsory, so a team that sat the round out pays the
+    minimum stake — capped at what it actually holds — and that money is poured
+    into the losing account, where the winners share it out. It is only charged
+    when there *is* a winner: with a tie, or an account nobody joined, every
+    stake is refunded and there is nobody to hand a fine to.
+    """
+    if not event.minimum_stake:
+        return 0
+
+    absent = (
+        Team.objects.select_for_update(of=("self",))
+        .filter(board=event.board)
+        .exclude(pk__in=seated_team_ids)
+        .order_by("pk")
+    )
+    penalties = 0
+    for team in absent:
+        charge = min(event.minimum_stake, team.balance)
+        if charge <= 0:
+            continue
+        apply_balance_change(
+            team,
+            -charge,
+            reason=BalanceReason.EVENT,
+            detail=f"Charity Bag #{event.pk}: absent penalty",
+        )
+        penalties += charge
+    return penalties
 
 
 def _settle_locked_charity_bag(event: CharityBagEvent, now) -> None:
@@ -319,19 +389,39 @@ def _settle_locked_charity_bag(event: CharityBagEvent, now) -> None:
     if team_ids:
         list(Team.objects.select_for_update(of=("self",)).filter(pk__in=team_ids).order_by("pk"))
 
-    total_contributed = sum(
-        entry.amount for entry in participations if entry.action == CharityBagAction.CONTRIBUTE
+    totals = {
+        side: sum(entry.amount for entry in participations if entry.side == side)
+        for side in CharityBagSide.values
+    }
+    mice = totals[CharityBagSide.MICE]
+    lions = totals[CharityBagSide.LIONS]
+
+    winning_side = None
+    if mice and lions and mice != lions:
+        winning_side = CharityBagSide.MICE if mice < lions else CharityBagSide.LIONS
+
+    # The fines land in the losing account after the winner is known, so they
+    # swell the prize without ever deciding which account was the smaller one.
+    penalties = _charge_absent_teams(event, team_ids) if winning_side else 0
+    losing_side = (
+        None
+        if winning_side is None
+        else (CharityBagSide.LIONS if winning_side == CharityBagSide.MICE else CharityBagSide.MICE)
     )
-    total_requested = sum(
-        entry.amount for entry in participations if entry.action == CharityBagAction.REQUEST
-    )
-    succeeded = total_requested <= total_contributed
+    if losing_side is not None:
+        totals[losing_side] += penalties
 
     for entry in participations:
-        wins = (succeeded and entry.action == CharityBagAction.REQUEST) or (
-            not succeeded and entry.action == CharityBagAction.CONTRIBUTE
-        )
-        payout = entry.amount * 2 if wins else 0
+        if winning_side is None:
+            payout = entry.amount
+        elif entry.side == winning_side:
+            multiplier = 2 if winning_side == CharityBagSide.LIONS else 1
+            payout = (
+                entry.amount
+                + entry.amount * totals[losing_side] * multiplier // totals[winning_side]
+            )
+        else:
+            payout = 0
         if payout:
             apply_balance_change(
                 entry.team,
@@ -343,16 +433,18 @@ def _settle_locked_charity_bag(event: CharityBagEvent, now) -> None:
         entry.settled_at = now
         entry.save(update_fields=["final_payout", "settled_at"])
 
-    event.total_contributed = total_contributed
-    event.total_requested = total_requested
-    event.charity_succeeded = succeeded
+    event.total_mice = totals[CharityBagSide.MICE]
+    event.total_lions = totals[CharityBagSide.LIONS]
+    event.absent_penalty_total = penalties
+    event.winning_side = winning_side
     event.status = CharityBagStatus.FINISHED
     event.settled_at = now
     event.save(
         update_fields=[
-            "total_contributed",
-            "total_requested",
-            "charity_succeeded",
+            "total_mice",
+            "total_lions",
+            "absent_penalty_total",
+            "winning_side",
             "status",
             "settled_at",
             "updated_at",
@@ -397,7 +489,7 @@ def sync_due_charity_bags(*, now=None) -> None:
 def enter_charity_bag(
     event_id: int,
     team: Team,
-    action: str,
+    side: str,
     amount: int,
 ) -> CharityBagParticipation:
     now = timezone.now()
@@ -414,15 +506,17 @@ def enter_charity_bag(
                 event.settlement_started_at = now
                 event.save(update_fields=["status", "settlement_started_at", "updated_at"])
             _settle_locked_charity_bag(event, now)
-        raise CharityBagNotActive("مهلت شرکت در کیسه خیریه تمام شده است.")
+        raise CharityBagNotActive("مهلت شرکت در مؤسسه خیریه تمام شده است.")
     if event.status != CharityBagStatus.ACTIVE or now < event.starts_at:
-        raise CharityBagNotActive("کیسه خیریه در حال حاضر فعال نیست.")
+        raise CharityBagNotActive("مؤسسه خیریه در حال حاضر فعال نیست.")
     if CharityBagParticipation.objects.filter(event=event, team=team).exists():
-        raise CharityBagAlreadyEntered("این تیم قبلاً در این کیسه خیریه شرکت کرده است.")
+        raise CharityBagAlreadyEntered("این تیم قبلاً در این نوبت خیریه شرکت کرده است.")
 
     locked_team = Team.objects.select_for_update(of=("self",)).get(pk=team.pk)
     if amount <= 0 or amount > locked_team.balance:
         raise CharityBagInsufficientBalance("مبلغ باید مثبت و حداکثر برابر موجودی فعلی تیم باشد.")
+    if amount < event.minimum_stake:
+        raise CharityBagBelowMinimum(f"حداقل مبلغ این نوبت {event.minimum_stake} گیلریوم است.")
 
     apply_balance_change(
         locked_team, -amount, reason=BalanceReason.EVENT, detail=f"Charity Bag #{event.pk}: entry"
@@ -430,7 +524,7 @@ def enter_charity_bag(
     return CharityBagParticipation.objects.create(
         event=event,
         team=locked_team,
-        action=action,
+        side=side,
         amount=amount,
         stake_deducted=amount,
     )

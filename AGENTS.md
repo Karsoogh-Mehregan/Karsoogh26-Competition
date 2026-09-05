@@ -32,6 +32,10 @@ uv run manage.py runserver                # :8000, /admin/, /api/docs/ (DEBUG on
 uv run manage.py import_graph --board girls
 uv run manage.py import_graph --board boys
 uv run manage.py create_team_users --fund --csv teams.csv  # one login per team
+uv run --with openpyxl python scripts/build_participants_csv.py \
+    --groups ../krimikham/groups.xlsx --usernames ../krimikham/uname.xlsx \
+    --out participants.csv                # merge the organisers' two spreadsheets
+uv run manage.py import_participants --csv participants.csv --dry-run
 
 uv run pytest
 uv run pytest tests/test_constraints.py::TestCapacity                 # one class

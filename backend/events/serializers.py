@@ -14,6 +14,7 @@ from .models import (
     CentipedeGame,
     CharityBagEvent,
     CharityBagParticipation,
+    CharityBagSide,
     CharityBagStatus,
     EventCode,
     EventConfiguration,
@@ -180,7 +181,7 @@ class CharityBagParticipationSerializer(serializers.ModelSerializer):
         model = CharityBagParticipation
         fields = (
             "team",
-            "action",
+            "side",
             "amount",
             "stake_deducted",
             "final_payout",
@@ -195,6 +196,10 @@ class CharityBagEventSerializer(serializers.ModelSerializer):
     can_participate = serializers.SerializerMethodField()
     my_participation = serializers.SerializerMethodField()
     participations = serializers.SerializerMethodField()
+    total_mice = serializers.SerializerMethodField()
+    total_lions = serializers.SerializerMethodField()
+    totals_frozen = serializers.SerializerMethodField()
+    freeze_at = serializers.DateTimeField(read_only=True)
 
     class Meta:
         model = CharityBagEvent
@@ -203,17 +208,38 @@ class CharityBagEventSerializer(serializers.ModelSerializer):
             "status",
             "starts_at",
             "ends_at",
+            "freeze_at",
+            "minimum_stake",
             "remaining_seconds",
             "can_participate",
             "my_participation",
             "participations",
-            "total_contributed",
-            "total_requested",
-            "charity_succeeded",
+            "total_mice",
+            "total_lions",
+            "totals_frozen",
+            "absent_penalty_total",
+            "winning_side",
             "settlement_started_at",
             "settled_at",
         )
         read_only_fields = fields
+
+    def _totals(self, event: CharityBagEvent) -> dict:
+        from events.services import charity_bag_totals
+
+        cache = self.context.setdefault("charity_totals", {})
+        if event.pk not in cache:
+            cache[event.pk] = charity_bag_totals(event)
+        return cache[event.pk]
+
+    def get_total_mice(self, event: CharityBagEvent) -> int:
+        return self._totals(event)[CharityBagSide.MICE]
+
+    def get_total_lions(self, event: CharityBagEvent) -> int:
+        return self._totals(event)[CharityBagSide.LIONS]
+
+    def get_totals_frozen(self, event: CharityBagEvent) -> bool:
+        return self._totals(event)["frozen"]
 
     def get_remaining_seconds(self, event: CharityBagEvent) -> int:
         from django.utils import timezone
@@ -251,17 +277,9 @@ class CharityBagEventSerializer(serializers.ModelSerializer):
             return []
         return CharityBagParticipationSerializer(event.participations.all(), many=True).data
 
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        if instance.status != CharityBagStatus.FINISHED:
-            data["total_contributed"] = None
-            data["total_requested"] = None
-            data["charity_succeeded"] = None
-        return data
-
 
 class EnterCharityBagSerializer(serializers.Serializer):
-    action = serializers.ChoiceField(choices=("contribute", "request"))
+    side = serializers.ChoiceField(choices=CharityBagSide.values)
     amount = serializers.IntegerField(min_value=1)
 
 
@@ -273,6 +291,8 @@ class CreateCharityBagSerializer(serializers.Serializer):
     starts_at = serializers.DateTimeField(required=False)
     ends_at = serializers.DateTimeField(required=False)
     duration_seconds = serializers.IntegerField(required=False, min_value=1, max_value=3600)
+    minimum_stake = serializers.IntegerField(required=False, min_value=0)
+    freeze_seconds = serializers.IntegerField(required=False, min_value=0, max_value=3600)
 
     def validate(self, attrs):
         if attrs.get("ends_at") and attrs.get("duration_seconds"):

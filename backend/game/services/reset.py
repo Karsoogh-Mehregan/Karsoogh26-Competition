@@ -23,6 +23,7 @@ import logging
 from django.db import transaction
 
 from duels.models import Duel, Room
+from events.reset import clear_event_state
 from game.models import EntryAttempt, GameSettings, GameStatus, Occupancy
 from minesweeper.models import MinesweeperGame
 from notifications.models import Message, MessageStatus
@@ -80,6 +81,13 @@ def restart_game(*, by=None, board: str | None = None) -> dict:
     if board is not None:
         minesweeper_games = minesweeper_games.filter(node__board=board)
     _boards, board_counts = minesweeper_games.delete()
+
+    # Event instances are opened for one run: an auction, a charity bag round, a
+    # wheel, a pig event and every match played inside them. The catalogue in
+    # `EventConfiguration` is the organiser's and stays. `events.reset` owns the
+    # delete order — two of those foreign keys are PROTECT — and puts the
+    # instance numbering back to 1 on a whole-event restart.
+    events_cleared = clear_event_state(board)
 
     # The sheet hangs off Team, not Occupancy, so the cascade above misses it.
     # Left behind, last run's correct answers would clear the gate again and no
@@ -144,6 +152,7 @@ def restart_game(*, by=None, board: str | None = None) -> dict:
         "rooms_requeued": rooms,
         "minesweeper_attempts": board_counts.get("minesweeper.MinesweeperAttempt", 0),
         "minesweeper_boards": board_counts.get("minesweeper.MinesweeperGame", 0),
+        **events_cleared,
         "teams": teams,
     }
     logger.warning("Game restarted by %s: %s", getattr(by, "username", "unknown"), summary)

@@ -29,8 +29,10 @@ env = environ.Env(
             "http://127.0.0.1:3001",
         ],
     ),
-    CHARITY_BAG_DURATION_SECONDS=(int, 300),
-    CHARITY_BAG_SCHEDULE_TIMES=(list, ["09:30", "12:30"]),
+    CHARITY_BAG_DURATION_SECONDS=(int, 600),
+    CHARITY_BAG_SCHEDULE_TIMES=(list, ["14:30", "15:30", "17:30"]),
+    CHARITY_BAG_FREEZE_SECONDS=(int, 180),
+    CHARITY_BAG_MINIMUM_STAKE=(int, 0),
     S3_BUCKET_NAME=(str, ""),
     S3_ACCESS_KEY=(str, ""),
     S3_SECRET_KEY=(str, ""),
@@ -52,10 +54,10 @@ ALLOWED_HOSTS = env("ALLOWED_HOSTS")
 # origin against this list when Host does not match Origin (e.g. changeOrigin).
 CSRF_TRUSTED_ORIGINS = env("CSRF_TRUSTED_ORIGINS")
 
-# The specification currently provides two of the intended three daily starts.
-# Add the third time through the environment without changing event logic.
 CHARITY_BAG_DURATION_SECONDS = env("CHARITY_BAG_DURATION_SECONDS")
 CHARITY_BAG_SCHEDULE_TIMES = env("CHARITY_BAG_SCHEDULE_TIMES")
+CHARITY_BAG_FREEZE_SECONDS = env("CHARITY_BAG_FREEZE_SECONDS")
+CHARITY_BAG_MINIMUM_STAKE = env("CHARITY_BAG_MINIMUM_STAKE")
 
 
 # Session/CSRF cookie hardening. The contest is played online by teams over the

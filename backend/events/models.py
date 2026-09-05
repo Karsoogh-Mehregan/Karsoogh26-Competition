@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.db import models
 from django.db.models import CheckConstraint, F, Q, UniqueConstraint
 
@@ -227,9 +229,9 @@ class CharityBagStatus(models.TextChoices):
     FINISHED = "finished", "تمام شده"
 
 
-class CharityBagAction(models.TextChoices):
-    CONTRIBUTE = "contribute", "کمک به خیریه"
-    REQUEST = "request", "درخواست از خیریه"
+class CharityBagSide(models.TextChoices):
+    MICE = "mice", "موش‌گیل‌ها"
+    LIONS = "lions", "شیرگیل‌ها"
 
 
 class CharityBagEvent(models.Model):
@@ -241,9 +243,14 @@ class CharityBagEvent(models.Model):
     )
     starts_at = models.DateTimeField()
     ends_at = models.DateTimeField()
-    total_contributed = models.PositiveIntegerField(default=0)
-    total_requested = models.PositiveIntegerField(default=0)
-    charity_succeeded = models.BooleanField(null=True, blank=True)
+    minimum_stake = models.PositiveIntegerField(default=0)
+    freeze_seconds = models.PositiveIntegerField(default=180)
+    absent_penalty_total = models.PositiveIntegerField(default=0)
+    total_mice = models.PositiveIntegerField(default=0)
+    total_lions = models.PositiveIntegerField(default=0)
+    winning_side = models.CharField(
+        max_length=8, choices=CharityBagSide.choices, null=True, blank=True
+    )
     settlement_started_at = models.DateTimeField(null=True, blank=True)
     settled_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -266,18 +273,18 @@ class CharityBagEvent(models.Model):
                             CharityBagStatus.ACTIVE,
                             CharityBagStatus.RESOLVING,
                         ],
-                        charity_succeeded__isnull=True,
+                        winning_side__isnull=True,
                         settled_at__isnull=True,
                     )
-                    | Q(
-                        status=CharityBagStatus.FINISHED,
-                        charity_succeeded__isnull=False,
-                        settled_at__isnull=False,
-                    )
+                    | Q(status=CharityBagStatus.FINISHED, settled_at__isnull=False)
                 ),
                 name="charity_bag_settlement_state_consistent",
             ),
         ]
+
+    @property
+    def freeze_at(self):
+        return max(self.starts_at, self.ends_at - timedelta(seconds=self.freeze_seconds))
 
     def __str__(self):
         return f"Charity Bag {self.pk} ({self.starts_at:%Y-%m-%d %H:%M})"
@@ -294,7 +301,7 @@ class CharityBagParticipation(models.Model):
         on_delete=models.PROTECT,
         related_name="charity_bag_participations",
     )
-    action = models.CharField(max_length=10, choices=CharityBagAction.choices)
+    side = models.CharField(max_length=8, choices=CharityBagSide.choices)
     amount = models.PositiveIntegerField()
     stake_deducted = models.PositiveIntegerField()
     final_payout = models.PositiveIntegerField(default=0)
@@ -316,7 +323,7 @@ class CharityBagParticipation(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.team} / {self.event_id} / {self.action}"
+        return f"{self.team} / {self.event_id} / {self.side}"
 
 
 class CentipedeStatus(models.TextChoices):
@@ -953,7 +960,7 @@ class PigActionReceipt(models.Model):
 
 class EventCode(models.TextChoices):
     TERRITORY_CONTROL = "territory_control", "نبرد قلمرو"
-    CHARITY_BAG = "charity_bag", "کیسه خیریه"
+    CHARITY_BAG = "charity_bag", "مؤسسه خیریه"
     CENTIPEDE = "centipede", "بازی هزارپا"
     OLYMPICS_COIN = "olympics_coin", "سکه نزدیک دیوار"
     OLYMPICS_MARBLE = "olympics_marble", "تیله هدف"

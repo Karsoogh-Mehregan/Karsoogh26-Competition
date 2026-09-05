@@ -16,7 +16,7 @@ import {
   TargetIcon,
   UsersIcon,
 } from '@lucide/vue'
-import { computed, markRaw, reactive, watch } from 'vue'
+import { computed, markRaw, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { toast } from 'vue-sonner'
 import { useBoard } from '@/composables/useBoard'
@@ -47,13 +47,14 @@ const matchmakingMutation = useMatchmakingMutation()
 const createAuctionMutation = useCreateAuctionMutation()
 const createCharityMutation = useCreateCharityBagMutation()
 const durationMinutes = reactive<Record<string, number>>({})
+const charityMinimumStake = ref(0)
 
 const catalog = computed(() => catalogQuery.data.value ?? [])
 const tickets = computed(() => matchmakingQuery.data.value ?? [])
 
 const cards = [
   { code: 'territory_control', title: 'نبرد قلمرو', subtitle: 'تصرف خانه‌ها در بیست نوبت', route: '/events/territory-control', icon: markRaw(SwordsIcon), tone: 'blue' },
-  { code: 'charity_bag', title: 'کیسه خیریه', subtitle: 'انتخاب جمعی میان کمک و درخواست', route: '/events/charity-bag', icon: markRaw(HandHeartIcon), tone: 'emerald' },
+  { code: 'charity_bag', title: 'مؤسسه خیریه', subtitle: 'حساب موش‌گیل‌ها یا شیرگیل‌ها؛ حساب کم‌پول‌تر برنده است', route: '/events/charity-bag', icon: markRaw(HandHeartIcon), tone: 'emerald' },
   { code: 'centipede', title: 'بازی هزارپا', subtitle: 'ورودی ۱۰۰ · تولید، توافق، دزدی یا قناعت', route: '/events/centipede-game', icon: markRaw(RouteIcon), tone: 'orange' },
   { code: 'olympics_coin', title: 'سکه نزدیک دیوار', subtitle: 'نزدیک‌ترین پرتاب، برنده مسابقه', route: '/events/coin-near-wall', icon: markRaw(MedalIcon), tone: 'amber' },
   { code: 'olympics_marble', title: 'تیله هدف', subtitle: 'چهار تیله و مناطق امتیازی', route: '/events/marble-target', icon: markRaw(TargetIcon), tone: 'cyan' },
@@ -66,6 +67,8 @@ const visibleCards = computed(() => cards.filter((card) => isMentor.value || con
 
 watch(catalog, (rows) => {
   for (const row of rows) durationMinutes[row.code] = Math.max(1, Math.round((row.duration_seconds ?? 60) / 60))
+  const configured = Number(configuration('charity_bag')?.settings?.minimum_stake ?? 0)
+  charityMinimumStake.value = Number.isFinite(configured) ? Math.max(0, configured) : 0
 }, { immediate: true })
 
 function configuration(code: EventCode): EventConfiguration | undefined {
@@ -93,7 +96,7 @@ async function quickStart(item: EventConfiguration): Promise<void> {
   try {
     const minutes = Math.max(1, Math.floor(durationMinutes[item.code] || 1))
     const seconds = minutes * 60
-    if (item.code === 'charity_bag') await createCharityMutation.mutateAsync({ board: board.value, duration_seconds: seconds })
+    if (item.code === 'charity_bag') await createCharityMutation.mutateAsync({ board: board.value, duration_seconds: seconds, minimum_stake: Math.max(0, Math.floor(charityMinimumStake.value || 0)) })
     else if (item.code === 'limited_auction') await createAuctionMutation.mutateAsync(seconds)
     else return
     toast.success(`رویداد فعال ${minutes.toLocaleString('fa-IR')} دقیقه‌ای ساخته شد.`)
@@ -124,6 +127,10 @@ async function queue(code: EventCode, action: 'join' | 'cancel' | 'dismiss'): Pr
             <div v-if="configuration(card.code)?.has_time_limit" class="timer-line"><Clock3Icon class="size-4" /><span>مدت رویداد تازه</span><b>{{ durationMinutes[card.code] }} دقیقه</b></div>
 
             <template v-if="isMentor && configuration(card.code)">
+              <div v-if="card.code === 'charity_bag'" class="grid gap-1">
+                <Label for="charity-minimum-stake" class="text-muted-foreground text-[.68rem]">حداقل مبلغ هر تیم (گیلریوم)</Label>
+                <Input id="charity-minimum-stake" v-model.number="charityMinimumStake" type="number" min="0" inputmode="numeric" />
+              </div>
               <div v-if="configuration(card.code)?.has_time_limit" class="grid grid-cols-[1fr_auto] gap-2"><div><Label :for="`duration-${card.code}`" class="sr-only">زمان به دقیقه</Label><Input :id="`duration-${card.code}`" v-model.number="durationMinutes[card.code]" type="number" min="1" inputmode="numeric" /></div><Button size="sm" :disabled="createAuctionMutation.isPending.value || createCharityMutation.isPending.value" @click="quickStart(configuration(card.code)!)"><PlayIcon class="size-3.5" /> ساخت و شروع</Button></div>
               <Button class="w-full" :variant="configuration(card.code)?.enabled ? 'destructive' : 'default'" @click="toggle(configuration(card.code)!)"><CircleOffIcon v-if="configuration(card.code)?.enabled" class="size-4" />{{ configuration(card.code)?.enabled ? 'غیرفعال‌کردن' : 'فعال‌کردن' }}</Button>
             </template>

@@ -6,7 +6,7 @@ This document describes only the competition event subsystem. The Django app liv
 The app currently contains seven independent events:
 
 - **Territory Control** — a two-team, 20-turn board game.
-- **Charity Bag** — a timed, shared risk/reward event using team Glorium balances.
+- **Charity Bag** (مؤسسه خیریه) — a timed two-account minority game over team Glorium balances.
 - **Centipede Game** — a two-player shared-pot game with four secret choices and up to four
   production rounds.
 - **Gillympics / Olympics** — supervisor-operated physical matches with pluggable mini-games.
@@ -174,20 +174,26 @@ The desktop board fits the available viewport, while tablet and mobile layouts s
 
 ## Charity Bag
 
+The rules sheet calls it **مؤسسه خیریه**. It is a minority game over two accounts, not a
+donation: teams put Glorium into the **mice** account (موش‌گیل‌ها) or the **lions** account
+(شیرگیل‌ها), and the account holding *less* money at the close takes the other one.
+
 ### Model
 
-`CharityBagEvent` stores the participation window, lifecycle state, final totals, result, and
-settlement timestamps. `CharityBagParticipation` stores one team's irreversible choice, amount,
-deducted stake, final payout, and settlement timestamp.
+`CharityBagEvent` stores the participation window, the freeze window, the minimum stake,
+lifecycle state, final per-account totals, the winning side, and settlement timestamps.
+`CharityBagParticipation` stores one team's irreversible side, amount, deducted stake, final
+payout, and settlement timestamp.
 
 Database constraints enforce:
 
 - an end time after the start time;
-- one instance per configured start time;
+- one instance per configured start time per board;
 - one participation per team per event instance;
 - a positive amount;
 - a deducted stake equal to the submitted amount;
-- a consistent finished/result state.
+- a consistent finished/result state. `winning_side` stays null on a finished event when nobody
+  won — a tie, or an account nobody joined.
 
 ### Lifecycle
 
@@ -207,55 +213,67 @@ idempotent: repeated jobs cannot apply payouts twice.
 
 ### Entry and settlement rules
 
-During the active window, a team chooses `contribute` or `request` and an amount `y` satisfying:
+During the active window, a team chooses `mice` or `lions` and an amount `y` satisfying:
 
 ```text
-0 < y <= current team balance
+minimum_stake <= y <= current team balance
 ```
 
 The service locks the team row, deducts `y` immediately, and then persists the decision. The choice
-cannot be modified.
+cannot be modified, and a team enters exactly once.
 
 At settlement:
 
 ```text
-totalContributed = sum(contribute amounts)
-totalRequested   = sum(request amounts)
+totalMice  = sum(mice amounts)
+totalLions = sum(lions amounts)
 ```
 
-If `totalRequested > totalContributed`, the charity fails:
+The account with the **smaller** total wins and shares out the losing account in proportion to each
+winner's share of its own account. A winner is also refunded its stake; a loser keeps nothing:
 
-- contributors receive `2 × y`;
-- requesters receive nothing.
+```text
+payout(winner) = y + y * (losingTotal + absentFines) * multiplier / winningTotal
+multiplier     = 2 when the lions win, 1 when the mice win
+```
 
-Otherwise the charity succeeds:
+The lions' extra multiple is paid by the charity fund, exactly as the rules sheet describes. Integer
+division floors the share, so the fund never pays out more than the stated formula.
 
-- requesters receive `2 × y`;
-- contributors receive nothing.
+Taking part is compulsory. At settlement, every team on the event's board that submitted nothing is
+fined `minimum_stake` — capped at the balance it actually holds — and the fines are poured into the
+**losing** account, so the winners share them out with the rest of the prize. The fines land after
+the winner is known, so they never decide which account was the smaller one; `absent_penalty_total`
+records what was collected. A `minimum_stake` of 0 means no fine.
 
-Because `y` was already deducted, a winning team has a net gain of `y`; a losing team loses its
-stake.
+Two settlements name no winner and refund every stake instead: equal totals, and an account nobody
+joined (a prize with no one to collect it would otherwise burn the other account's money). Neither
+fines the absent teams — there would be nobody to hand the money to.
 
-### Privacy
+### Privacy and the freeze window
 
-While an instance is active or resolving:
+Running account totals are public during the event — deciding against them *is* the game — but the
+last `freeze_seconds` (180 by default) of the window freeze what players see: totals then count only
+entries submitted before `freeze_at`, so a late entry cannot be read off the board. Individual
+choices stay hidden throughout:
 
-- totals and the result are returned as `null`;
-- the shared `participations` list is empty;
-- a team may see only its own entry through `my_participation`.
+- the shared `participations` list is empty until the event is finished;
+- a team sees only its own entry through `my_participation`;
+- `totals_frozen` tells the SPA whether the displayed totals are live or frozen.
 
-After settlement, final totals, the outcome, and the auditable participation list are exposed.
+After settlement, final totals, the winning side, and the auditable participation list are exposed.
 `can_participate` tells the current team whether the API will accept an entry.
 
 ### Charity Bag API
 
 - `GET /api/events/charity-bag/instances/` — list instances with viewer-appropriate visibility.
-- `POST /api/events/charity-bag/instances/` — mentor-only creation. Accepts `starts_at` and either
-  `ends_at` or `duration_seconds`. Omitting the start opens an instance immediately; the default
-  duration is used when no end/duration is supplied.
+- `POST /api/events/charity-bag/instances/` — mentor-only creation. Accepts `starts_at`, either
+  `ends_at` or `duration_seconds`, and optional `minimum_stake`/`freeze_seconds`. Omitting the start
+  opens an instance immediately; the configured defaults are used for anything not supplied
+  (`EventConfiguration.settings` first, then the environment).
 - `GET /api/events/charity-bag/instances/<id>/` — synchronized state for one instance.
 - `POST /api/events/charity-bag/instances/<id>/participate/` — team-only entry. Example:
-  `{"action": "contribute", "amount": 50}`.
+  `{"side": "mice", "amount": 50}`.
 - `POST /api/events/charity-bag/instances/<id>/resolve/` — mentor-only synchronization. It does not
   settle an event before its configured end time.
 
@@ -264,12 +282,11 @@ After settlement, final totals, the outcome, and the auditable participation lis
 Settings are environment-configurable:
 
 ```env
-CHARITY_BAG_DURATION_SECONDS=300
-CHARITY_BAG_SCHEDULE_TIMES=09:30,12:30
+CHARITY_BAG_DURATION_SECONDS=600
+CHARITY_BAG_SCHEDULE_TIMES=14:30,15:30,17:30
+CHARITY_BAG_FREEZE_SECONDS=180
+CHARITY_BAG_MINIMUM_STAKE=0
 ```
-
-The requirements mention three daily executions but currently provide only two exact times. Add the
-third time to `CHARITY_BAG_SCHEDULE_TIMES`; no domain code change is needed.
 
 Create one day's instances with:
 
@@ -284,7 +301,7 @@ regularly from the deployment scheduler:
 uv run manage.py resolve_charity_bags
 ```
 
-A one-minute interval is sufficient for a five-minute event window. API reads are an additional
+A one-minute interval is sufficient for a ten-minute event window. API reads are an additional
 safety net, not a replacement for the production scheduler.
 
 ### Charity Bag frontend behavior
@@ -293,9 +310,14 @@ The page selects the active instance first, followed by resolving, scheduled, an
 instances. It polls frequently during active/resolving states, shows a local one-second countdown,
 and refreshes authoritative state when the timer reaches zero.
 
-The contribution/request choice is irreversible and uses a confirmation dialog. Successful entry
-invalidates the team query so the displayed Glorium balance refreshes. Active decisions stay sealed;
-finished events show the totals and per-team payout ledger. Coin and outcome effects use generated
+A mentor sets the round's length and its minimum stake in the header of the charity page (and on the
+hub card) before opening it, so the number a team must meet is chosen per round rather than only in
+`EventConfiguration`. The hub seeds its field from `EventConfiguration.settings.minimum_stake`.
+
+The account choice is irreversible and uses a confirmation dialog. Successful entry invalidates the
+team query so the displayed Glorium balance refreshes. Both account totals are on screen the whole
+time, with a freeze notice in the closing minutes; individual decisions stay sealed, and finished
+events show the winning account and the per-team payout ledger. Coin and outcome effects use generated
 Web Audio tones, so sound files are not required.
 
 ## Centipede Game
