@@ -1,6 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
-import { getGameSettings, getGameState, restartGame, updateGameSettings } from '@/services/game'
-import type { GameRestartResult, GameSettings, GameState } from '@/types/api'
+import {
+  extendGame,
+  getGameSettings,
+  getGameState,
+  restartGame,
+  updateGameSettings,
+} from '@/services/game'
+import type { GameExtendResult, GameRestartResult, GameSettings, GameState } from '@/types/api'
 import { detach } from './invalidate'
 import { queryKeys } from './keys'
 
@@ -44,6 +50,24 @@ export function useUpdateGameSettingsMutation() {
         // Freeze (or thaw) changes what competing teams read from this list.
         queryClient.invalidateQueries({ queryKey: queryKeys.leaderboardRoot() }),
       ])
+    },
+  })
+}
+
+/**
+ * Grant extra time. The response carries the new total, so the settings cache is
+ * written from it rather than refetched — but the *clock* is invalidated, since
+ * every client's countdown is derived from the state endpoint.
+ */
+export function useExtendGameMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (minutes: number) => extendGame(minutes),
+    onSuccess: (result: GameExtendResult) => {
+      queryClient.setQueryData<GameSettings>(queryKeys.gameSettings(), (previous) =>
+        previous ? { ...previous, duration_minutes: result.duration_minutes } : previous,
+      )
+      detach(queryClient.invalidateQueries({ queryKey: queryKeys.gameState() }))
     },
   })
 }

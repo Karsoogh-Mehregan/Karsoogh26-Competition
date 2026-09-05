@@ -10,7 +10,16 @@ import { useActing } from '@/composables/useActing'
 import { useAttempts } from '@/composables/useAttempts'
 import { useGameClock } from '@/composables/useGameClock'
 
-export type StageKey = 'signed_out' | 'waiting' | 'spawn' | 'expand' | 'answer' | 'grading' | 'over'
+export type StageKey =
+  | 'signed_out'
+  | 'waiting'
+  | 'paused'
+  | 'time_up'
+  | 'spawn'
+  | 'expand'
+  | 'answer'
+  | 'grading'
+  | 'over'
 
 export interface Step {
   key: StageKey
@@ -28,6 +37,8 @@ export const STEPS: Step[] = [
 const COPY: Record<StageKey, { title: string; hint: string }> = {
   signed_out: { title: 'خارج از بازی', hint: 'برای شروع وارد حساب تیم شوید.' },
   waiting: { title: 'در انتظار شروع', hint: 'بازی هنوز آغاز نشده است.' },
+  paused: { title: 'بازی متوقف است', hint: 'داوران بازی را موقتاً نگه داشته‌اند؛ منتظر ادامه بمانید.' },
+  time_up: { title: 'پایان زمان بازی', hint: 'زمان بازی تمام شد. منتظر اعلام داوران بمانید.' },
   spawn: { title: 'خانهٔ شروع', hint: 'روی نقشه خانهٔ شروع رنگ تیم خود را انتخاب کنید.' },
   expand: { title: 'انتخاب خانه', hint: 'یک خانهٔ مجاور را رزرو کنید تا سؤال بگیرید.' },
   answer: { title: 'پاسخ به سؤال', hint: 'سؤال باز دارید — پیش از پایان مهلت پاسخ دهید.' },
@@ -37,7 +48,7 @@ const COPY: Record<StageKey, { title: string; hint: string }> = {
 
 export function useStage() {
   const { me, actingTeam, isPlayer } = useActing()
-  const { state } = useGameClock()
+  const { state, isOvertime } = useGameClock()
   const { questionAttempts } = useAttempts()
 
   const stage = computed<StageKey>(() => {
@@ -45,9 +56,14 @@ export function useStage() {
 
     const status = state.value?.status
     if (status === 'finished') return 'over'
+    // The clock running out pauses the game rather than ending it — that is the
+    // organisers' call — so a paused game is two different messages: «متوقف»
+    // while there is time left on it, «پایان زمان» once there is not. Neither is
+    // «هنوز آغاز نشده».
+    if (status === 'paused') return isOvertime.value ? 'time_up' : 'paused'
+    if (status === 'not_started') return 'waiting'
     // A mentor watching a team should see that team's step, not a lobby message.
-    if (!isPlayer.value) return status === 'running' ? 'expand' : 'waiting'
-    if (status === 'not_started' || status === 'paused') return 'waiting'
+    if (!isPlayer.value) return 'expand'
 
     if ((actingTeam.value?.holdings.length ?? 0) === 0) return 'spawn'
 

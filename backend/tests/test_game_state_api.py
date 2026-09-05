@@ -19,6 +19,7 @@ User = get_user_model()
 STATE_URL = "/api/game/state/"
 SETTINGS_URL = "/api/game/settings/"
 RESTART_URL = "/api/game/restart/"
+EXTEND_URL = "/api/game/extend/"
 
 
 @pytest.fixture
@@ -191,6 +192,158 @@ def test_a_pause_does_not_eat_into_the_countdown(player, game_god):
     settings.save(update_fields=["running_since"])
 
     assert player.get(STATE_URL).json()["remaining_seconds"] == pytest.approx(3000, abs=5)
+
+
+# --- the buzzer --------------------------------------------------------------
+#
+# Nothing runs in the background here, so the clock running out has to be applied
+# by whoever next reads the settings. `GameSettings.load()` does it, which is
+# every guard in the codebase as well as the state endpoint.
+
+
+def test_running_out_of_time_pauses_the_game(player, game_god):
+    _patch(game_god, {"duration_minutes": 30})
+    _run_for(31)
+
+    body = player.get(STATE_URL).json()
+    assert body["status"] == GameStatus.PAUSED
+    assert body["is_running"] is False
+    assert body["remaining_seconds"] == 0
+    # Banked to the allowance exactly, not to whenever the poll happened to land.
+    assert body["elapsed_seconds"] == 1800
+    assert body["running_since"] is None
+
+
+def test_the_buzzer_pauses_rather_than_finishes(player, game_god):
+    """Ending the event is a game god's call; the clock only stops the board."""
+    _patch(game_god, {"duration_minutes": 30})
+    _run_for(31)
+
+    player.get(STATE_URL)
+    assert GameSettings.load().status == GameStatus.PAUSED
+
+
+def test_the_buzzer_needs_no_endpoint_of_its_own(game_god):
+    """Any read of the settings applies it — that is what closes the board."""
+    _patch(game_god, {"duration_minutes": 30})
+    _run_for(31)
+
+    assert GameSettings.load().status == GameStatus.PAUSED
+
+
+def test_a_game_with_no_duration_never_runs_out(player, game_god):
+    _patch(game_god, {"duration_minutes": 0})
+    _run_for(600)
+
+    assert player.get(STATE_URL).json()["status"] == GameStatus.RUNNING
+
+
+def test_time_left_is_left_alone(player, game_god):
+    _patch(game_god, {"duration_minutes": 60})
+    _run_for(10)
+
+    assert player.get(STATE_URL).json()["status"] == GameStatus.RUNNING
+
+
+def test_resuming_without_more_time_stops_again(game_god):
+    """The clock really is out; a game god has to grant «وقت اضافه» first."""
+    _patch(game_god, {"duration_minutes": 30})
+    _run_for(31)
+    assert GameSettings.load().status == GameStatus.PAUSED
+
+    _patch(game_god, {"status": GameStatus.RUNNING})
+    assert GameSettings.load().status == GameStatus.PAUSED
+
+
+def test_the_buzzer_leaves_a_finished_game_finished(game_god):
+    """A game god's ending outranks the clock, and is not rewritten to paused."""
+    _patch(game_god, {"duration_minutes": 30})
+    _run_for(31)
+    _patch(game_god, {"status": GameStatus.FINISHED})
+
+    assert GameSettings.load().status == GameStatus.FINISHED
+
+
+# --- extra time --------------------------------------------------------------
+#
+# «وقت اضافه» is a grant of N more minutes *from now*, not a new total. The two
+# only agree while the countdown is still above zero, and an organiser reaches
+# for this precisely when it is not.
+
+
+def _extend(client, minutes):
+    return client.post(EXTEND_URL, {"minutes": minutes}, content_type="application/json")
+
+
+def test_extending_adds_to_the_countdown(player, game_god):
+    _patch(game_god, {"duration_minutes": 60})
+    _run_for(10)
+
+    response = _extend(game_god, 15)
+    assert response.status_code == 200
+    assert response.json()["duration_minutes"] == 75
+
+    assert player.get(STATE_URL).json()["remaining_seconds"] == pytest.approx(3900, abs=5)
+
+
+def test_extending_a_spent_clock_grants_the_whole_extension(player, game_god):
+    """The case the naive `duration += minutes` gets wrong."""
+    _patch(game_god, {"duration_minutes": 30})
+    _run_for(45)
+    # The buzzer has stopped the game and banked elapsed at the full allowance.
+    assert player.get(STATE_URL).json()["remaining_seconds"] == 0
+
+    _extend(game_god, 10)
+    assert player.get(STATE_URL).json()["remaining_seconds"] == 600
+
+
+def test_extending_never_pays_out_less_than_it_promised(player, game_god):
+    """A duration lowered mid-run leaves elapsed past it; ten minutes still buys ten."""
+    _run_for(50)
+    _patch(game_god, {"duration_minutes": 20})
+
+    _extend(game_god, 10)
+    assert player.get(STATE_URL).json()["remaining_seconds"] >= 600
+
+
+def test_extending_does_not_restart_a_stopped_game(game_god):
+    """Granting time is not starting the game; that stays a separate decision."""
+    _patch(game_god, {"duration_minutes": 30})
+    _run_for(31)
+    assert GameSettings.load().status == GameStatus.PAUSED
+
+    _extend(game_god, 10)
+    assert GameSettings.load().status == GameStatus.PAUSED
+
+
+def test_an_extension_survives_the_buzzer_that_follows_it(game_god):
+    """Extend, then start: the game runs on instead of stopping again at once."""
+    _patch(game_god, {"duration_minutes": 30})
+    _run_for(31)
+
+    _extend(game_god, 10)
+    _patch(game_god, {"status": GameStatus.RUNNING})
+    assert GameSettings.load().status == GameStatus.RUNNING
+
+
+def test_extending_before_kick_off_just_grows_the_allowance(game_god):
+    _patch(game_god, {"duration_minutes": 30})
+
+    assert _extend(game_god, 15).json()["duration_minutes"] == 45
+
+
+def test_an_extension_must_be_positive(game_god):
+    assert _extend(game_god, 0).status_code == 400
+    assert _extend(game_god, -5).status_code == 400
+
+
+def test_only_a_game_god_may_grant_time(player, mentor):
+    assert _extend(player, 10).status_code == 403
+    assert _extend(mentor, 10).status_code == 403
+
+
+def test_extra_time_is_closed_to_anonymous_visitors(client):
+    assert _extend(client, 10).status_code == 403
 
 
 # --- mentor controls ---------------------------------------------------------

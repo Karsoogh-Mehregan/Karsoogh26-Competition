@@ -10,6 +10,7 @@ urlpatterns = [
     # Clock and stage: every client polls state; only mentors may change it.
     path("game/state/", views.GameStateView.as_view(), name="game-state"),
     path("game/settings/", views.GameSettingsView.as_view(), name="game-settings"),
+    path("game/extend/", views.GameExtendView.as_view(), name="game-extend"),
     path("game/restart/", views.GameRestartView.as_view(), name="game-restart"),
     # How the map looks. Everyone reads it; only Designers write it.
     path("map/design/", views_design.MapDesignView.as_view(), name="map-design"),

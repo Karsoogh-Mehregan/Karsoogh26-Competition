@@ -1,5 +1,11 @@
 <script setup lang="ts">
-import { CircleAlertIcon, Loader2Icon, RotateCcwIcon, TriangleAlertIcon } from '@lucide/vue'
+import {
+  CircleAlertIcon,
+  Loader2Icon,
+  RotateCcwIcon,
+  TimerResetIcon,
+  TriangleAlertIcon,
+} from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Badge } from '@/components/ui/badge'
@@ -17,6 +23,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ApiError } from '@/lib/http'
 import {
+  useExtendGameMutation,
   useGameSettingsQuery,
   useRestartGameMutation,
   useUpdateGameSettingsMutation,
@@ -34,6 +41,7 @@ const open = computed({
 const { data: settings, isPending } = useGameSettingsQuery(() => props.open)
 const { mutateAsync: save, isPending: saving } = useUpdateGameSettingsMutation()
 const { mutateAsync: restart, isPending: restarting } = useRestartGameMutation()
+const { mutateAsync: extend, isPending: extending } = useExtendGameMutation()
 
 const STATUSES: { value: GameStatus; label: string; hint: string }[] = [
   { value: 'not_started', label: 'شروع نشده', hint: 'هیچ حرکتی پذیرفته نمی‌شود.' },
@@ -129,6 +137,37 @@ async function doRestart() {
     )
   } catch (error) {
     toast.error(error instanceof ApiError ? error.detail : 'بازنشانی بازی ناموفق بود.')
+  }
+}
+
+// ---- extra time --------------------------------------------------------------
+//
+// «وقت اضافه» is a grant, not a new total: the organiser says how many minutes
+// to add and the server works out what the duration becomes against the clock as
+// it stands at that instant. Typing a new total into the field above is the same
+// thing only while the countdown is still above zero — and the moment anyone
+// reaches for this is usually the moment it is not.
+
+const EXTRA_PRESETS = [5, 10, 15, 30]
+const extra = ref('10')
+
+const extraMinutes = computed(() => {
+  const parsed = parseCount(extra.value)
+  return parsed !== null && parsed > 0 ? parsed : null
+})
+
+async function grantExtraTime() {
+  const minutes = extraMinutes.value
+  if (minutes === null) {
+    toast.error('وقت اضافه باید عددی صحیح و بزرگ‌تر از صفر باشد.')
+    return
+  }
+  try {
+    const result = await extend(minutes)
+    duration.value = String(result.duration_minutes)
+    toast.success(`${minutes} دقیقه وقت اضافه ثبت شد — مدت کل: ${result.duration_minutes} دقیقه`)
+  } catch (error) {
+    toast.error(error instanceof ApiError ? error.detail : 'ثبت وقت اضافه ناموفق بود.')
   }
 }
 
@@ -241,6 +280,55 @@ function saveDuration() {
           <p class="text-muted-foreground text-xs">
             شمارش معکوس «تا پایان» از این مدت منهای زمان بازی‌شده می‌آید، پس با توقف بازی
             متوقف می‌شود. عدد ۰ شمارش معکوس را خاموش می‌کند.
+          </p>
+        </section>
+
+        <section class="flex flex-col gap-2 rounded-md border p-3">
+          <div class="flex flex-col gap-0.5">
+            <span class="flex items-center gap-1.5 text-sm font-medium">
+              <TimerResetIcon class="size-4" />
+              تمدید تایم
+            </span>
+            <span class="text-muted-foreground text-xs">
+              وقت اضافه از همین لحظه حساب می‌شود: هر عددی که ثبت کنید، دقیقاً همان‌قدر به
+              زمان باقی‌مانده افزوده می‌شود — حتی اگر زمان بازی تمام شده باشد.
+            </span>
+          </div>
+
+          <div class="flex flex-wrap gap-1.5">
+            <Button
+              v-for="preset in EXTRA_PRESETS"
+              :key="preset"
+              size="sm"
+              :variant="extraMinutes === preset ? 'default' : 'outline'"
+              :disabled="extending"
+              class="tabular-nums"
+              @click="extra = String(preset)"
+            >
+              {{ preset }} دقیقه
+            </Button>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <Label for="admin-extra" class="sr-only">وقت اضافه (دقیقه)</Label>
+            <Input
+              id="admin-extra"
+              v-model="extra"
+              inputmode="numeric"
+              class="flex-1 tabular-nums"
+              :disabled="extending"
+              @keydown.enter.prevent="grantExtraTime"
+            />
+            <Button :disabled="extending || extraMinutes === null" @click="grantExtraTime">
+              <Loader2Icon v-if="extending" class="size-4 animate-spin" />
+              <TimerResetIcon v-else class="size-4" />
+              افزودن وقت
+            </Button>
+          </div>
+
+          <p class="text-muted-foreground text-xs">
+            وقت اضافه بازی متوقف را از سر نمی‌گیرد؛ پس از ثبت، وضعیت را روی «در حال اجرا»
+            بگذارید.
           </p>
         </section>
 

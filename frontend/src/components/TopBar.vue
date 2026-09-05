@@ -31,6 +31,19 @@ const remainingLabel = computed(() => {
   if (remainingSeconds.value === null) return null
   return isOvertime.value ? 'پایان' : formatClock(remainingSeconds.value)
 })
+// «تا پایان» captions a countdown. Once the countdown *is* «پایان» the caption
+// stops being one and the pair reads «تا پایان پایان», so it drops away and the
+// word stands alone.
+const remainingCaption = computed(() => (isOvertime.value ? '' : 'تا پایان'))
+
+// The frozen chip says why the timers stopped, and «متوقف» is only one of the
+// three reasons — a game that ran its clock out is not a game someone paused.
+const FROZEN_LABEL: Record<string, string> = {
+  paused: 'متوقف',
+  finished: 'پایان یافت',
+  not_started: 'شروع نشده',
+}
+const frozenLabel = computed(() => (isRunning.value ? '' : (FROZEN_LABEL[status.value] ?? '')))
 
 // Organisers only. A team's board comes from its account and is not a choice.
 const BOARDS = [
@@ -55,12 +68,12 @@ const BOARDS = [
         class="timer"
         :class="{ 'is-urgent': isEndingSoon || isOvertime }"
       >
-        <span class="timer-label">تا پایان</span>
+        <span v-if="remainingCaption" class="timer-label">{{ remainingCaption }}</span>
         <span class="timer-value tabular-nums">{{ remainingLabel }}</span>
       </div>
-      <span v-if="!isRunning" class="timer-frozen">
-        <PauseIcon class="size-3" aria-hidden="true" />
-        متوقف
+      <span v-if="frozenLabel" class="timer-frozen">
+        <PauseIcon v-if="status === 'paused'" class="size-3" aria-hidden="true" />
+        {{ frozenLabel }}
       </span>
     </div>
 
