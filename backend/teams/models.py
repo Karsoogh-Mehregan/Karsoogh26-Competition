@@ -14,6 +14,7 @@ class BalanceReason(models.TextChoices):
     DUEL = "duel", "دوئل"
     BUYOUT = "buyout", "خرید طبقه"
     WEAK_REASONING = "weak_reasoning", "عدم ارائه"
+    NETWORTH = "networth", "ارزش دارایی"
 
 
 def active_holdings():

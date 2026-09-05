@@ -62,7 +62,7 @@ def test_restores_and_reclocks(setup):
     assert swept.expires_at > now
     assert pending.expires_at > now
     assert old.released_at is not None
-    assert "1 re-clocked, 1 restored, 0 skipped" in out.getvalue()
+    assert "2 reopened, 0 skipped" in out.getvalue()
 
 
 def test_skips_taken_slot(setup):
