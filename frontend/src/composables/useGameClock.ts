@@ -115,6 +115,23 @@ export function useGameClock() {
       remainingSeconds.value <= 300,
   )
 
+  /**
+   * Ask the server the moment the local countdown hits zero.
+   *
+   * The buzzer is applied server-side, lazily, by the next request that reads
+   * the settings — otherwise a hall with nobody clicking would run past its own
+   * end. The state query polls on its own minute, so this only closes the gap
+   * between the second the clock reads «پایان» and the second the row says so.
+   * It fires once: the refetch turns `isRunning` off, and the watcher tracks a
+   * change, not a level.
+   */
+  watch(
+    () => isRunning.value && isOvertime.value,
+    (justRanOut) => {
+      if (justRanOut) void stateQuery.refetch()
+    },
+  )
+
   return {
     state,
     status,
