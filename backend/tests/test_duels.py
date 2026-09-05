@@ -622,3 +622,73 @@ class TestApi:
     ):
         response = player.post("/api/duels/", {"occupancy": full_house[1].pk}, format="json")
         assert response.status_code == 409
+
+
+class TestRoomOnOff:
+    """Switching a room off is how an organiser takes a judge off the rota.
+
+    `is_active` is the only field of a Room an organiser flips mid-event, so it
+    is editable from the changelist and in bulk. What matters is the split: off
+    means "hand me no *new* duels", never "abandon the one you are running".
+    """
+
+    @pytest.fixture
+    def admin_request(self):
+        from django.contrib.messages.storage.fallback import FallbackStorage
+        from django.test import RequestFactory
+
+        request = RequestFactory().post("/admin/duels/room/")
+        request.user = User.objects.create_superuser("organiser", "o@example.com", "pw")
+        request.session = {}
+        request._messages = FallbackStorage(request)
+        return request
+
+    @pytest.fixture
+    def room_admin(self):
+        from django.contrib import admin as django_admin
+
+        return django_admin.site._registry[Room]
+
+    def test_turning_a_room_off_takes_it_out_of_the_rotation(self, room_admin, admin_request, room):
+        room_admin.deactivate_rooms(admin_request, Room.objects.filter(pk=room.pk))
+
+        room.refresh_from_db()
+        assert room.is_active is False
+        with pytest.raises(NoRoomAvailable):
+            next_room()
+
+    def test_turning_it_back_on_restores_the_rotation(self, room_admin, admin_request, room):
+        room_admin.deactivate_rooms(admin_request, Room.objects.filter(pk=room.pk))
+        room_admin.activate_rooms(admin_request, Room.objects.filter(pk=room.pk))
+
+        room.refresh_from_db()
+        assert room.is_active is True
+        assert next_room() == room
+
+    def test_a_duel_already_running_survives_its_room_being_switched_off(
+        self,
+        room_admin,
+        admin_request,
+        running_game,
+        board,
+        attacker,
+        full_house,
+        seated_attacker,
+        room,
+    ):
+        """The judge keeps it and can still call the winner.
+
+        Deactivating mid-duel must not strand two teams in a meeting nobody can
+        close — the flag gates `_available_rooms`, not `resolve_duel`.
+        """
+        duel = request_duel(attacker, full_house[1].pk)
+        room_admin.deactivate_rooms(admin_request, Room.objects.filter(pk=room.pk))
+
+        closed = resolve_duel(duel, attacker, by=duel.mentor)
+        assert closed.status == DuelStatus.CLOSED
+        assert closed.winner_id == attacker.pk
+
+    def test_is_active_is_editable_from_the_changelist(self, room_admin):
+        """The toggle an organiser actually reaches for, without opening a row."""
+        assert "is_active" in room_admin.list_editable
+        assert "is_active" in room_admin.list_display
