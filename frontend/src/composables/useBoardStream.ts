@@ -38,6 +38,7 @@ const ROUTES: Record<string, () => QueryKey[]> = {
   'board.spawn.claimed': () => BOARD,
   'board.node.claimed': () => [...BOARD_AND_BUYOUTS, queryKeys.balanceEventsRoot()],
   'board.released': () => [...BOARD_AND_BUYOUTS, queryKeys.attemptsRoot()],
+  'board.gelled': () => [...BOARD_AND_BUYOUTS, queryKeys.attemptsRoot(), queryKeys.mapDesignRoot()],
   // A grade moves balances. Frozen players keep their snapshot; organisers
   // still need the live list.
   'board.graded': () => {

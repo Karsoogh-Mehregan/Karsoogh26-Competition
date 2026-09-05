@@ -9,8 +9,8 @@ const NODE_ITEMS = new Set<ItemType>(['fake_document', 'gel'])
 
 const SUCCESS: Record<ItemType, string> = {
   fake_document: 'سند جعلی استفاده شد.',
-  gel: 'گل استفاده شد.',
-  gilari_100: '۱۰۰ گیلاری مصرف شد!',
+  gel: 'گِل استفاده شد.',
+  gilari_100: '۱۰۰ گیلاری مصرف شد! (به درد نخور بود)',
 }
 
 function messageOf(error: unknown): string {
@@ -47,11 +47,17 @@ export function useItems() {
     return NODE_ITEMS.has(itemType)
   }
 
-  async function useItem(itemType: ItemType, nodeCode?: string): Promise<boolean> {
+  async function useItem(
+    itemType: ItemType,
+    nodeCode?: string,
+    floor?: number,
+  ): Promise<boolean> {
     actionError.value = ''
     try {
       await mutation.mutateAsync(
-        needsNode(itemType) ? { item_type: itemType, node_code: nodeCode } : { item_type: itemType },
+        needsNode(itemType)
+          ? { item_type: itemType, node_code: nodeCode, floor }
+          : { item_type: itemType },
       )
       toast.success(SUCCESS[itemType])
       return true

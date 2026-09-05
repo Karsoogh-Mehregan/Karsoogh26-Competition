@@ -139,6 +139,7 @@ function isNodeFull(id) {
 
 function isNodeSelectable(id) {
   if (!canAct.value) return false
+  if (design.isGelled(id)) return false
   // An unfinished board is bought and waiting: it outranks every reach rule,
   // including the one that sends a team with no holdings to its start node.
   if (openBoardGateIds.value.has(id)) return true
@@ -317,6 +318,7 @@ function isEdgeTraversed(e) {
 
 // ---- node helpers ----
 function nodeState(n) {
+  if (design.isGelled(n.id)) return 'disabled'
   if (isNodeAnswerable(n.id)) return 'answerable'
   if (isNodeSelected(n.id)) return 'visited'
   if (isNodeSelectable(n.id)) return 'selectable'
@@ -335,6 +337,7 @@ function isNodeInspected(n) {
 }
 
 function nodeLabel(n) {
+  if (design.isGelled(n.id)) return `${n.id} — گِل گرفته شده`
   const state = nodeState(n)
   if (isGatewayNode(n) && crossedGateIds.value.has(n.id)) return `${n.id} — عوارضی؛ عبور کرده‌اید`
   if (isGatewayNode(n) && openBoardGateIds.value.has(n.id)) return `${n.id} — عوارضی؛ ادامه بازی`
@@ -362,6 +365,7 @@ function isTollGlyph(n) {
 }
 
 function inspectIntent(n) {
+  if (design.isGelled(n.id)) return { intent: 'view', occupancyId: null }
   const holding = answerableHolding(n.id)
   if (holding) return { intent: 'solve', occupancyId: holding.id }
   // A spent sheet is not a gate the player can walk through by answering: the
@@ -660,7 +664,7 @@ function shapePath(n) {
           'node',
           'state-' + nodeState(n),
           'shape-' + n.shape,
-          { 'search-hit': searchHit === n.id, 'is-inspected': isNodeInspected(n) },
+          { 'search-hit': searchHit === n.id, 'is-inspected': isNodeInspected(n), 'is-gelled': design.isGelled(n.id) },
         ]"
         :role="isNodeInteractive() ? 'button' : undefined"
         :tabindex="isNodeInteractive() ? 0 : undefined"
@@ -778,6 +782,21 @@ function shapePath(n) {
           :r="visualRadius(n) + 5"
           class="ring-selectable"
         />
+
+        <g v-if="design.isGelled(n.id)" class="node-gel-x" aria-hidden="true">
+          <line
+            :x1="-visualRadius(n) * 0.85"
+            :y1="-visualRadius(n) * 0.85"
+            :x2="visualRadius(n) * 0.85"
+            :y2="visualRadius(n) * 0.85"
+          />
+          <line
+            :x1="visualRadius(n) * 0.85"
+            :y1="-visualRadius(n) * 0.85"
+            :x2="-visualRadius(n) * 0.85"
+            :y2="visualRadius(n) * 0.85"
+          />
+        </g>
 
         <text
           v-if="hoveredId === n.id && !labelsVisible"
@@ -999,6 +1018,16 @@ function shapePath(n) {
 .node-hatch {
   stroke: none;
   pointer-events: none;
+}
+
+.node-gel-x {
+  stroke: #9f1239;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+.node.is-gelled .node-shape {
+  opacity: 0.7;
 }
 
 .state-occupied {

@@ -35,7 +35,14 @@ _DESIGN_EXAMPLE = {
     "halo_strength": 45,
     "neighborhoods": [{"index": 0, "name": "محلهٔ آبی", "theme": "water", "color": "#3b82c4"}],
     "nodes": [
-        {"code": "L1_0", "level": "spawn", "capacity": 1, "archetype": "", "minesweeper": False}
+        {
+            "code": "L1_0",
+            "level": "spawn",
+            "capacity": 1,
+            "archetype": "",
+            "minesweeper": False,
+            "gelled": False,
+        }
     ],
 }
 
@@ -131,6 +138,7 @@ class MapDesignView(APIView):
                 "capacity": 3,
                 "archetype": "observatory",
                 "minesweeper": False,
+                "gelled": False,
             },
             response_only=True,
         ),

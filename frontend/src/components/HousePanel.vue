@@ -61,7 +61,7 @@ const inspector = useInspectorStore()
 const { spec, inspection, holdings } = useHouseSpec()
 const { me, actingTeam, isPlayer, claimStart, assignQuestion } = useActing()
 const { open: openEntrySheet, graceEndsAt } = useEntry()
-const { pinOf, canDesign } = useMapDesign()
+const { pinOf, canDesign, isGelled } = useMapDesign()
 const { data: levelConfigs } = useLevelsQuery(() => !!me.value)
 const attemptStore = useAttemptStore()
 const enterMinesweeper = useEnterMinesweeperMutation()
@@ -231,6 +231,7 @@ const reserveEntryCost = computed(() =>
 // A toll node is a gate, not a building: it has no units to let, it charges to
 // play, and a win is a crossing this team keeps.
 const isGate = computed(() => spec.value?.level === 'toll')
+const gelled = computed(() => !!spec.value && isGelled(spec.value.nodeCode))
 const hasCrossed = computed(
   () => !!spec.value && (actingTeam.value?.cleared_tolls ?? []).includes(spec.value.nodeCode),
 )
@@ -452,6 +453,10 @@ async function saveDesign() {
           </li>
         </ul>
 
+        <p v-if="gelled" class="text-destructive px-1 text-sm">
+          این خانه گِل گرفته شده و ورود به آن بسته است.
+        </p>
+
         <!-- Only rendered where the server offers a duel: a full house next
              door that this team is not already sitting in. -->
         <section v-if="showDuelSection" class="house-duel" aria-label="دوئل برای این ساختمان">
@@ -631,7 +636,7 @@ async function saveDesign() {
         </p>
 
         <Button
-          v-if="actionLabel"
+          v-if="actionLabel && !gelled"
           class="w-full"
           :disabled="busy"
           :aria-busy="busy"

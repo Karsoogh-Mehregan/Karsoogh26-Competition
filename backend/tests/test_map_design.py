@@ -91,6 +91,7 @@ def test_any_logged_in_user_can_read_the_design(player, nodes):
         "capacity": 3,
         "archetype": "",
         "minesweeper": False,
+        "gelled": False,
     }
     assert by_code["L2_0"]["capacity"] == 1
 

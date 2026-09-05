@@ -7,7 +7,6 @@ from rest_framework.test import APIClient
 from core.boards import Board
 from game.models import (
     AcquisitionSource,
-    FloorReward,
     GameSettings,
     GameStatus,
     LevelConfig,
@@ -94,7 +93,7 @@ class TestFakeDocument:
 
         response = client.post(
             USE_URL,
-            {"item_type": ItemType.FAKE_DOCUMENT, "node_code": node.code},
+            {"item_type": ItemType.FAKE_DOCUMENT, "node_code": node.code, "floor": 2},
             format="json",
         )
 
@@ -104,7 +103,7 @@ class TestFakeDocument:
         assert item.quantity == 1
         holding = Occupancy.objects.active().get(team=alpha, node=node)
         assert holding.source == AcquisitionSource.ITEM
-        assert holding.floor == 1
+        assert holding.floor == 2
 
     def test_unknown_node_is_rejected(self, running_game, alpha):
         give(alpha, ItemType.FAKE_DOCUMENT)
@@ -112,7 +111,7 @@ class TestFakeDocument:
 
         response = client.post(
             USE_URL,
-            {"item_type": ItemType.FAKE_DOCUMENT, "node_code": "missing"},
+            {"item_type": ItemType.FAKE_DOCUMENT, "node_code": "missing", "floor": 1},
             format="json",
         )
 
@@ -120,9 +119,25 @@ class TestFakeDocument:
         assert TeamItem.objects.filter(team=alpha, item_type=ItemType.FAKE_DOCUMENT).exists()
         assert Occupancy.objects.filter(team=alpha).count() == 0
 
+    def test_a_missing_floor_is_rejected(self, running_game, hard, alpha):
+        node = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
+        give(alpha, ItemType.FAKE_DOCUMENT)
+        client = client_for(alpha)
+
+        response = client.post(
+            USE_URL,
+            {"item_type": ItemType.FAKE_DOCUMENT, "node_code": node.code},
+            format="json",
+        )
+
+        assert response.status_code == 400
+        assert "floor" in response.json()
+        assert TeamItem.objects.filter(team=alpha, item_type=ItemType.FAKE_DOCUMENT).exists()
+        assert Occupancy.objects.filter(team=alpha).count() == 0
+
 
 class TestGel:
-    def test_valid_request_takes_over_the_node(self, running_game, hard, alpha, bravo):
+    def test_valid_request_locks_the_node(self, running_game, hard, alpha, bravo):
         node = Node.objects.create(board=Board.GIRLS, code="h1", name="Hard 1", level=hard)
         previous = occupy(node, bravo, slot=1, floor=1)
         give(alpha, ItemType.GEL)
@@ -136,16 +151,10 @@ class TestGel:
 
         assert response.status_code == 200
         previous.refresh_from_db()
+        node.refresh_from_db()
         assert previous.released_at is not None
-        floors = list(
-            FloorReward.objects.filter(level_id=node.level_id)
-            .order_by("floor")
-            .values_list("floor", flat=True)
-        )
-        holdings = list(Occupancy.objects.active().filter(node=node).order_by("floor"))
-        assert [holding.floor for holding in holdings] == floors
-        assert {holding.team_id for holding in holdings} == {alpha.pk}
-        assert {holding.source for holding in holdings} == {AcquisitionSource.ITEM}
+        assert node.gelled is True
+        assert Occupancy.objects.active().filter(node=node).count() == 0
         assert not TeamItem.objects.filter(team=alpha, item_type=ItemType.GEL).exists()
 
 

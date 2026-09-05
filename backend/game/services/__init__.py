@@ -10,6 +10,7 @@ from .entry import (
     retry_entry_question,
 )
 from .events import (
+    BOARD_GELLED,
     BOARD_GRADED,
     BOARD_NODE_CLAIMED,
     BOARD_RELEASED,
@@ -48,6 +49,7 @@ from .questions import (
 from .reset import restart_game
 
 __all__ = [
+    "BOARD_GELLED",
     "BOARD_GRADED",
     "BOARD_NODE_CLAIMED",
     "BOARD_RELEASED",

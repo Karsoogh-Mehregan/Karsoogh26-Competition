@@ -141,6 +141,9 @@ _NODE_ITEMS = frozenset({ItemType.FAKE_DOCUMENT, ItemType.GEL})
 class UseItemSerializer(serializers.Serializer):
     item_type = serializers.ChoiceField(choices=ItemType.choices)
     node_code = serializers.SlugField(required=False, allow_blank=True, allow_null=True)
+    # A fake document names the storey it forges a deed to; gel takes the whole
+    # house, so it never carries one.
+    floor = serializers.IntegerField(required=False, allow_null=True, min_value=1)
 
     def validate(self, attrs):
         item_type = attrs["item_type"]
@@ -153,6 +156,14 @@ class UseItemSerializer(serializers.Serializer):
             attrs["node_code"] = node_code
         else:
             attrs["node_code"] = None
+
+        floor = attrs.get("floor")
+        if item_type == ItemType.FAKE_DOCUMENT:
+            if floor is None:
+                raise serializers.ValidationError({"floor": "برای این آیتم باید طبقه مشخص شود."})
+            attrs["floor"] = floor
+        else:
+            attrs["floor"] = None
         return attrs
 
 

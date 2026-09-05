@@ -121,7 +121,7 @@ class LeaderboardView(APIView):
             "inventory",
             value=[
                 {"item_type": "fake_document", "quantity": 1, "display_name": "سند جعلی"},
-                {"item_type": "gel", "quantity": 5, "display_name": "گل"},
+                {"item_type": "gel", "quantity": 5, "display_name": "گِل"},
             ],
             response_only=True,
         ),
@@ -147,7 +147,7 @@ class TeamItemListView(APIView):
     examples=[
         OpenApiExample(
             "fake_document",
-            value={"item_type": "fake_document", "node_code": "h1"},
+            value={"item_type": "fake_document", "node_code": "h1", "floor": 2},
             request_only=True,
         ),
         OpenApiExample(
@@ -175,12 +175,16 @@ class UseTeamItemView(APIView):
         node_code = payload.validated_data["node_code"]
         node = None
         if node_code:
-            node = Node.objects.select_related("level").filter(code=node_code).first()
+            node = (
+                Node.objects.select_related("level")
+                .filter(board=team.board, code=node_code)
+                .first()
+            )
             if node is None:
                 raise NotFound(f"خانهٔ «{node_code}» پیدا نشد.")
 
         if item_type == ItemType.FAKE_DOCUMENT:
-            use_fake_document(team, node)
+            use_fake_document(team, node, payload.validated_data["floor"])
         elif item_type == ItemType.GEL:
             use_gel(team, node)
         else:

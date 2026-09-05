@@ -106,7 +106,7 @@ class Team(models.Model):
 
 class ItemType(models.TextChoices):
     FAKE_DOCUMENT = "fake_document", "سند جعلی"
-    GEL = "gel", "گل"
+    GEL = "gel", "گِل"
     GILARI_100 = "gilari_100", "۱۰۰ گیلاری"
 
 
