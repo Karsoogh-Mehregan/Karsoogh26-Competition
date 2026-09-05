@@ -1,9 +1,12 @@
 """One render per stream version, then per-viewer masking over the shared rows."""
 
+from decimal import Decimal
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.cache import cache
+from django.utils import timezone
 
 from core.boards import Board
 from game.models import LevelConfig, Node, Occupancy
@@ -38,6 +41,15 @@ def board():
     alpha = Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=42)
     bravo = Team.objects.create(board=Board.GIRLS, code="bravo", name="Bravo", balance=99)
     Occupancy.objects.create(node=node, team=alpha, slot=1, floor=1)
+    Occupancy.objects.create(
+        node=node,
+        team=bravo,
+        slot=2,
+        floor=2,
+        grade=80,
+        grade_multiplier=Decimal("0.8"),
+        question_assigned_at=timezone.now(),
+    )
     return {"alpha": alpha, "bravo": bravo, "node": node}
 
 
@@ -49,7 +61,7 @@ def rows():
             "name": "Alpha",
             "balance": 42,
             "color": None,
-            "holdings": [{"id": 1}],
+            "holdings": [{"id": 1, "node_code": "e1", "floor": 1, "grade": 90}],
             "cleared_tolls": ["C34_0"],
             "active_tolls": ["C45_0"],
         },
@@ -58,7 +70,7 @@ def rows():
             "name": "Bravo",
             "balance": 99,
             "color": None,
-            "holdings": [],
+            "holdings": [{"id": 2, "node_code": "e2", "floor": 1, "grade": 80}],
             "cleared_tolls": ["C45_0"],
             "active_tolls": ["C34_0"],
         },
@@ -77,6 +89,19 @@ def test_a_team_sees_only_its_own_balance(rows):
     assert [row["active_tolls"] for row in masked] == [["C45_0"], []]
 
 
+def test_a_team_sees_no_grade_or_seat_id_of_another(rows):
+    masked = board_cache.mask(rows, is_mentor=False, viewer_team_code="alpha")
+
+    assert masked[0]["holdings"] == [{"id": 1, "node_code": "e1", "floor": 1, "grade": 90}]
+    assert masked[1]["holdings"] == [{"id": None, "node_code": "e2", "floor": 1, "grade": None}]
+
+
+def test_a_mentor_keeps_every_grade_and_seat_id(rows):
+    masked = board_cache.mask(rows, is_mentor=True, viewer_team_code=None)
+
+    assert masked[1]["holdings"] == [{"id": 2, "node_code": "e2", "floor": 1, "grade": 80}]
+
+
 def test_masking_leaves_the_snapshot_intact(rows):
     holdings = rows[0]["holdings"]
 
@@ -86,8 +111,9 @@ def test_masking_leaves_the_snapshot_intact(rows):
     assert rows[1]["balance"] == 99
     assert rows[0]["cleared_tolls"] == ["C34_0"]
     assert rows[1]["cleared_tolls"] == ["C45_0"]
-    # Shared by reference, never copied: proves masking stays shallow.
+    # The row a viewer owns is shared by reference, never copied.
     assert rows[0]["holdings"] is holdings
+    assert rows[0]["holdings"][0]["grade"] == 90
 
 
 def test_two_viewers_do_not_contaminate_each_other(rows):
@@ -179,3 +205,18 @@ def test_mentor_and_team_get_different_balances_from_one_snapshot(client, versio
 
     assert [row["balance"] for row in as_mentor] == [42, 99]
     assert [row["balance"] for row in as_player] == [42, None]
+
+
+def test_endpoint_blinds_a_rival_seat(client, board):
+    user = User.objects.create_user("alpha-user", password="x", team=board["alpha"])
+    client.force_login(user)
+
+    rows = {row["code"]: row for row in client.get("/api/teams/").json()}
+
+    own = rows["alpha"]["holdings"][0]
+    rival = rows["bravo"]["holdings"][0]
+    assert own["id"] is not None
+    assert rival["id"] is None
+    assert rival["grade"] is None
+    # The map still needs to know the seat is taken, and by whom.
+    assert (rival["node_code"], rival["slot"], rival["floor"]) == ("e1", 2, 2)

@@ -51,7 +51,7 @@ export interface HouseSpec {
 
 /** A holding as the map paints it — `Holding` plus the owning team's identity. */
 export interface PaintedHolding {
-  id: number
+  id: number | null
   node_code: string
   source?: string
   level: string

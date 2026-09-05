@@ -35,12 +35,28 @@ def snapshot(request, board: str) -> list[dict]:
     return rows
 
 
+def _blind_holdings(holdings: list[dict]) -> list[dict]:
+    """The map needs to know who sits where, not how well they answered.
+
+    `grade` is another team's score and `id` is the seat's Occupancy pk — the
+    handle a duel or a buyout names — so neither travels to a rival. The keys
+    stay present and null: the SPA reads one `Holding` shape for every row.
+    """
+    return [{**holding, "id": None, "grade": None} for holding in holdings]
+
+
 def mask(rows: list[dict], *, is_mentor: bool, viewer_team_code: str | None) -> list[dict]:
     if is_mentor:
         return rows
     return [
         row
         if row["code"] == viewer_team_code
-        else {**row, "balance": None, "cleared_tolls": [], "active_tolls": []}
+        else {
+            **row,
+            "balance": None,
+            "cleared_tolls": [],
+            "active_tolls": [],
+            "holdings": _blind_holdings(row["holdings"]),
+        }
         for row in rows
     ]
