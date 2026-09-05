@@ -41,6 +41,7 @@ const BOARDS = [
 
 <template>
   <header v-if="me" class="topbar" dir="rtl">
+    <img class="brand-logo" src="/logo.png" alt="کارسوق مهرگان" />
     <AppNav />
 
     <div class="timers" :class="{ 'is-frozen': !isRunning }">
@@ -127,6 +128,13 @@ const BOARDS = [
   padding: 0.55rem 1rem;
   border-block-end: 1px solid var(--border);
   background: var(--card);
+}
+
+.brand-logo {
+  height: 1.75rem;
+  width: auto;
+  flex-shrink: 0;
+  object-fit: contain;
 }
 
 .status-dot {

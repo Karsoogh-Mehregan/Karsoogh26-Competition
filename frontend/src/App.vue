@@ -45,7 +45,10 @@ watch(() => route.fullPath, () => {
       </div>
     <div class="flex min-w-0 flex-1 flex-col">
       <header class="flex h-12 shrink-0 items-center justify-between border-b bg-card px-3 md:hidden">
-        <strong class="text-sm">کارسوق مهرگان</strong>
+        <span class="flex min-w-0 items-center gap-2">
+          <img class="h-6 w-auto shrink-0 object-contain" src="/logo.png" alt="" />
+          <strong class="truncate text-sm">کارسوق مهرگان</strong>
+        </span>
         <Button
           variant="outline"
           size="sm"
