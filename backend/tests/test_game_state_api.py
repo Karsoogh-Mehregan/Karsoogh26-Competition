@@ -539,7 +539,8 @@ def test_the_design_lock_is_a_game_god_switch(game_god, player):
 
 def test_leaderboard_freeze_is_on_the_clock_payload(game_god, player):
     assert player.get(STATE_URL).json()["leaderboard_frozen"] is False
-    assert player.get("/api/leaderboard/").status_code == 200
+    # The board itself is admin-only now; a player only reads the freeze flag.
+    assert player.get("/api/leaderboard/").status_code == 403
 
     assert _patch(game_god, {"leaderboard_frozen": True}).status_code == 200
     assert player.get(STATE_URL).json()["leaderboard_frozen"] is True

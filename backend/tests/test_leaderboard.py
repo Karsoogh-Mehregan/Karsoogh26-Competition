@@ -1,4 +1,10 @@
-"""GET /api/leaderboard/ — live ranks, or a freeze snapshot for competing teams."""
+"""GET /api/leaderboard/ — admin-only now; freeze snapshot for a viewer with a team.
+
+The standings are an operator-only view: teams, mentors and every other event
+role get 403, only Django staff/superusers may read them. The freeze machinery
+still works for an admin who also carries a team (see `sees_frozen_snapshot`),
+which is the only way to reach the snapshot path through the endpoint now.
+"""
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -27,21 +33,38 @@ def teams():
     Team.objects.create(board=Board.GIRLS, code="charlie", name="Charlie", balance=200)
 
 
-@pytest.fixture
-def client_team(teams):
-    user = User.objects.create_user("user-alpha", password="x", team=Team.objects.get(code="alpha"))
+def _client(user):
     client = APIClient()
     client.force_authenticate(user)
     return client
 
 
 @pytest.fixture
+def client_admin(teams):
+    """Staff, no team — the ordinary operator view, always live."""
+    return _client(User.objects.create_user("boss", password="x", is_staff=True))
+
+
+@pytest.fixture
+def client_admin_team(teams):
+    """Staff *and* on a team — the only viewer the freeze snapshot still reaches."""
+    admin = User.objects.create_user(
+        "boss-alpha", password="x", is_staff=True, team=Team.objects.get(code="alpha")
+    )
+    return _client(admin)
+
+
+@pytest.fixture
+def client_team(teams):
+    user = User.objects.create_user("user-alpha", password="x", team=Team.objects.get(code="alpha"))
+    return _client(user)
+
+
+@pytest.fixture
 def client_mentor():
     mentor = User.objects.create_user("mentor", password="x")
     mentor.groups.add(Group.objects.get(name="Mentors"))
-    client = APIClient()
-    client.force_authenticate(mentor)
-    return client
+    return _client(mentor)
 
 
 def _freeze():
@@ -50,22 +73,25 @@ def _freeze():
     settings.save(update_fields=["leaderboard_frozen"])
 
 
-def test_visible_to_a_team_by_default(client_team):
-    response = client_team.get("/api/leaderboard/")
+def test_visible_to_an_admin(client_admin):
+    response = client_admin.get("/api/leaderboard/")
     assert response.status_code == 200
     assert response.json() == LIVE_ORDER
 
 
-def test_always_visible_to_a_mentor(client_mentor, teams):
-    assert client_mentor.get("/api/leaderboard/").status_code == 200
-    assert client_mentor.get("/api/leaderboard/").json() == LIVE_ORDER
+def test_hidden_from_a_team(client_team):
+    assert client_team.get("/api/leaderboard/").status_code == 403
+
+
+def test_hidden_from_a_mentor(client_mentor, teams):
+    assert client_mentor.get("/api/leaderboard/").status_code == 403
 
 
 def test_anonymous_is_403(teams):
     assert APIClient().get("/api/leaderboard/").status_code == 403
 
 
-def test_a_restart_refreshes_the_frozen_snapshot(teams, client_team):
+def test_a_restart_refreshes_the_frozen_snapshot(teams, client_admin_team):
     _freeze()
     Team.objects.filter(code="bravo").update(balance=1)
 
@@ -73,24 +99,25 @@ def test_a_restart_refreshes_the_frozen_snapshot(teams, client_team):
 
     restart_game()
 
-    rows = client_team.get("/api/leaderboard/").json()
+    rows = client_admin_team.get("/api/leaderboard/").json()
     assert GameSettings.load().leaderboard_frozen is True
     assert {row["balance"] for row in rows} == {GameSettings.load().initial_balance}
 
 
-def test_a_frozen_board_stays_put_for_a_team(client_team, client_mentor):
+def test_a_frozen_board_stays_put_for_a_teamed_viewer(client_admin_team, client_admin):
     _freeze()
     Team.objects.filter(code="bravo").update(balance=1)
 
-    assert client_team.get("/api/leaderboard/").json() == LIVE_ORDER
-    assert client_mentor.get("/api/leaderboard/").json() == [
+    # The teamed admin sees the frozen snapshot; the plain admin sees live.
+    assert client_admin_team.get("/api/leaderboard/").json() == LIVE_ORDER
+    assert client_admin.get("/api/leaderboard/").json() == [
         {"rank": 1, "code": "charlie", "name": "Charlie", "balance": 200},
         {"rank": 2, "code": "alpha", "name": "Alpha", "balance": 100},
         {"rank": 3, "code": "bravo", "name": "Bravo", "balance": 1},
     ]
 
 
-def test_unfreezing_returns_live_ranks_to_a_team(client_team):
+def test_unfreezing_returns_live_ranks(client_admin_team):
     _freeze()
     Team.objects.filter(code="bravo").update(balance=1)
 
@@ -98,22 +125,24 @@ def test_unfreezing_returns_live_ranks_to_a_team(client_team):
     settings.leaderboard_frozen = False
     settings.save(update_fields=["leaderboard_frozen"])
 
-    assert client_team.get("/api/leaderboard/").json()[0]["code"] == "charlie"
+    assert client_admin_team.get("/api/leaderboard/").json()[0]["code"] == "charlie"
     assert GameSettings.load().leaderboard_snapshot is None
 
 
-def test_freeze_is_per_board(django_user_model, client_mentor):
-    girls = Team.objects.create(board=Board.GIRLS, code="alpha", name="Alpha", balance=100)
-    boys = Team.objects.create(board=Board.BOYS, code="bravo", name="Bravo", balance=10_000)
+def test_freeze_is_per_board():
+    girls = Team.objects.create(board=Board.GIRLS, code="g1", name="G1", balance=100)
+    boys = Team.objects.create(board=Board.BOYS, code="b1", name="B1", balance=10_000)
     _freeze()
     Team.objects.filter(pk=boys.pk).update(balance=1)
 
-    user = django_user_model.objects.create_user("girl", password="x", team=girls)
-    client = APIClient()
-    client.force_authenticate(user)
-
-    assert [(row["rank"], row["code"]) for row in client.get("/api/leaderboard/").json()] == [
-        (1, "alpha")
+    # An admin on the girls board sees that board's frozen snapshot…
+    girl_admin = _client(
+        User.objects.create_user("girl-admin", password="x", is_staff=True, team=girls)
+    )
+    assert [(row["rank"], row["code"]) for row in girl_admin.get("/api/leaderboard/").json()] == [
+        (1, "g1")
     ]
-    live_boys = client_mentor.get("/api/leaderboard/?board=boys").json()
-    assert live_boys == [{"rank": 1, "code": "bravo", "name": "Bravo", "balance": 1}]
+    # …while a plain admin reads the boys board live.
+    plain_admin = _client(User.objects.create_user("boss", password="x", is_staff=True))
+    live_boys = plain_admin.get("/api/leaderboard/?board=boys").json()
+    assert live_boys == [{"rank": 1, "code": "b1", "name": "B1", "balance": 1}]

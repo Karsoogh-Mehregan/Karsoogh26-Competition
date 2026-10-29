@@ -187,7 +187,13 @@ class TestReadsAreScoped:
         boys = _team(Board.BOYS, "bravo")
         Team.objects.filter(pk=boys.pk).update(balance=10_000)
 
-        rows = _client(django_user_model, girls).get("/api/leaderboard/").json()
+        # Leaderboard is admin-only; a staff viewer on the girls board reads it.
+        admin = django_user_model.objects.create_user(
+            "boss-alpha", password="x", is_staff=True, team=girls
+        )
+        client = APIClient()
+        client.force_authenticate(admin)
+        rows = client.get("/api/leaderboard/").json()
         assert [(row["rank"], row["code"]) for row in rows] == [(1, "alpha")]
 
     def test_a_mentor_picks_the_board(self, django_user_model, both_maps):

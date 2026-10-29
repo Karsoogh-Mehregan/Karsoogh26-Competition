@@ -77,7 +77,7 @@ export const router = createRouter({
     // Open to teams and to duel judges alike; the page shows each their half,
     // and the API refuses whatever the viewer is not entitled to anyway.
     { path: '/duels', name: 'duels', component: DuelsPage, meta: { requiresAuth: true } },
-    { path: '/leaderboard', name: 'leaderboard', component: LeaderboardPage, meta: { requiresAuth: true } },
+    { path: '/leaderboard', name: 'leaderboard', component: LeaderboardPage, meta: { requiresAdmin: true } },
     { path: '/inbox', name: 'inbox', component: InboxPage, meta: { requiresAuth: true } },
     { path: '/inbox/:id', name: 'message', component: MessagePage, meta: { requiresAuth: true } },
     { path: '/messages', name: 'messages', component: MessagesPage, meta: { requiresAnnouncer: true } },
@@ -99,6 +99,11 @@ router.beforeEach(async (to) => {
     me = null
   }
 
+  // The leaderboard is an operator-only view; the API returns 403 to anyone
+  // else, so the page has nothing to render.
+  if (to.meta.requiresAdmin && !(me?.is_staff || me?.is_superuser)) {
+    return { name: 'map' }
+  }
   if (to.meta.requiresMentor && !me?.is_mentor) {
     return { name: 'map' }
   }

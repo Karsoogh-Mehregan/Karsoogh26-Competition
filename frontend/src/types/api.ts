@@ -39,6 +39,7 @@ export interface Me {
   id: number
   username: string
   is_staff: boolean
+  is_superuser: boolean
   is_mentor: boolean
   is_game_god: boolean
   is_announcer: boolean
