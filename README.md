@@ -85,4 +85,6 @@ npm run preview      # serve the build      (in frontend/)
 
 
 ## Map
-<img width="4590" height="4766" alt="planar_six_layer_circular_graph" src="https://github.com/user-attachments/assets/2e8a1cd5-e176-455c-afa3-b27cafb1c735" />
+<img width="1598" height="893" alt="222" src="https://github.com/user-attachments/assets/eef02cc8-f302-4c19-aa70-e585f85e8871" />
+
+
