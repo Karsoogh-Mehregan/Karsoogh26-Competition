@@ -59,17 +59,17 @@ jobs:
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,scope=frontend,mode=max
 
-      - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
-          envs: REG_USERNAME,GHCR_PAT
-          script: |
-            echo "$REG_USERNAME:$GHCR_PAT" | sudo /usr/local/bin/deploy.sh backend
-            echo "$REG_USERNAME:$GHCR_PAT" | sudo /usr/local/bin/deploy.sh frontend
-        env:
-          REG_USERNAME: ${{ env.REG_USERNAME }}
-          GHCR_PAT: ${{ secrets.GHCR_PAT }}
+      # - name: Deploy over SSH
+      #   uses: appleboy/ssh-action@v1
+      #   with:
+      #     host: ${{ secrets.SSH_HOST }}
+      #     username: ${{ secrets.SSH_USER }}
+      #     key: ${{ secrets.SSH_KEY }}
+      #     port: ${{ secrets.SSH_PORT || 22 }}
+      #     envs: REG_USERNAME,GHCR_PAT
+      #     script: |
+      #       echo "$REG_USERNAME:$GHCR_PAT" | sudo /usr/local/bin/deploy.sh backend
+      #       echo "$REG_USERNAME:$GHCR_PAT" | sudo /usr/local/bin/deploy.sh frontend
+      #   env:
+      #     REG_USERNAME: ${{ env.REG_USERNAME }}
+      #     GHCR_PAT: ${{ secrets.GHCR_PAT }}
